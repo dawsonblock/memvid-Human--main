@@ -52,7 +52,8 @@ impl RetentionManager {
             .or(rule.default_ttl)
             .is_some_and(|ttl| age_anchor.timestamp() + ttl <= now.timestamp());
 
-        let age_days = (now.timestamp() - age_anchor.timestamp()).max(0) as f32 / DAY_SECONDS as f32;
+        let age_days =
+            (now.timestamp() - age_anchor.timestamp()).max(0) as f32 / DAY_SECONDS as f32;
         let decay_multiplier = (1.0 - (rule.decay_per_day * age_days)).clamp(0.05, 1.0);
 
         RetentionEvaluation {

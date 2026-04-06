@@ -183,3 +183,176 @@ fn task_query_ranks_goal_state_and_recent_episodes_above_background_text() {
         Some(MemoryType::Episode)
     );
 }
+
+#[test]
+fn preference_query_uses_direct_self_model_lookup_when_text_overlap_is_weak() {
+    let mut store = InMemoryMemoryStore::default();
+    store
+        .put_memory(&durable(
+            "user",
+            "response_style",
+            "concise",
+            "Favor terse replies.",
+            MemoryType::Preference,
+            SourceType::Chat,
+            0.75,
+            ts(1_700_000_000),
+        ))
+        .expect("preference stored");
+
+    let retriever = MemoryRetriever::new(Ranker, RetentionManager::new(PolicySet::default()));
+    let hits = retriever
+        .retrieve(
+            &mut store,
+            &RetrievalQuery {
+                query_text: "communication guidance".to_string(),
+                intent: QueryIntent::PreferenceLookup,
+                entity: Some("user".to_string()),
+                slot: None,
+                scope: None,
+                top_k: 3,
+                as_of: None,
+                include_expired: false,
+            },
+            &FixedClock::new(ts(1_700_000_100)),
+        )
+        .expect("retrieval works");
+
+    assert_eq!(hits.len(), 1);
+    assert_eq!(
+        hits.first().and_then(|hit| hit.memory_type),
+        Some(MemoryType::Preference)
+    );
+}
+
+#[test]
+fn preference_query_falls_back_to_search_when_self_model_store_is_empty() {
+    let mut store = InMemoryMemoryStore::default();
+    store
+        .put_memory(&durable(
+            "user",
+            "notes",
+            "editor_history",
+            "The project notes say the user prefers vim during reviews",
+            MemoryType::Fact,
+            SourceType::Chat,
+            0.75,
+            ts(1_700_000_000),
+        ))
+        .expect("fact stored");
+
+    let retriever = MemoryRetriever::new(Ranker, RetentionManager::new(PolicySet::default()));
+    let hits = retriever
+        .retrieve(
+            &mut store,
+            &RetrievalQuery {
+                query_text: "what editor does the user prefer".to_string(),
+                intent: QueryIntent::PreferenceLookup,
+                entity: Some("user".to_string()),
+                slot: None,
+                scope: None,
+                top_k: 3,
+                as_of: None,
+                include_expired: false,
+            },
+            &FixedClock::new(ts(1_700_000_050)),
+        )
+        .expect("retrieval works");
+
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].memory_type, Some(MemoryType::Fact));
+}
+
+#[test]
+fn task_query_uses_goal_state_store_when_text_overlap_is_weak() {
+    let mut store = InMemoryMemoryStore::default();
+    store
+        .put_memory(&durable(
+            "project",
+            "task_status",
+            "blocked",
+            "Waiting on system dependency before continuing",
+            MemoryType::GoalState,
+            SourceType::Chat,
+            0.75,
+            ts(1_700_000_000),
+        ))
+        .expect("goal stored");
+
+    let retriever = MemoryRetriever::new(Ranker, RetentionManager::new(PolicySet::default()));
+    let hits = retriever
+        .retrieve(
+            &mut store,
+            &RetrievalQuery {
+                query_text: "where should execution resume".to_string(),
+                intent: QueryIntent::TaskState,
+                entity: Some("project".to_string()),
+                slot: None,
+                scope: None,
+                top_k: 3,
+                as_of: None,
+                include_expired: false,
+            },
+            &FixedClock::new(ts(1_700_000_100)),
+        )
+        .expect("retrieval works");
+
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].memory_type, Some(MemoryType::GoalState));
+}
+
+#[test]
+fn task_query_deduplicates_supporting_and_recent_episode_hits() {
+    let mut store = InMemoryMemoryStore::default();
+    let episode = durable(
+        "project",
+        "event",
+        "review_requested",
+        "The team requested review for the task",
+        MemoryType::Episode,
+        SourceType::Chat,
+        0.75,
+        ts(1_700_000_000),
+    );
+    store.put_memory(&episode).expect("episode stored");
+
+    let mut goal = durable(
+        "project",
+        "task_status",
+        "blocked",
+        "Blocked waiting on review",
+        MemoryType::GoalState,
+        SourceType::Chat,
+        0.75,
+        ts(1_700_000_010),
+    );
+    goal.metadata.insert(
+        "supporting_episode_ids".to_string(),
+        episode.memory_id.clone(),
+    );
+    store.put_memory(&goal).expect("goal stored");
+
+    let retriever = MemoryRetriever::new(Ranker, RetentionManager::new(PolicySet::default()));
+    let hits = retriever
+        .retrieve(
+            &mut store,
+            &RetrievalQuery {
+                query_text: "what is the current task status".to_string(),
+                intent: QueryIntent::TaskState,
+                entity: Some("project".to_string()),
+                slot: None,
+                scope: None,
+                top_k: 5,
+                as_of: None,
+                include_expired: false,
+            },
+            &FixedClock::new(ts(1_700_000_020)),
+        )
+        .expect("retrieval works");
+
+    let unique_ids: std::collections::HashSet<_> = hits
+        .iter()
+        .filter_map(|hit| hit.memory_id.as_deref())
+        .collect();
+    assert_eq!(unique_ids.len(), hits.len());
+}

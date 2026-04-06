@@ -113,9 +113,7 @@ impl MemoryRetriever {
             | QueryIntent::EpisodicRecall
             | QueryIntent::SemanticBackground => {
                 let direct_hits = match query.intent {
-                    QueryIntent::PreferenceLookup => {
-                        self.preference_hits(store, query, now)?
-                    }
+                    QueryIntent::PreferenceLookup => self.preference_hits(store, query, now)?,
                     QueryIntent::TaskState => self.task_state_hits(store, query, now)?,
                     QueryIntent::EpisodicRecall => self.episodic_hits(store, query, now)?,
                     QueryIntent::SemanticBackground
@@ -196,12 +194,7 @@ impl MemoryRetriever {
                         .as_deref()
                         .is_none_or(|entity| memory.entity == entity)
                 })
-                .filter(|memory| {
-                    query
-                        .slot
-                        .as_deref()
-                        .is_none_or(|slot| memory.slot == slot)
-                })
+                .filter(|memory| query.slot.as_deref().is_none_or(|slot| memory.slot == slot))
                 .collect()
         };
         for memory in &goal_memories {
@@ -226,12 +219,7 @@ impl MemoryRetriever {
                 .list_recent_memories(query.top_k.saturating_mul(3).max(6))?
                 .into_iter()
                 .filter(|memory| memory.entity == entity)
-                .filter(|memory| {
-                    query
-                        .slot
-                        .as_deref()
-                        .is_none_or(|slot| memory.slot == slot)
-                })
+                .filter(|memory| query.slot.as_deref().is_none_or(|slot| memory.slot == slot))
             {
                 hits.push(self.hit_from_memory(&memory, query, now));
             }
@@ -243,10 +231,9 @@ impl MemoryRetriever {
             if !Self::procedure_matches_context(&memory, &context_terms) {
                 continue;
             }
-            if memory
-                .to_procedure_record()
-                .is_some_and(|record| Self::effective_procedure_status(&record) == ProcedureStatus::Retired)
-            {
+            if memory.to_procedure_record().is_some_and(|record| {
+                Self::effective_procedure_status(&record) == ProcedureStatus::Retired
+            }) {
                 continue;
             }
             hits.push(self.hit_from_memory(&memory, query, now));
@@ -271,12 +258,7 @@ impl MemoryRetriever {
                     .as_deref()
                     .is_none_or(|entity| memory.entity == entity)
             })
-            .filter(|memory| {
-                query
-                    .slot
-                    .as_deref()
-                    .is_none_or(|slot| memory.slot == slot)
-            })
+            .filter(|memory| query.slot.as_deref().is_none_or(|slot| memory.slot == slot))
             .map(|memory| self.hit_from_memory(&memory, query, now))
             .collect();
         Ok(episodes)
@@ -297,7 +279,9 @@ impl MemoryRetriever {
         if let Some(record) = memory.to_procedure_record() {
             metadata.insert(
                 "procedure_status".to_string(),
-                Self::effective_procedure_status(&record).as_str().to_string(),
+                Self::effective_procedure_status(&record)
+                    .as_str()
+                    .to_string(),
             );
         }
 
@@ -339,7 +323,11 @@ impl MemoryRetriever {
                 .belief_id
                 .as_ref()
                 .map(|belief_id| format!("belief:{belief_id}"))
-                .or_else(|| hit.memory_id.as_ref().map(|memory_id| format!("memory:{memory_id}")));
+                .or_else(|| {
+                    hit.memory_id
+                        .as_ref()
+                        .map(|memory_id| format!("memory:{memory_id}"))
+                });
             if let Some(key) = key {
                 if !seen.insert(key) {
                     continue;
@@ -359,8 +347,10 @@ impl MemoryRetriever {
         let strict_entity_match = !matches!(memory_layer, Some(MemoryLayer::Procedure));
         let strict_slot_match = !matches!(
             (query.intent, memory_layer),
-            (QueryIntent::TaskState, Some(MemoryLayer::Episode | MemoryLayer::Procedure))
-                | (QueryIntent::EpisodicRecall, Some(MemoryLayer::Episode))
+            (
+                QueryIntent::TaskState,
+                Some(MemoryLayer::Episode | MemoryLayer::Procedure)
+            ) | (QueryIntent::EpisodicRecall, Some(MemoryLayer::Episode))
         );
 
         if let Some(scope) = query.scope
@@ -495,7 +485,10 @@ impl MemoryRetriever {
             record.description,
             record.context_tags.join(" ")
         );
-        Self::lexical_overlap(&searchable, &context_terms.iter().cloned().collect::<Vec<_>>().join(" ")) > 0.0
+        Self::lexical_overlap(
+            &searchable,
+            &context_terms.iter().cloned().collect::<Vec<_>>().join(" "),
+        ) > 0.0
     }
 
     fn effective_procedure_status(record: &ProcedureRecord) -> ProcedureStatus {

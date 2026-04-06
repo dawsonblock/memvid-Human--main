@@ -148,7 +148,10 @@ impl ConsolidationEngine {
             consolidation_id: Uuid::new_v4().to_string(),
             target_layer: MemoryLayer::SelfModel,
             target_id: Some(memory.memory_id.clone()),
-            source_memory_ids: matching.into_iter().map(|record| record.memory_id).collect(),
+            source_memory_ids: matching
+                .into_iter()
+                .map(|record| record.memory_id)
+                .collect(),
             reason: "repeated self-model observations stabilized into durable preference"
                 .to_string(),
             confidence: memory.confidence,
@@ -271,7 +274,10 @@ impl ConsolidationEngine {
             consolidation_id: Uuid::new_v4().to_string(),
             target_layer: MemoryLayer::GoalState,
             target_id: Some(goal.goal_id.clone()),
-            source_memory_ids: matching.into_iter().map(|record| record.memory_id).collect(),
+            source_memory_ids: matching
+                .into_iter()
+                .map(|record| record.memory_id)
+                .collect(),
             reason: format!("recurring blocker pattern stabilized for {}", goal.slot),
             confidence: memory.confidence,
             created_at: now,
@@ -283,10 +289,7 @@ impl ConsolidationEngine {
                     "window_days".to_string(),
                     CONSOLIDATION_WINDOW_DAYS.to_string(),
                 ),
-                (
-                    "threshold".to_string(),
-                    BLOCKER_THRESHOLD.to_string(),
-                ),
+                ("threshold".to_string(), BLOCKER_THRESHOLD.to_string()),
             ]),
         };
         let trace_id = self.persist_record(store, &record)?;

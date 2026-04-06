@@ -40,7 +40,7 @@ impl<'a, S: MemoryStore> GoalStateStore<'a, S> {
     }
 
     pub fn list_all(&mut self) -> Result<Vec<GoalRecord>> {
-        let mut records: Vec<_> = self
+        let records: Vec<_> = self
             .list_all_memories()?
             .into_iter()
             .filter_map(|memory| memory.to_goal_record())

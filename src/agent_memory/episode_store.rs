@@ -36,7 +36,7 @@ impl<'a, S: MemoryStore> EpisodeStore<'a, S> {
     }
 
     pub fn list_recent(&mut self, limit: usize) -> Result<Vec<EpisodeRecord>> {
-        let mut episodes: Vec<_> = self
+        let episodes: Vec<_> = self
             .list_recent_memories(limit)?
             .into_iter()
             .map(|memory| memory.to_episode_record())
@@ -51,7 +51,11 @@ impl<'a, S: MemoryStore> EpisodeStore<'a, S> {
         Ok(episodes)
     }
 
-    pub fn list_recent_for_entity(&mut self, entity: &str, limit: usize) -> Result<Vec<EpisodeRecord>> {
+    pub fn list_recent_for_entity(
+        &mut self,
+        entity: &str,
+        limit: usize,
+    ) -> Result<Vec<EpisodeRecord>> {
         let mut episodes: Vec<_> = self
             .store
             .list_memories_by_layer(MemoryLayer::Episode)?
@@ -96,7 +100,10 @@ impl<'a, S: MemoryStore> EpisodeStore<'a, S> {
         Ok(episodes)
     }
 
-    pub fn list_by_workflow_key_memories(&mut self, workflow_key: &str) -> Result<Vec<DurableMemory>> {
+    pub fn list_by_workflow_key_memories(
+        &mut self,
+        workflow_key: &str,
+    ) -> Result<Vec<DurableMemory>> {
         let mut episodes: Vec<_> = self
             .store
             .list_memories_by_layer(MemoryLayer::Episode)?
