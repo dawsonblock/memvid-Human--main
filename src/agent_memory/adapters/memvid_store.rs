@@ -304,6 +304,49 @@ impl MemoryStore for InMemoryMemoryStore {
                 metadata: retrieval_metadata(memory),
             });
         }
+        for (trace_id, raw_text, metadata) in &self.traces {
+            let score = simple_score(
+                &format!(
+                    "{} {} {} {} {} {}",
+                    raw_text,
+                    metadata.get("workflow_key").map_or("", String::as_str),
+                    metadata.get("previous_status").map_or("", String::as_str),
+                    metadata.get("next_status").map_or("", String::as_str),
+                    metadata.get("transition_reason").map_or("", String::as_str),
+                    metadata.get("source").map_or("", String::as_str),
+                ),
+                &query.query_text,
+            );
+            if score == 0.0 {
+                continue;
+            }
+
+            let timestamp = metadata
+                .get("occurred_at")
+                .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+                .map(|value| value.with_timezone(&Utc))
+                .unwrap_or_else(Utc::now);
+
+            hits.push(RetrievalHit {
+                memory_id: Some(trace_id.clone()),
+                belief_id: None,
+                entity: metadata.get("entity").cloned(),
+                slot: metadata.get("slot").cloned(),
+                value: metadata.get("value").cloned(),
+                text: raw_text.clone(),
+                memory_layer: Some(MemoryLayer::Trace),
+                memory_type: Some(MemoryType::Trace),
+                score,
+                timestamp,
+                scope: query.scope,
+                source: metadata
+                    .get("source_type")
+                    .and_then(|value| Some(parse_source_type(Some(value)))),
+                from_belief: false,
+                expired: false,
+                metadata: metadata.clone(),
+            });
+        }
         hits.sort_by(|left, right| right.score.total_cmp(&left.score));
         hits.truncate(query.top_k.saturating_mul(4));
         Ok(hits)
@@ -735,14 +778,17 @@ impl MemoryStore for MemvidStore {
                     belief_id: None,
                     entity: trace_metadata.get("entity").cloned(),
                     slot: trace_metadata.get("slot").cloned(),
-                    value: None,
+                    value: trace_metadata.get("value").cloned(),
                     text: hit.chunk_text.unwrap_or(hit.text),
                     memory_layer: Some(MemoryLayer::Trace),
                     memory_type: Some(MemoryType::Trace),
                     score: hit.score.unwrap_or(0.05),
-                    timestamp: query.as_of.unwrap_or_else(Utc::now),
+                    timestamp: parse_datetime(trace_metadata.get("occurred_at"))?
+                        .unwrap_or_else(|| query.as_of.unwrap_or_else(Utc::now)),
                     scope: query.scope,
-                    source: None,
+                    source: trace_metadata
+                        .get("source_type")
+                        .map(|value| parse_source_type(Some(value))),
                     from_belief: false,
                     expired: false,
                     metadata: trace_metadata,

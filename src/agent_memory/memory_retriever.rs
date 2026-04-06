@@ -126,6 +126,11 @@ impl MemoryRetriever {
                 let direct_hits = match query.intent {
                     QueryIntent::PreferenceLookup => self.preference_hits(store, query, now)?,
                     QueryIntent::TaskState => self.task_state_hits(store, query, now)?,
+                    QueryIntent::EpisodicRecall | QueryIntent::SemanticBackground
+                        if Self::is_procedure_lifecycle_query(query) =>
+                    {
+                        self.procedure_lifecycle_history_hits(store, query)?
+                    }
                     QueryIntent::EpisodicRecall => self.episodic_hits(store, query, now)?,
                     QueryIntent::SemanticBackground
                     | QueryIntent::CurrentFact
@@ -296,6 +301,25 @@ impl MemoryRetriever {
         Ok(episodes)
     }
 
+    fn procedure_lifecycle_history_hits<S: MemoryStore>(
+        &self,
+        store: &mut S,
+        query: &RetrievalQuery,
+    ) -> Result<Vec<RetrievalHit>> {
+        let mut hits: Vec<_> = store
+            .search(query)?
+            .into_iter()
+            .filter(|hit| hit.memory_layer == Some(MemoryLayer::Trace))
+            .filter(|hit| {
+                hit.metadata.get("action").map(String::as_str) == Some("procedure_status_changed")
+            })
+            .collect();
+        for hit in &mut hits {
+            hit.score += 0.75;
+        }
+        Ok(hits)
+    }
+
     fn hit_from_memory(
         &self,
         memory: &DurableMemory,
@@ -464,6 +488,19 @@ impl MemoryRetriever {
             .filter(|token| haystack.contains(**token))
             .count();
         matches as f32 / tokens.len() as f32
+    }
+
+    fn is_procedure_lifecycle_query(query: &RetrievalQuery) -> bool {
+        let lower = query.query_text.to_lowercase();
+        (lower.contains("history")
+            || lower.contains("lifecycle")
+            || lower.contains("transition")
+            || lower.contains("status change")
+            || lower.contains("why did"))
+            && (lower.contains("procedure")
+                || lower.contains("workflow")
+                || lower.contains("repo_review")
+                || lower.contains("status"))
     }
 
     fn supporting_episode_ids(memory: &DurableMemory) -> Vec<String> {

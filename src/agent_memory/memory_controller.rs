@@ -382,10 +382,12 @@ impl<S: MemoryStore> MemoryController<S> {
                         });
                     }
                     if let Some(transition) = outcome.procedure_status_transition {
+                        let reason = Self::transition_reason_from_consolidation(&outcome.record);
                         self.emit_procedure_status_transition(
                             Some(classified.candidate_id.clone()),
                             transition,
                             "consolidation",
+                            reason,
                         )?;
                     }
                 }
@@ -398,6 +400,7 @@ impl<S: MemoryStore> MemoryController<S> {
                     self.emit_procedure_status_transition(
                         Some(classified.candidate_id.clone()),
                         transition,
+                        "reconciliation",
                         "reconciliation",
                     )?;
                 }
@@ -444,19 +447,27 @@ impl<S: MemoryStore> MemoryController<S> {
         candidate_id: Option<String>,
         transition: ProcedureStatusTransition,
         source: &str,
+        reason: &str,
     ) -> Result<String> {
         let trace_id = self.store.put_trace(
             &format!(
-                "Procedure {workflow_key} transitioned from {previous} to {next}",
+                "Procedure {workflow_key} transitioned from {previous} to {next} because of {reason}",
                 workflow_key = transition.workflow_key,
                 previous = transition.previous_status.as_str(),
                 next = transition.next_status.as_str(),
+                reason = reason,
             ),
             BTreeMap::from([
                 ("action".to_string(), "procedure_status_changed".to_string()),
                 (
                     "memory_layer".to_string(),
                     MemoryLayer::Procedure.as_str().to_string(),
+                ),
+                ("entity".to_string(), "procedure".to_string()),
+                ("slot".to_string(), transition.workflow_key.clone()),
+                (
+                    "value".to_string(),
+                    transition.next_status.as_str().to_string(),
                 ),
                 ("workflow_key".to_string(), transition.workflow_key.clone()),
                 ("procedure_id".to_string(), transition.procedure_id.clone()),
@@ -469,6 +480,9 @@ impl<S: MemoryStore> MemoryController<S> {
                     transition.next_status.as_str().to_string(),
                 ),
                 ("source".to_string(), source.to_string()),
+                ("transition_reason".to_string(), reason.to_string()),
+                ("occurred_at".to_string(), self.clock.now().to_rfc3339()),
+                ("source_type".to_string(), "system".to_string()),
             ]),
         )?;
         self.audit.emit(AuditEvent {
@@ -491,8 +505,19 @@ impl<S: MemoryStore> MemoryController<S> {
                 ),
                 ("transition_trace_id".to_string(), trace_id.clone()),
                 ("source".to_string(), source.to_string()),
+                ("transition_reason".to_string(), reason.to_string()),
             ]),
         });
         Ok(trace_id)
+    }
+
+    fn transition_reason_from_consolidation(
+        record: &super::schemas::ConsolidationRecord,
+    ) -> &'static str {
+        match record.metadata.get("outcome").map(String::as_str) {
+            Some("failure") => "failure",
+            Some("success") => "success",
+            _ => "consolidation",
+        }
     }
 }

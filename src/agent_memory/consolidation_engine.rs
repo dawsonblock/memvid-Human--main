@@ -105,6 +105,7 @@ impl ConsolidationEngine {
                         metadata: {
                             let mut metadata = BTreeMap::from([
                                 ("workflow_key".to_string(), workflow_key.clone()),
+                                ("outcome".to_string(), "success".to_string()),
                                 (
                                     "window_days".to_string(),
                                     CONSOLIDATION_WINDOW_DAYS.to_string(),

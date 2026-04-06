@@ -314,6 +314,20 @@ fn failed_workflow_updates_existing_procedure_lifecycle() {
         .expect("failure transition present");
     assert_eq!(transition.previous_status, ProcedureStatus::Active);
     assert_eq!(transition.next_status, ProcedureStatus::CoolingDown);
+    let failure_outcome = outcomes
+        .iter()
+        .find(|outcome| {
+            outcome.record.metadata.get("outcome").map(String::as_str) == Some("failure")
+        })
+        .expect("failure consolidation recorded");
+    assert_eq!(
+        failure_outcome
+            .record
+            .metadata
+            .get("outcome")
+            .map(String::as_str),
+        Some("failure")
+    );
 
     let updated_procedure = {
         let mut procedure_store = ProcedureStore::new(&mut store);
@@ -369,6 +383,13 @@ fn controller_emits_procedure_status_change_when_reconciling_stale_lifecycle() {
             .map(String::as_str),
         Some("retired")
     );
+    assert_eq!(
+        transition_event
+            .details
+            .get("transition_reason")
+            .map(String::as_str),
+        Some("reconciliation")
+    );
 
     let transition_trace = controller
         .store()
@@ -389,6 +410,87 @@ fn controller_emits_procedure_status_change_when_reconciling_stale_lifecycle() {
     assert_eq!(
         transition_trace.2.get("next_status").map(String::as_str),
         Some("retired")
+    );
+    assert_eq!(
+        transition_trace
+            .2
+            .get("transition_reason")
+            .map(String::as_str),
+        Some("reconciliation")
+    );
+}
+
+#[test]
+fn controller_surfaces_failure_transition_reason_and_history_query() {
+    let (mut controller, sink) = controller(ts(1_700_000_000));
+    controller
+        .store_mut()
+        .put_memory(&procedure_memory(
+            "procedure-active-to-cooling-controller",
+            ProcedureStatus::Active,
+            2,
+            2,
+            ts(1_699_999_900),
+        ))
+        .expect("existing procedure stored");
+
+    let mut failed_candidate = candidate(
+        "",
+        "",
+        "",
+        "today the repo review failed due to missing approvals",
+    );
+    failed_candidate
+        .metadata
+        .insert("workflow_key".to_string(), "repo_review".to_string());
+    failed_candidate
+        .metadata
+        .insert("outcome".to_string(), "failed".to_string());
+
+    controller
+        .ingest(failed_candidate)
+        .expect("ingest succeeds")
+        .expect("episode stored");
+
+    let failure_event = sink
+        .events()
+        .into_iter()
+        .find(|event| {
+            event.action == "procedure_status_changed"
+                && event.details.get("transition_reason").map(String::as_str) == Some("failure")
+        })
+        .expect("failure status change event emitted");
+    assert_eq!(
+        failure_event.details.get("source").map(String::as_str),
+        Some("consolidation")
+    );
+
+    let history_hits = controller
+        .retrieve(RetrievalQuery {
+            query_text: "repo_review procedure lifecycle history".to_string(),
+            intent: memvid_core::agent_memory::enums::QueryIntent::SemanticBackground,
+            entity: Some("procedure".to_string()),
+            slot: Some("repo_review".to_string()),
+            scope: None,
+            top_k: 3,
+            as_of: None,
+            include_expired: false,
+        })
+        .expect("history retrieval succeeds");
+
+    let lifecycle_hit = history_hits
+        .iter()
+        .find(|hit| {
+            hit.metadata.get("action").map(String::as_str) == Some("procedure_status_changed")
+        })
+        .expect("lifecycle trace hit returned");
+    assert_eq!(lifecycle_hit.memory_layer, Some(MemoryLayer::Trace));
+    assert_eq!(
+        lifecycle_hit
+            .metadata
+            .get("transition_reason")
+            .map(String::as_str),
+        Some("failure")
     );
 }
 
