@@ -49,6 +49,16 @@ fn workflow_key_for(record: &ProcedureRecord) -> String {
         .unwrap_or_else(|| record.name.clone())
 }
 
+fn procedure_confidence(success_count: u32, failure_count: u32) -> f32 {
+    let total = success_count + failure_count;
+    if total == 0 {
+        return 0.55;
+    }
+
+    let success_ratio = success_count as f32 / total as f32;
+    (0.3 + (success_ratio * 0.68)).clamp(0.12, 0.98)
+}
+
 /// Dedicated bounded store for learned operational procedures.
 pub struct ProcedureStore<'a, S: MemoryStore> {
     store: &'a mut S,
@@ -122,77 +132,50 @@ impl<'a, S: MemoryStore> ProcedureStore<'a, S> {
         now: DateTime<Utc>,
     ) -> Result<ProcedureUpsertOutcome> {
         let existing = self.get_by_workflow_key(workflow_key)?;
-        let mut merged_memory_ids = existing
-            .as_ref()
-            .map(|record| record.learned_from_memory_ids.clone())
-            .unwrap_or_default();
-        for memory_id in learned_from_memory_ids {
-            if !merged_memory_ids
-                .iter()
-                .any(|existing_id| existing_id == memory_id)
-            {
-                merged_memory_ids.push(memory_id.clone());
-            }
-        }
-
         let success_count = existing
             .as_ref()
             .map_or(learned_from_memory_ids.len() as u32, |record| {
                 record.success_count + 1
             });
         let failure_count = existing.as_ref().map_or(0, |record| record.failure_count);
-        let confidence = (0.55 + (success_count as f32 * 0.1)).clamp(0.0, 0.98);
-        let mut metadata = existing
-            .as_ref()
-            .map(|record| record.metadata.clone())
-            .unwrap_or_default();
-        metadata.insert("workflow_key".to_string(), workflow_key.to_string());
-        metadata.insert("procedure_name".to_string(), workflow_key.to_string());
-        let previous_status = existing.as_ref().map(|record| record.status);
-
-        let mut record = ProcedureRecord {
-            procedure_id: Uuid::new_v4().to_string(),
-            name: workflow_key.to_string(),
-            description: description.to_string(),
-            context_tags: existing
-                .as_ref()
-                .map(|record| record.context_tags.clone())
-                .unwrap_or_else(|| vec![workflow_key.to_string()]),
+        let record = self.build_record(
+            existing.as_ref(),
+            workflow_key,
+            description,
+            learned_from_memory_ids,
             success_count,
             failure_count,
-            confidence,
-            status: ProcedureStatus::Active,
-            learned_from_memory_ids: merged_memory_ids,
-            last_used_at: Some(now),
-            last_succeeded_at: Some(now),
-            updated_at: now,
-            metadata,
+            now,
+            Some(now),
+            None,
+        );
+        self.persist_record_outcome(existing.as_ref(), workflow_key, record, now)
+    }
+
+    pub fn record_failure(
+        &mut self,
+        workflow_key: &str,
+        learned_from_memory_ids: &[String],
+        now: DateTime<Utc>,
+    ) -> Result<Option<ProcedureUpsertOutcome>> {
+        let existing = self.get_by_workflow_key(workflow_key)?;
+        let Some(existing_record) = existing.as_ref() else {
+            return Ok(None);
         };
-        record.status = effective_procedure_status(&record);
 
-        let status_transition = previous_status.and_then(|previous_status| {
-            (previous_status != record.status).then(|| ProcedureStatusTransition {
-                procedure_id: record.procedure_id.clone(),
-                workflow_key: workflow_key.to_string(),
-                previous_status,
-                next_status: record.status,
-            })
-        });
-        if let Some(transition) = &status_transition {
-            record.metadata.insert(
-                "prior_procedure_status".to_string(),
-                transition.previous_status.as_str().to_string(),
-            );
-            record
-                .metadata
-                .insert("status_transition_at".to_string(), now.to_rfc3339());
-        }
-
-        self.persist_record(&record)?;
-        Ok(ProcedureUpsertOutcome {
-            record,
-            status_transition,
-        })
+        let record = self.build_record(
+            Some(existing_record),
+            workflow_key,
+            &existing_record.description,
+            learned_from_memory_ids,
+            existing_record.success_count,
+            existing_record.failure_count + 1,
+            now,
+            None,
+            Some(now),
+        );
+        self.persist_record_outcome(Some(existing_record), workflow_key, record, now)
+            .map(Some)
     }
 
     pub fn sync_all_effective_statuses(
@@ -234,6 +217,94 @@ impl<'a, S: MemoryStore> ProcedureStore<'a, S> {
         }
 
         Ok(transitions)
+    }
+
+    fn build_record(
+        &self,
+        existing: Option<&ProcedureRecord>,
+        workflow_key: &str,
+        description: &str,
+        learned_from_memory_ids: &[String],
+        success_count: u32,
+        failure_count: u32,
+        now: DateTime<Utc>,
+        last_succeeded_at: Option<DateTime<Utc>>,
+        last_failed_at: Option<DateTime<Utc>>,
+    ) -> ProcedureRecord {
+        let mut merged_memory_ids = existing
+            .map(|record| record.learned_from_memory_ids.clone())
+            .unwrap_or_default();
+        for memory_id in learned_from_memory_ids {
+            if !merged_memory_ids
+                .iter()
+                .any(|existing_id| existing_id == memory_id)
+            {
+                merged_memory_ids.push(memory_id.clone());
+            }
+        }
+
+        let mut metadata = existing
+            .map(|record| record.metadata.clone())
+            .unwrap_or_default();
+        metadata.insert("workflow_key".to_string(), workflow_key.to_string());
+        metadata.insert("procedure_name".to_string(), workflow_key.to_string());
+        if let Some(last_failed_at) = last_failed_at {
+            metadata.insert("last_failed_at".to_string(), last_failed_at.to_rfc3339());
+        }
+
+        let mut record = ProcedureRecord {
+            procedure_id: Uuid::new_v4().to_string(),
+            name: workflow_key.to_string(),
+            description: description.to_string(),
+            context_tags: existing
+                .map(|record| record.context_tags.clone())
+                .unwrap_or_else(|| vec![workflow_key.to_string()]),
+            success_count,
+            failure_count,
+            confidence: procedure_confidence(success_count, failure_count),
+            status: ProcedureStatus::Active,
+            learned_from_memory_ids: merged_memory_ids,
+            last_used_at: Some(now),
+            last_succeeded_at: last_succeeded_at
+                .or_else(|| existing.and_then(|record| record.last_succeeded_at)),
+            updated_at: now,
+            metadata,
+        };
+        record.status = effective_procedure_status(&record);
+        record
+    }
+
+    fn persist_record_outcome(
+        &mut self,
+        existing: Option<&ProcedureRecord>,
+        workflow_key: &str,
+        mut record: ProcedureRecord,
+        now: DateTime<Utc>,
+    ) -> Result<ProcedureUpsertOutcome> {
+        let previous_status = existing.map(|record| record.status);
+        let status_transition = previous_status.and_then(|previous_status| {
+            (previous_status != record.status).then(|| ProcedureStatusTransition {
+                procedure_id: record.procedure_id.clone(),
+                workflow_key: workflow_key.to_string(),
+                previous_status,
+                next_status: record.status,
+            })
+        });
+        if let Some(transition) = &status_transition {
+            record.metadata.insert(
+                "prior_procedure_status".to_string(),
+                transition.previous_status.as_str().to_string(),
+            );
+            record
+                .metadata
+                .insert("status_transition_at".to_string(), now.to_rfc3339());
+        }
+
+        self.persist_record(&record)?;
+        Ok(ProcedureUpsertOutcome {
+            record,
+            status_transition,
+        })
     }
 
     fn persist_record(&mut self, record: &ProcedureRecord) -> Result<String> {

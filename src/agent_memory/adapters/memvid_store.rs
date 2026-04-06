@@ -225,6 +225,11 @@ impl InMemoryMemoryStore {
     }
 
     #[must_use]
+    pub fn traces(&self) -> &[(String, String, BTreeMap<String, String>)] {
+        &self.traces
+    }
+
+    #[must_use]
     pub fn beliefs(&self) -> &HashMap<(String, String), BeliefRecord> {
         &self.beliefs
     }

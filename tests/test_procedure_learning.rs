@@ -263,6 +263,70 @@ fn successful_workflow_promotion_persists_status_transition_metadata() {
 }
 
 #[test]
+fn failed_workflow_updates_existing_procedure_lifecycle() {
+    let mut store = InMemoryMemoryStore::default();
+    store
+        .put_memory(&procedure_memory(
+            "procedure-active-to-cooling",
+            ProcedureStatus::Active,
+            2,
+            2,
+            ts(1_700_000_000),
+        ))
+        .expect("existing procedure stored");
+
+    let mut failed_episode = durable(
+        "project",
+        "event",
+        "repo_review",
+        "The repo review workflow failed due to missing approvals",
+        MemoryType::Episode,
+        SourceType::Tool,
+        0.8,
+        ts(1_700_000_010),
+    );
+    failed_episode
+        .metadata
+        .insert("workflow_key".to_string(), "repo_review".to_string());
+    failed_episode
+        .metadata
+        .insert("outcome".to_string(), "failed".to_string());
+
+    {
+        let mut episode_store = EpisodeStore::new(&mut store);
+        episode_store
+            .save_memory(&failed_episode)
+            .expect("failed episode stored");
+    }
+
+    let outcomes = ConsolidationEngine
+        .consolidate(
+            &mut store,
+            Some(&failed_episode),
+            None,
+            &FixedClock::new(ts(1_700_000_020)),
+        )
+        .expect("consolidation succeeds");
+
+    let transition = outcomes
+        .iter()
+        .find_map(|outcome| outcome.procedure_status_transition.as_ref())
+        .expect("failure transition present");
+    assert_eq!(transition.previous_status, ProcedureStatus::Active);
+    assert_eq!(transition.next_status, ProcedureStatus::CoolingDown);
+
+    let updated_procedure = {
+        let mut procedure_store = ProcedureStore::new(&mut store);
+        procedure_store
+            .get_by_workflow_key("repo_review")
+            .expect("procedure lookup succeeds")
+            .expect("procedure exists")
+    };
+    assert_eq!(updated_procedure.status, ProcedureStatus::CoolingDown);
+    assert_eq!(updated_procedure.failure_count, 3);
+}
+
+#[test]
 fn controller_emits_procedure_status_change_when_reconciling_stale_lifecycle() {
     let (mut controller, sink) = controller(ts(1_700_000_000));
     controller
@@ -303,6 +367,27 @@ fn controller_emits_procedure_status_change_when_reconciling_stale_lifecycle() {
             .details
             .get("next_status")
             .map(String::as_str),
+        Some("retired")
+    );
+
+    let transition_trace = controller
+        .store()
+        .traces()
+        .iter()
+        .find(|(_, _, metadata)| {
+            metadata.get("action").map(String::as_str) == Some("procedure_status_changed")
+                && metadata.get("source").map(String::as_str) == Some("reconciliation")
+        })
+        .expect("persisted transition trace emitted");
+    assert_eq!(
+        transition_trace
+            .2
+            .get("previous_status")
+            .map(String::as_str),
+        Some("active")
+    );
+    assert_eq!(
+        transition_trace.2.get("next_status").map(String::as_str),
         Some("retired")
     );
 }

@@ -56,79 +56,125 @@ impl ConsolidationEngine {
 
         if let Some(episode) = episode_memory
             && let Some(workflow_key) = episode.metadata.get("workflow_key")
-            && Self::is_success_outcome(episode.metadata.get("outcome").map(String::as_str))
         {
-            let successful_episodes = {
-                let mut episode_store = EpisodeStore::new(store);
-                episode_store
-                    .list_by_workflow_key(workflow_key)?
-                    .into_iter()
-                    .filter(|record| record.event_at >= window_start)
-                    .filter(|record| Self::is_success_outcome(record.outcome.as_deref()))
-                    .collect::<Vec<_>>()
-            };
+            let outcome_value = episode.metadata.get("outcome").map(String::as_str);
+            if Self::is_success_outcome(outcome_value) {
+                let successful_episodes = {
+                    let mut episode_store = EpisodeStore::new(store);
+                    episode_store
+                        .list_by_workflow_key(workflow_key)?
+                        .into_iter()
+                        .filter(|record| record.event_at >= window_start)
+                        .filter(|record| Self::is_success_outcome(record.outcome.as_deref()))
+                        .collect::<Vec<_>>()
+                };
 
-            if successful_episodes.len() >= 2 {
-                let source_memory_ids: Vec<_> = successful_episodes
-                    .iter()
-                    .map(|record| record.memory_id.clone())
-                    .collect();
-                let description = episode
-                    .metadata
-                    .get("procedure_description")
-                    .cloned()
-                    .unwrap_or_else(|| {
-                        format!(
-                            "workflow {workflow_key} has succeeded repeatedly and should be reused"
-                        )
+                if successful_episodes.len() >= 2 {
+                    let source_memory_ids: Vec<_> = successful_episodes
+                        .iter()
+                        .map(|record| record.memory_id.clone())
+                        .collect();
+                    let description = episode
+                        .metadata
+                        .get("procedure_description")
+                        .cloned()
+                        .unwrap_or_else(|| {
+                            format!(
+                                "workflow {workflow_key} has succeeded repeatedly and should be reused"
+                            )
+                        });
+                    let procedure_outcome = {
+                        let mut procedure_store = ProcedureStore::new(store);
+                        procedure_store.upsert_success(
+                            workflow_key,
+                            &description,
+                            &source_memory_ids,
+                            now,
+                        )?
+                    };
+                    let record = ConsolidationRecord {
+                        consolidation_id: Uuid::new_v4().to_string(),
+                        target_layer: MemoryLayer::Procedure,
+                        target_id: Some(procedure_outcome.record.procedure_id.clone()),
+                        source_memory_ids,
+                        reason: format!(
+                            "repeated successful workflow {workflow_key} promoted into procedure memory"
+                        ),
+                        confidence: procedure_outcome.record.confidence,
+                        created_at: now,
+                        metadata: {
+                            let mut metadata = BTreeMap::from([
+                                ("workflow_key".to_string(), workflow_key.clone()),
+                                (
+                                    "window_days".to_string(),
+                                    CONSOLIDATION_WINDOW_DAYS.to_string(),
+                                ),
+                            ]);
+                            if let Some(transition) = &procedure_outcome.status_transition {
+                                metadata.insert(
+                                    "previous_procedure_status".to_string(),
+                                    transition.previous_status.as_str().to_string(),
+                                );
+                                metadata.insert(
+                                    "next_procedure_status".to_string(),
+                                    transition.next_status.as_str().to_string(),
+                                );
+                            }
+                            metadata
+                        },
+                    };
+                    let trace_id = self.persist_record(store, &record)?;
+                    outcomes.push(ConsolidationOutcome {
+                        record,
+                        trace_id,
+                        learned_procedure_id: Some(procedure_outcome.record.procedure_id),
+                        procedure_status_transition: procedure_outcome.status_transition,
                     });
-                let procedure_outcome = {
+                }
+            } else if Self::is_failure_outcome(outcome_value) {
+                let failure_memory_ids = vec![episode.memory_id.clone()];
+                let failure_outcome = {
                     let mut procedure_store = ProcedureStore::new(store);
-                    procedure_store.upsert_success(
-                        workflow_key,
-                        &description,
-                        &source_memory_ids,
-                        now,
-                    )?
+                    procedure_store.record_failure(workflow_key, &failure_memory_ids, now)?
                 };
-                let record = ConsolidationRecord {
-                    consolidation_id: Uuid::new_v4().to_string(),
-                    target_layer: MemoryLayer::Procedure,
-                    target_id: Some(procedure_outcome.record.procedure_id.clone()),
-                    source_memory_ids,
-                    reason: format!(
-                        "repeated successful workflow {workflow_key} promoted into procedure memory"
-                    ),
-                    confidence: procedure_outcome.record.confidence,
-                    created_at: now,
-                    metadata: {
-                        let mut metadata = BTreeMap::from([
-                            ("workflow_key".to_string(), workflow_key.clone()),
-                            (
-                                "window_days".to_string(),
-                                CONSOLIDATION_WINDOW_DAYS.to_string(),
-                            ),
-                        ]);
-                        if let Some(transition) = &procedure_outcome.status_transition {
-                            metadata.insert(
-                                "previous_procedure_status".to_string(),
-                                transition.previous_status.as_str().to_string(),
-                            );
-                            metadata.insert(
-                                "next_procedure_status".to_string(),
-                                transition.next_status.as_str().to_string(),
-                            );
-                        }
-                        metadata
-                    },
-                };
-                let trace_id = self.persist_record(store, &record)?;
-                outcomes.push(ConsolidationOutcome {
-                    record,
-                    trace_id,
-                    learned_procedure_id: Some(procedure_outcome.record.procedure_id),
-                    procedure_status_transition: procedure_outcome.status_transition,
-                });
+
+                if let Some(procedure_outcome) = failure_outcome {
+                    let record = ConsolidationRecord {
+                        consolidation_id: Uuid::new_v4().to_string(),
+                        target_layer: MemoryLayer::Procedure,
+                        target_id: Some(procedure_outcome.record.procedure_id.clone()),
+                        source_memory_ids: failure_memory_ids,
+                        reason: format!(
+                            "observed workflow failure for {workflow_key} updated procedure lifecycle"
+                        ),
+                        confidence: procedure_outcome.record.confidence,
+                        created_at: now,
+                        metadata: {
+                            let mut metadata = BTreeMap::from([
+                                ("workflow_key".to_string(), workflow_key.clone()),
+                                ("outcome".to_string(), "failure".to_string()),
+                            ]);
+                            if let Some(transition) = &procedure_outcome.status_transition {
+                                metadata.insert(
+                                    "previous_procedure_status".to_string(),
+                                    transition.previous_status.as_str().to_string(),
+                                );
+                                metadata.insert(
+                                    "next_procedure_status".to_string(),
+                                    transition.next_status.as_str().to_string(),
+                                );
+                            }
+                            metadata
+                        },
+                    };
+                    let trace_id = self.persist_record(store, &record)?;
+                    outcomes.push(ConsolidationOutcome {
+                        record,
+                        trace_id,
+                        learned_procedure_id: None,
+                        procedure_status_transition: procedure_outcome.status_transition,
+                    });
+                }
             }
         }
 
@@ -345,6 +391,17 @@ impl ConsolidationEngine {
                 || lower.contains("completed")
                 || lower.contains("passed")
                 || lower.contains("ok")
+        })
+    }
+
+    fn is_failure_outcome(value: Option<&str>) -> bool {
+        value.is_some_and(|text| {
+            let lower = text.to_lowercase();
+            lower.contains("fail")
+                || lower.contains("error")
+                || lower.contains("blocked")
+                || lower.contains("aborted")
+                || lower.contains("timeout")
         })
     }
 }

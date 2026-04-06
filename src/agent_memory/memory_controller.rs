@@ -385,7 +385,8 @@ impl<S: MemoryStore> MemoryController<S> {
                         self.emit_procedure_status_transition(
                             Some(classified.candidate_id.clone()),
                             transition,
-                        );
+                            "consolidation",
+                        )?;
                     }
                 }
 
@@ -397,7 +398,8 @@ impl<S: MemoryStore> MemoryController<S> {
                     self.emit_procedure_status_transition(
                         Some(classified.candidate_id.clone()),
                         transition,
-                    );
+                        "reconciliation",
+                    )?;
                 }
 
                 Ok(Some(memory_id))
@@ -438,10 +440,37 @@ impl<S: MemoryStore> MemoryController<S> {
     }
 
     fn emit_procedure_status_transition(
-        &self,
+        &mut self,
         candidate_id: Option<String>,
         transition: ProcedureStatusTransition,
-    ) {
+        source: &str,
+    ) -> Result<String> {
+        let trace_id = self.store.put_trace(
+            &format!(
+                "Procedure {workflow_key} transitioned from {previous} to {next}",
+                workflow_key = transition.workflow_key,
+                previous = transition.previous_status.as_str(),
+                next = transition.next_status.as_str(),
+            ),
+            BTreeMap::from([
+                ("action".to_string(), "procedure_status_changed".to_string()),
+                (
+                    "memory_layer".to_string(),
+                    MemoryLayer::Procedure.as_str().to_string(),
+                ),
+                ("workflow_key".to_string(), transition.workflow_key.clone()),
+                ("procedure_id".to_string(), transition.procedure_id.clone()),
+                (
+                    "previous_status".to_string(),
+                    transition.previous_status.as_str().to_string(),
+                ),
+                (
+                    "next_status".to_string(),
+                    transition.next_status.as_str().to_string(),
+                ),
+                ("source".to_string(), source.to_string()),
+            ]),
+        )?;
         self.audit.emit(AuditEvent {
             event_id: String::new(),
             occurred_at: self.clock.now(),
@@ -460,7 +489,10 @@ impl<S: MemoryStore> MemoryController<S> {
                     "next_status".to_string(),
                     transition.next_status.as_str().to_string(),
                 ),
+                ("transition_trace_id".to_string(), trace_id.clone()),
+                ("source".to_string(), source.to_string()),
             ]),
         });
+        Ok(trace_id)
     }
 }
