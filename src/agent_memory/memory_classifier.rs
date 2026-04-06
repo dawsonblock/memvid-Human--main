@@ -27,6 +27,9 @@ const EVENT_HINTS: &[&str] = &[
     "today",
     "last",
     "completed",
+    "failed",
+    "finished",
+    "started",
 ];
 
 /// Deterministic rule-based classifier.
