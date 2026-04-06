@@ -1,200 +1,80 @@
-<!-- HEADER:START -->
-<img width="2000" height="524" alt="Social Cover (9)"
-     src="https://github.com/user-attachments/assets/cf66f045-c8be-494b-b696-b8d7e4fb709c" />
-<!-- HEADER:END -->
+# memvid-core
 
-<div style="height: 16px;"></div>
+A Rust library for single-file AI agent memory. `memvid-core` packages documents, full-text and
+vector search indices, and metadata into a portable `.mv2` file — no database, no sidecar files.
 
-<p align="center">
-    <a href="https://trendshift.io/repositories/17293" target="_blank"><img src="https://trendshift.io/api/badge/repositories/17293" alt="memvid%2Fmemvid | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
-</p>
-<!-- BADGES:END -->
-
-<p align="center">
-  <strong>Memvid is a single-file memory layer for AI agents with instant retrieval and long-term memory.</strong><br/>
-  Persistent, versioned, and portable memory, without databases.
-</p>
-
-<!-- NAV:START -->
-<p align="center">
-  <a href="https://www.memvid.com">Website</a>
-  ·
-  <a href="https://sandbox.memvid.com">Try Sandbox</a>
-  ·
-  <a href="https://docs.memvid.com">Docs</a>
-  ·
-  <a href="https://github.com/memvid/memvid/discussions">Discussions</a>
-</p>
-<!-- NAV:END -->
-
-<!-- BADGES:START -->
-<p align="center">
-  <a href="https://crates.io/crates/memvid-core"><img src="https://img.shields.io/crates/v/memvid-core?style=flat-square&logo=rust" alt="Crates.io" /></a>
-  <a href="https://docs.rs/memvid-core"><img src="https://img.shields.io/docsrs/memvid-core?style=flat-square&logo=docs.rs" alt="docs.rs" /></a>
-  <a href="https://github.com/memvid/memvid/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue?style=flat-square" alt="License" /></a>
-</p>
-
-<p align="center">
-  <a href="https://github.com/memvid/memvid/stargazers"><img src="https://img.shields.io/github/stars/memvid/memvid?style=flat-square&logo=github" alt="Stars" /></a>
-  <a href="https://github.com/memvid/memvid/network/members"><img src="https://img.shields.io/github/forks/memvid/memvid?style=flat-square&logo=github" alt="Forks" /></a>
-  <a href="https://github.com/memvid/memvid/issues"><img src="https://img.shields.io/github/issues/memvid/memvid?style=flat-square&logo=github" alt="Issues" /></a>
-  <a href="https://discord.gg/2mynS7fcK7"><img src="https://img.shields.io/discord/1442910055233224745?style=flat-square&logo=discord&label=discord" alt="Discord" /></a>
-</p>
-
-
-
-
-## Benchmark Highlights
-
-**🚀 Higher accuracy than any other memory system :** +35% SOTA on LoCoMo, best-in-class long-horizon conversational recall & reasoning
-
-**🧠 Superior multi-hop & temporal reasoning:**  +76% multi-hop, +56% temporal vs. the industry average
-
-**⚡ Ultra-low latency at scale** 0.025ms P50 and 0.075ms P99, with 1,372× higher throughput than standard
-
-**🔬 Fully reproducible benchmarks:** LoCoMo (10 × ~26K-token conversations), open-source eval, LLM-as-Judge
-
-
-## What is Memvid?
-
-Memvid is a portable AI memory system that packages your data, embeddings, search structure, and metadata into a single file.
-
-Instead of running complex RAG pipelines or server-based vector databases, Memvid enables fast retrieval directly from the file.
-
-The result is a model-agnostic, infrastructure-free memory layer that gives AI agents persistent, long-term memory they can carry anywhere.
-
-    
-## What are Smart Frames?
-
-Memvid draws inspiration from video encoding, not to store video, but to **organize AI memory as an append-only, ultra-efficient sequence of Smart Frames.**
-
-A Smart Frame is an immutable unit that stores content along with timestamps, checksums and basic metadata.
-Frames are grouped in a way that allows efficient compression, indexing, and parallel reads.
-
-This frame-based design enables:
-
--   Append-only writes without modifying or corrupting existing data
--   Queries over past memory states
--   Timeline-style inspection of how knowledge evolves
--   Crash safety through committed, immutable frames
--   Efficient compression using techniques adapted from video encoding
-
-The result is a single file that behaves like a rewindable memory timeline for AI systems.
-
-
-## Core Concepts
-
--   **Living Memory Engine**
-    Continuously append, branch, and evolve memory across sessions.
-
--   **Capsule Context (`.mv2`)**
-    Self-contained, shareable memory capsules with rules and expiry.
-
--   **Time-Travel Debugging**
-    Rewind, replay, or branch any memory state.
-
--   **Smart Recall**
-    Sub-5ms local memory access with predictive caching.
-
--   **Codec Intelligence**
-    Auto-selects and upgrades compression over time.
-
-
-## Use Cases
-
-Memvid is a portable, serverless memory layer that gives AI agents persistent memory and fast recall. Because it's model-agnostic, multi-modal, and works fully offline, developers are using Memvid across a wide range of real-world applications.
-
--   Long-Running AI Agents
--   Enterprise Knowledge Bases
--   Offline-First AI Systems
--   Codebase Understanding
--   Customer Support Agents
--   Workflow Automation
--   Sales and Marketing Copilots
--   Personal Knowledge Assistants
--   Medical, Legal, and Financial Agents
--   Auditable and Debuggable AI Workflows
--   Custom Applications
-
-
-## SDKs & CLI
-
-Use Memvid in your preferred language:
-
-| Package         | Install                     | Links                                                                                                               |
-| --------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| **CLI**         | `npm install -g memvid-cli` | [![npm](https://img.shields.io/npm/v/memvid-cli?style=flat-square)](https://www.npmjs.com/package/memvid-cli)       |
-| **Node.js SDK** | `npm install @memvid/sdk`   | [![npm](https://img.shields.io/npm/v/@memvid/sdk?style=flat-square)](https://www.npmjs.com/package/@memvid/sdk)     |
-| **Python SDK**  | `pip install memvid-sdk`    | [![PyPI](https://img.shields.io/pypi/v/memvid-sdk?style=flat-square)](https://pypi.org/project/memvid-sdk/)         |
-| **Rust**        | `cargo add memvid-core`     | [![Crates.io](https://img.shields.io/crates/v/memvid-core?style=flat-square)](https://crates.io/crates/memvid-core) |
+[![Crates.io](https://img.shields.io/crates/v/memvid-core)](https://crates.io/crates/memvid-core)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-1.85%2B-orange)](https://www.rust-lang.org)
 
 ---
 
-## Installation (Rust)
+## What it is
 
-### Requirements
+`memvid-core` is a Rust library (not a CLI or server) that provides a read/write handle to a
+single `.mv2` binary file. The file contains:
 
--   **Rust 1.85.0+** — Install from [rustup.rs](https://rustup.rs)
+- **Document frames** — arbitrary bytes (text, PDF text, markdown, audio transcripts, image embeddings)
+- **Full-text index** — BM25 search via [Tantivy](https://github.com/quickwit-oss/tantivy) (feature `lex`, on by default)
+- **Vector index** — approximate nearest-neighbour search via HNSW (feature `vec`, optional)
+- **Time index** — chronological ordering and filtering
+- **Crash-safe WAL** — all writes stage through an embedded write-ahead log; the file is always in a consistent state after a crash
+- **Table of contents footer** — self-describing format; no external metadata files
 
-### Add to Your Project
+The format is defined in [MV2_SPEC.md](MV2_SPEC.md).
 
-```toml
-[dependencies]
-memvid-core = "2.0"
-```
+---
 
-### Feature Flags
-
-| Feature             | Description                                                      |
-| ------------------- | ---------------------------------------------------------------- |
-| `lex`               | Full-text search with BM25 ranking (Tantivy)                     |
-| `pdf_extract`       | Pure Rust PDF text extraction                                    |
-| `vec`               | Vector similarity search (HNSW + local text embeddings via ONNX) |
-| `clip`              | CLIP visual embeddings for image search                          |
-| `whisper`           | Audio transcription with Whisper                                 |
-| `api_embed`         | Cloud API embeddings (OpenAI)                                    |
-| `temporal_track`    | Natural language date parsing ("last Tuesday")                   |
-| `parallel_segments` | Multi-threaded ingestion                                         |
-| `encryption`        | Password-based encryption capsules (.mv2e)                       |
-| `symspell_cleanup`  | Robust PDF text repair (fixes "emp lo yee" -> "employee")        |
-
-Enable features as needed:
+## Quick start
 
 ```toml
+# Cargo.toml
 [dependencies]
-memvid-core = { version = "2.0", features = ["lex", "vec", "temporal_track"] }
+memvid-core = "2"
 ```
-
-
-## Quick Start
 
 ```rust
-use memvid_core::{Memvid, PutOptions, SearchRequest};
+use memvid_core::{Memvid, PutOptions, Result, SearchRequest, TimelineQuery};
 
-fn main() -> memvid_core::Result<()> {
+fn main() -> Result<()> {
     // Create a new memory file
-    let mut mem = Memvid::create("knowledge.mv2")?;
+    let mut mem = Memvid::create("notes.mv2")?;
 
-    // Add documents with metadata
+    // Insert documents
+    mem.put_bytes(b"Attention Is All You Need introduces the Transformer architecture.")?;
+
     let opts = PutOptions::builder()
-        .title("Meeting Notes")
-        .uri("mv2://meetings/2024-01-15")
+        .title("Project brief")
+        .uri("mv2://docs/brief.md")
         .tag("project", "alpha")
         .build();
-    mem.put_bytes_with_options(b"Q4 planning discussion...", opts)?;
+    mem.put_bytes_with_options(b"Q3 goal: ship the alpha release.", opts)?;
+
+    // Persist (flushes WAL, rebuilds indices)
     mem.commit()?;
 
-    // Search
-    let response = mem.search(SearchRequest {
-        query: "planning".into(),
-        top_k: 10,
+    // Full-text search (requires feature `lex`, which is on by default)
+    let results = mem.search(SearchRequest {
+        query: "transformer architecture".to_string(),
+        top_k: 5,
         snippet_chars: 200,
         ..Default::default()
     })?;
 
-    for hit in response.hits {
-        println!("{}: {}", hit.title.unwrap_or_default(), hit.text);
+    for hit in results.hits {
+        println!("[{}] {:.3} — {}", hit.frame_id, hit.score.unwrap_or(0.0), hit.text);
     }
+
+    // Browse by insertion order
+    let entries = mem.timeline(TimelineQuery::default())?;
+    for e in entries {
+        println!("{} — {}", e.frame_id, e.preview);
+    }
+
+    // Reopen later
+    drop(mem);
+    let mem = Memvid::open("notes.mv2")?;
+    println!("{} frames", mem.stats()?.frame_count);
 
     Ok(())
 }
@@ -202,315 +82,227 @@ fn main() -> memvid_core::Result<()> {
 
 ---
 
-## Build
+## Core API
 
-Clone the repository:
+| Method | Description |
+|---|---|
+| `Memvid::create(path)` | Create a new `.mv2` file |
+| `Memvid::open(path)` | Open an existing `.mv2` file |
+| `mem.put_bytes(bytes)` | Insert raw bytes as a frame |
+| `mem.put_bytes_with_options(bytes, opts)` | Insert with title, URI, and key/value tags |
+| `mem.commit()` | Flush WAL and rebuild indices |
+| `mem.search(request)` | Full-text search (requires `lex` feature) |
+| `mem.ask(request, embedder)` | Context-retrieval for RAG (requires `lex` feature) |
+| `mem.timeline(query)` | Chronological browse with optional filters |
+| `mem.stats()` | Frame count, index presence, size |
+| `Memvid::verify(path, deep)` | Integrity check — returns a `VerificationReport` |
+| `mem.doctor(opts)` | Diagnostic scan and repair plan |
 
-```bash
-git clone https://github.com/memvid/memvid.git
-cd memvid
+### `PutOptions`
+
+```rust
+let opts = PutOptions::builder()
+    .title("My doc")
+    .uri("mv2://scope/name")
+    .tag("key", "value")
+    .build();
 ```
 
-Build in debug mode:
+### `SearchRequest`
 
-```bash
-cargo build
-```
-
-Build in release mode (optimized):
-
-```bash
-cargo build --release
-```
-
-Build with specific features:
-
-```bash
-cargo build --release --features "lex,vec,temporal_track"
+```rust
+let req = SearchRequest {
+    query: "transformer".to_string(),
+    top_k: 10,
+    snippet_chars: 300,
+    scope: Some("mv2://docs/".to_string()), // optional URI prefix filter
+    ..Default::default()
+};
 ```
 
 ---
 
-## Run Tests
+## Features
 
-Run all tests:
+| Feature | Default | Description |
+|---|---|---|
+| `lex` | ✅ | BM25 full-text search (Tantivy). Required for `search` and `ask`. |
+| `pdf_extract` | ✅ | PDF text extraction (pdfium-based). |
+| `simd` | ✅ | SIMD-accelerated vector distance computation. |
+| `vec` | ❌ | HNSW vector search with local ONNX embeddings. Requires manually downloaded model files. |
+| `api_embed` | ❌ | OpenAI-compatible API embeddings (`OPENAI_API_KEY` must be set). |
+| `clip` | ❌ | CLIP visual embeddings for image search. |
+| `whisper` | ❌ | On-device audio transcription via Candle. |
+| `encryption` | ❌ | AES-256-GCM encrypted `.mv2e` capsules (Argon2 key derivation). |
+| `temporal_track` | ❌ | Natural-language date parsing and temporal filtering. |
+| `temporal_enrich` | ❌ | Async enrichment of temporal metadata after ingest. |
+| `parallel_segments` | ❌ | Multi-threaded segment ingestion. |
+| `symspell_cleanup` | ❌ | Spell-correction pass for noisy PDF text. |
+| `logic_mesh` | ❌ | Entity-relationship NER graph for hybrid retrieval. |
+| `replay` | ❌ | Time-travel session replay. |
+
+Build with specific features:
 
 ```bash
+cargo build --features "lex,vec,temporal_track"
+```
+
+---
+
+## Document ingestion
+
+`memvid-core` can ingest several document types beyond raw bytes:
+
+- **Plain text and Markdown** — always available
+- **PDF** — enabled by `pdf_extract`, `pdf_oxide`, `extractous`, or `pdfium` features
+- **XLSX / spreadsheets** — structured extraction into rows
+- **Audio transcripts** — via `whisper` feature (model downloaded on first use)
+- **Images** — via `clip` feature (visual embedding, CLIP model)
+
+For PDFs, the raw text is chunked and each chunk is stored as a separate frame so search results
+point to specific passages rather than whole documents.
+
+---
+
+## Vector search setup
+
+The `vec` feature requires downloading ONNX model weights before use. Example for the default
+BGE-small model (384 dimensions, ~120 MB):
+
+```bash
+mkdir -p ~/.cache/memvid/text-models
+
+curl -L 'https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/onnx/model.onnx' \
+  -o ~/.cache/memvid/text-models/bge-small-en-v1.5.onnx
+
+curl -L 'https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/tokenizer.json' \
+  -o ~/.cache/memvid/text-models/bge-small-en-v1.5_tokenizer.json
+```
+
+Other supported models: `bge-base-en-v1.5` (768d), `nomic-embed-text-v1.5` (768d),
+`gte-large` (1024d). See the example at `examples/text_embedding.rs`.
+
+To prevent accidental model mixing, pin the model after first write:
+
+```rust
+mem.set_vec_model("bge-small-en-v1.5")?;
+```
+
+---
+
+## Whisper audio transcription
+
+The `whisper` feature runs speech-to-text locally using Candle. Weights are downloaded on first
+use from Hugging Face.
+
+```rust
+use memvid_core::{WhisperConfig, WhisperTranscriber};
+
+let config = WhisperConfig::default(); // whisper-small-en (244 MB FP32)
+let transcriber = WhisperTranscriber::new(&config)?;
+let result = transcriber.transcribe_file("interview.mp3")?;
+println!("{}", result.text);
+```
+
+| Model | Size | Notes |
+|---|---|---|
+| `whisper-small-en` | 244 MB | Default; highest accuracy |
+| `whisper-tiny-en` | 75 MB | Faster |
+| `whisper-tiny-en-q8k` | 19 MB | Fastest; lowest accuracy |
+
+---
+
+## Encryption
+
+The `encryption` feature wraps a `.mv2` file into a password-protected `.mv2e` capsule using
+Argon2 key derivation and AES-256-GCM authenticated encryption.
+
+---
+
+## Agent memory subsystem
+
+`agent_memory` is a higher-level module built on top of the core `Memvid` kernel. It provides
+a **six-layer bounded memory architecture** governed by a single `MemoryController`:
+
+| Layer | Purpose |
+|---|---|
+| `Trace` | Raw observations; high volume, short retention |
+| `Episode` | Consolidated event records |
+| `Belief` | Long-lived factual assertions with conflict detection |
+| `GoalState` | Active task objectives and their status |
+| `SelfModel` | Agent self-description and capability model |
+| `Procedure` | Learned procedural knowledge with lifecycle governance |
+
+Ingest is done through `MemoryController::ingest(candidate)`, which classifies, promotes, and
+audits every memory candidate before storage. See [docs/agent_memory.md](docs/agent_memory.md)
+for details.
+
+---
+
+## File format
+
+```
+┌────────────────────────────┐
+│ Header (4 KB)              │  Magic MV2\0, version 2.1, capacity
+├────────────────────────────┤
+│ Embedded WAL (1–64 MB)     │  Crash-safe staging at byte 4096
+├────────────────────────────┤
+│ Data segments              │  Zstd/LZ4/raw compressed frames
+├────────────────────────────┤
+│ Lex index (Tantivy)        │  BM25 full-text
+├────────────────────────────┤
+│ Vec index (HNSW)           │  384d cosine similarity
+├────────────────────────────┤
+│ Time index                 │  Chronological frame ordering
+├────────────────────────────┤
+│ TOC footer (MVTC magic)    │  Segment offsets and manifests
+└────────────────────────────┘
+```
+
+Invariants: no sidecar files; append-only frames; all integers little-endian;
+Blake3 checksums per frame; Ed25519 signatures optional.
+
+Full specification: [MV2_SPEC.md](MV2_SPEC.md)  
+Architecture overview: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+
+---
+
+## Build and test
+
+```bash
+# Build
+cargo build
+cargo build --release
+cargo build --release --features "lex,vec,temporal_track"
+
+# Test
 cargo test
-```
-
-Run tests with output:
-
-```bash
 cargo test -- --nocapture
-```
-
-Run a specific test:
-
-```bash
-cargo test test_name
-```
-
-Run integration tests only:
-
-```bash
 cargo test --test lifecycle
-cargo test --test search
-cargo test --test mutation
+
+# Lint and format
+cargo clippy
+cargo fmt
 ```
+
+**Minimum supported Rust version:** 1.85.0  
+**Edition:** 2024
 
 ---
 
 ## Examples
 
-The `examples/` directory contains working examples:
-
-### Basic Usage
-
-Demonstrates create, put, search, and timeline operations:
-
 ```bash
 cargo run --example basic_usage
-```
-
-### PDF Ingestion
-
-Ingest and search PDF documents (uses the "Attention Is All You Need" paper):
-
-```bash
 cargo run --example pdf_ingestion
-```
-
-### CLIP Visual Search
-
-Image search using CLIP embeddings (requires `clip` feature):
-
-```bash
-cargo run --example clip_visual_search --features clip
-```
-
-### Whisper Transcription
-
-Audio transcription (requires `whisper` feature):
-
-```bash
+cargo run --example text_embedding           --features vec
+cargo run --example openai_embedding         --features api_embed
+cargo run --example clip_visual_search       --features clip
 cargo run --example test_whisper --features whisper -- /path/to/audio.mp3
 ```
-
-**Available Models:**
-
-| Model                 | Size   | Speed   | Use Case                            |
-| --------------------- | ------ | ------- | ----------------------------------- |
-| `whisper-small-en`    | 244 MB | Slowest | Best accuracy (default)             |
-| `whisper-tiny-en`     | 75 MB  | Fast    | Balanced                            |
-| `whisper-tiny-en-q8k` | 19 MB  | Fastest | Quick testing, resource-constrained |
-
-**Model Selection:**
-
-```bash
-# Default (FP32 small, highest accuracy)
-cargo run --example test_whisper --features whisper -- audio.mp3
-
-# Quantized tiny (75% smaller, faster)
-MEMVID_WHISPER_MODEL=whisper-tiny-en-q8k cargo run --example test_whisper --features whisper -- audio.mp3
-```
-
-**Programmatic Configuration:**
-
-```rust
-use memvid_core::{WhisperConfig, WhisperTranscriber};
-
-// Default FP32 small model
-let config = WhisperConfig::default();
-
-// Quantized tiny model (faster, smaller)
-let config = WhisperConfig::with_quantization();
-
-// Specific model
-let config = WhisperConfig::with_model("whisper-tiny-en-q8k");
-
-let transcriber = WhisperTranscriber::new(&config)?;
-let result = transcriber.transcribe_file("audio.mp3")?;
-println!("{}", result.text);
-```
-
-
-## Text Embedding Models
-
-The `vec` feature includes local text embedding support using ONNX models. Before using local text embeddings, you need to download the model files manually.
-
-### Quick Start: BGE-small (Recommended)
-
-Download the default BGE-small model (384 dimensions, fast and efficient):
-
-```bash
-mkdir -p ~/.cache/memvid/text-models
-
-# Download ONNX model
-curl -L 'https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/onnx/model.onnx' \
-  -o ~/.cache/memvid/text-models/bge-small-en-v1.5.onnx
-
-# Download tokenizer
-curl -L 'https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/tokenizer.json' \
-  -o ~/.cache/memvid/text-models/bge-small-en-v1.5_tokenizer.json
-```
-
-### Available Models
-
-| Model                   | Dimensions | Size   | Best For        |
-| ----------------------- | ---------- | ------ | --------------- |
-| `bge-small-en-v1.5`     | 384        | ~120MB | Default, fast   |
-| `bge-base-en-v1.5`      | 768        | ~420MB | Better quality  |
-| `nomic-embed-text-v1.5` | 768        | ~530MB | Versatile tasks |
-| `gte-large`             | 1024       | ~1.3GB | Highest quality |
-
-### Other Models
-
-**BGE-base** (768 dimensions):
-```bash
-curl -L 'https://huggingface.co/BAAI/bge-base-en-v1.5/resolve/main/onnx/model.onnx' \
-  -o ~/.cache/memvid/text-models/bge-base-en-v1.5.onnx
-curl -L 'https://huggingface.co/BAAI/bge-base-en-v1.5/resolve/main/tokenizer.json' \
-  -o ~/.cache/memvid/text-models/bge-base-en-v1.5_tokenizer.json
-```
-
-**Nomic** (768 dimensions):
-```bash
-curl -L 'https://huggingface.co/nomic-ai/nomic-embed-text-v1.5/resolve/main/onnx/model.onnx' \
-  -o ~/.cache/memvid/text-models/nomic-embed-text-v1.5.onnx
-curl -L 'https://huggingface.co/nomic-ai/nomic-embed-text-v1.5/resolve/main/tokenizer.json' \
-  -o ~/.cache/memvid/text-models/nomic-embed-text-v1.5_tokenizer.json
-```
-
-**GTE-large** (1024 dimensions):
-```bash
-curl -L 'https://huggingface.co/thenlper/gte-large/resolve/main/onnx/model.onnx' \
-  -o ~/.cache/memvid/text-models/gte-large.onnx
-curl -L 'https://huggingface.co/thenlper/gte-large/resolve/main/tokenizer.json' \
-  -o ~/.cache/memvid/text-models/gte-large_tokenizer.json
-```
-
-### Usage in Code
-
-```rust
-use memvid_core::text_embed::{LocalTextEmbedder, TextEmbedConfig};
-use memvid_core::types::embedding::EmbeddingProvider;
-
-// Use default model (BGE-small)
-let config = TextEmbedConfig::default();
-let embedder = LocalTextEmbedder::new(config)?;
-
-let embedding = embedder.embed_text("hello world")?;
-assert_eq!(embedding.len(), 384);
-
-// Use different model
-let config = TextEmbedConfig::bge_base();
-let embedder = LocalTextEmbedder::new(config)?;
-```
-
-See `examples/text_embedding.rs` for a complete example with similarity computation and search ranking.
-
-### Model Consistency
-
-To prevent accidental model mixing (e.g., querying a BGE-small index with OpenAI embeddings), you can explicitly bind your Memvid instance to a specific model name:
-
-```rust
-// Bind the index to a specific model.
-// If the index was previously created with a different model, this will return an error.
-mem.set_vec_model("bge-small-en-v1.5")?;
-```
-
-This binding is persistent. Once set, future attempts to use a different model name will fail fast with a `ModelMismatch` error.
-
-
-
-## API Embeddings (OpenAI)
-
-The `api_embed` feature enables cloud-based embedding generation using OpenAI's API.
-
-### Setup
-
-Set your OpenAI API key:
-
-```bash
-export OPENAI_API_KEY="sk-..."
-```
-
-### Usage
-
-```rust
-use memvid_core::api_embed::{OpenAIConfig, OpenAIEmbedder};
-use memvid_core::types::embedding::EmbeddingProvider;
-
-// Use default model (text-embedding-3-small)
-let config = OpenAIConfig::default();
-let embedder = OpenAIEmbedder::new(config)?;
-
-let embedding = embedder.embed_text("hello world")?;
-assert_eq!(embedding.len(), 1536);
-
-// Use higher quality model
-let config = OpenAIConfig::large();  // text-embedding-3-large (3072 dims)
-let embedder = OpenAIEmbedder::new(config)?;
-```
-
-### Available Models
-
-| Model                    | Dimensions | Best For                   |
-| ------------------------ | ---------- | -------------------------- |
-| `text-embedding-3-small` | 1536       | Default, fastest, cheapest |
-| `text-embedding-3-large` | 3072       | Highest quality            |
-| `text-embedding-ada-002` | 1536       | Legacy model               |
-
-See `examples/openai_embedding.rs` for a complete example.
-
-
-
-## File Format
-
-Everything lives in a single `.mv2` file:
-
-```
-┌────────────────────────────┐
-│ Header (4KB)               │  Magic, version, capacity
-├────────────────────────────┤
-│ Embedded WAL (1-64MB)      │  Crash recovery
-├────────────────────────────┤
-│ Data Segments              │  Compressed frames
-├────────────────────────────┤
-│ Lex Index                  │  Tantivy full-text
-├────────────────────────────┤
-│ Vec Index                  │  HNSW vectors
-├────────────────────────────┤
-│ Time Index                 │  Chronological ordering
-├────────────────────────────┤
-│ TOC (Footer)               │  Segment offsets
-└────────────────────────────┘
-```
-
-No `.wal`, `.lock`, `.shm`, or sidecar files. Ever.
-
-See [MV2_SPEC.md](MV2_SPEC.md) for the complete file format specification.
-
-
-
-## Support
-
-Have questions or feedback?
-Email: contact@memvid.com
-
-**Drop a ⭐ to show support**
-
----
-
-> **Memvid v1 (QR-based memory) is deprecated**
->
-> If you are referencing QR codes, you are using outdated information.
->
-> See: https://docs.memvid.com/memvid-v1-deprecation
 
 ---
 
 ## License
 
-Apache License 2.0 — see the [LICENSE](LICENSE) file for details.
+[Apache License 2.0](LICENSE)
