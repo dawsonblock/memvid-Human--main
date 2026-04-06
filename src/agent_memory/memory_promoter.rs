@@ -50,6 +50,50 @@ impl MemoryPromoter {
             };
         }
 
+        // Per-layer structural completeness gates.
+        // Belief and SelfModel layers require entity + slot + value — these are the only
+        // layers that form keyed lookup records. Without all three, there is nothing to key
+        // on and the result would be an unqueryable or misleading durable record.
+        let requires_full_structure = matches!(
+            candidate.memory_layer(),
+            MemoryLayer::Belief | MemoryLayer::SelfModel
+        );
+        if requires_full_structure
+            && (candidate.entity.is_none()
+                || candidate.slot.is_none()
+                || candidate.value.is_none())
+        {
+            return PromotionResult {
+                decision: PromotionDecision::StoreTrace,
+                score,
+                reason: "belief/self-model promotion requires entity, slot, and value".to_string(),
+                durable_memory: None,
+            };
+        }
+
+        // GoalState requires at minimum a slot (the goal description) to be queryable.
+        if candidate.memory_layer() == MemoryLayer::GoalState && candidate.slot.is_none() {
+            return PromotionResult {
+                decision: PromotionDecision::StoreTrace,
+                score,
+                reason: "goal-state promotion requires at least a slot".to_string(),
+                durable_memory: None,
+            };
+        }
+
+        // Procedure promotion additionally requires source trust weight above a floor.
+        // A single low-trust observation should not become a trusted procedure template.
+        if candidate.memory_layer() == MemoryLayer::Procedure
+            && candidate.source.trust_weight < 0.55
+        {
+            return PromotionResult {
+                decision: PromotionDecision::StoreTrace,
+                score,
+                reason: "procedure promotion requires source trust weight ≥ 0.55".to_string(),
+                durable_memory: None,
+            };
+        }
+
         PromotionResult {
             decision: PromotionDecision::Promote,
             score,
@@ -58,9 +102,12 @@ impl MemoryPromoter {
                 memory_id: Uuid::new_v4().to_string(),
                 candidate_id: candidate.candidate_id.clone(),
                 stored_at: clock.now(),
-                entity: candidate.entity.clone(),
-                slot: candidate.slot.clone(),
-                value: candidate.value.clone(),
+                // Use empty string rather than None for DurableMemory fields — DurableMemory
+                // represents an already-verified stored record. Empty string is the honest
+                // value when the candidate had no assertion for that field.
+                entity: candidate.entity.clone().unwrap_or_default(),
+                slot: candidate.slot.clone().unwrap_or_default(),
+                value: candidate.value.clone().unwrap_or_default(),
                 raw_text: candidate.raw_text.clone(),
                 memory_type: candidate.memory_type,
                 confidence: candidate.confidence,

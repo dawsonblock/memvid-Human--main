@@ -36,9 +36,10 @@ impl MemoryIntake {
         CandidateMemory {
             candidate_id: Uuid::new_v4().to_string(),
             observed_at: clock.now(),
-            entity: input.entity.unwrap_or_else(|| "unknown".to_string()),
-            slot: input.slot.unwrap_or_else(|| "note".to_string()),
-            value: input.value.unwrap_or_else(|| input.raw_text.clone()),
+            // Pass through as-is — never substitute placeholder strings for absent structure.
+            entity: input.entity,
+            slot: input.slot,
+            value: input.value,
             raw_text: input.raw_text,
             source: Provenance {
                 source_type: input.source_type,

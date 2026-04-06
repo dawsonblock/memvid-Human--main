@@ -63,18 +63,27 @@ impl<S: MemoryStore> MemoryController<S> {
             memory_id: None,
             belief_id: None,
             query_text: None,
-            details: BTreeMap::from([
-                (
-                    "memory_type".to_string(),
-                    format!("{:?}", classified.memory_type).to_lowercase(),
-                ),
-                (
-                    "memory_layer".to_string(),
-                    classified.memory_layer().as_str().to_string(),
-                ),
-                ("entity".to_string(), classified.entity.clone()),
-                ("slot".to_string(), classified.slot.clone()),
-            ]),
+            details: {
+                let mut details = BTreeMap::from([
+                    (
+                        "memory_type".to_string(),
+                        format!("{:?}", classified.memory_type).to_lowercase(),
+                    ),
+                    (
+                        "memory_layer".to_string(),
+                        classified.memory_layer().as_str().to_string(),
+                    ),
+                ]);
+                // Only include entity/slot in audit when they were actually asserted —
+                // omitting them is the honest representation of absent structure.
+                if let Some(entity) = classified.entity.as_deref() {
+                    details.insert("entity".to_string(), entity.to_string());
+                }
+                if let Some(slot) = classified.slot.as_deref() {
+                    details.insert("slot".to_string(), slot.to_string());
+                }
+                details
+            },
         });
 
         let promotion = self.promoter.promote(&classified, self.clock.as_ref());
@@ -106,18 +115,21 @@ impl<S: MemoryStore> MemoryController<S> {
         match promotion.decision {
             PromotionDecision::Reject => Ok(None),
             PromotionDecision::StoreTrace => {
-                let trace_id = self.store.put_trace(
-                    &classified.raw_text,
-                    BTreeMap::from([
-                        ("entity".to_string(), classified.entity.clone()),
-                        ("slot".to_string(), classified.slot.clone()),
-                        (
-                            "memory_type".to_string(),
-                            format!("{:?}", MemoryType::Trace).to_lowercase(),
-                        ),
-                        ("memory_layer".to_string(), "trace".to_string()),
-                    ]),
-                )?;
+                let mut trace_meta = BTreeMap::from([
+                    (
+                        "memory_type".to_string(),
+                        format!("{:?}", MemoryType::Trace).to_lowercase(),
+                    ),
+                    ("memory_layer".to_string(), "trace".to_string()),
+                ]);
+                // Only record entity/slot when they were actually asserted.
+                if let Some(entity) = classified.entity.as_deref() {
+                    trace_meta.insert("entity".to_string(), entity.to_string());
+                }
+                if let Some(slot) = classified.slot.as_deref() {
+                    trace_meta.insert("slot".to_string(), slot.to_string());
+                }
+                let trace_id = self.store.put_trace(&classified.raw_text, trace_meta)?;
                 self.audit.emit(AuditEvent {
                     event_id: String::new(),
                     occurred_at: self.clock.now(),
@@ -309,17 +321,19 @@ impl<S: MemoryStore> MemoryController<S> {
                         });
                         procedure_id
                     }
-                    MemoryLayer::Trace => self.store.put_trace(
-                        &memory.raw_text,
-                        BTreeMap::from([
-                            ("entity".to_string(), memory.entity.clone()),
-                            ("slot".to_string(), memory.slot.clone()),
-                            (
-                                "memory_layer".to_string(),
-                                MemoryLayer::Trace.as_str().to_string(),
-                            ),
-                        ]),
-                    )?,
+                    MemoryLayer::Trace => {
+                        let mut trace_meta = BTreeMap::from([(
+                            "memory_layer".to_string(),
+                            MemoryLayer::Trace.as_str().to_string(),
+                        )]);
+                        if !memory.entity.is_empty() {
+                            trace_meta.insert("entity".to_string(), memory.entity.clone());
+                        }
+                        if !memory.slot.is_empty() {
+                            trace_meta.insert("slot".to_string(), memory.slot.clone());
+                        }
+                        self.store.put_trace(&memory.raw_text, trace_meta)?
+                    }
                 };
 
                 let episode_for_consolidation = if memory_layer == MemoryLayer::Episode {

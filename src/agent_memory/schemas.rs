@@ -23,9 +23,15 @@ pub struct Provenance {
 pub struct CandidateMemory {
     pub candidate_id: String,
     pub observed_at: DateTime<Utc>,
-    pub entity: String,
-    pub slot: String,
-    pub value: String,
+    /// Entity is intentionally `Option` — absence means the input was not structured enough
+    /// to identify a subject. Never substitute a placeholder like "unknown".
+    pub entity: Option<String>,
+    /// Slot is intentionally `Option` — absence means no typed relationship was asserted.
+    /// Never substitute a placeholder like "note".
+    pub slot: Option<String>,
+    /// Value is intentionally `Option` — absence means the raw text is all we have.
+    /// Never copy `raw_text` here to fabricate structure.
+    pub value: Option<String>,
     pub raw_text: String,
     pub source: Provenance,
     pub memory_type: MemoryType,
@@ -68,9 +74,11 @@ impl CandidateMemory {
             memory_id: uuid::Uuid::new_v4().to_string(),
             candidate_id: self.candidate_id.clone(),
             stored_at,
-            entity: self.entity.clone(),
-            slot: self.slot.clone(),
-            value: self.value.clone(),
+            // Episodes preserve whatever structure was present; empty string is the honest
+            // representation of "no entity asserted" — not the fabricated "unknown".
+            entity: self.entity.clone().unwrap_or_default(),
+            slot: self.slot.clone().unwrap_or_default(),
+            value: self.value.clone().unwrap_or_default(),
             raw_text: self.raw_text.clone(),
             memory_type: MemoryType::Episode,
             confidence: self.confidence,

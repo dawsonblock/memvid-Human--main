@@ -22,9 +22,9 @@ fn structured_preference_becomes_preference() {
 fn event_text_becomes_episode() {
     let classifier = MemoryClassifier;
     let mut input = candidate("", "", "", "Yesterday we completed the deployment.");
-    input.entity.clear();
-    input.slot.clear();
-    input.value.clear();
+    input.entity = None;
+    input.slot = None;
+    input.value = None;
 
     let classified = classifier.classify(input);
 
@@ -35,9 +35,9 @@ fn event_text_becomes_episode() {
 fn unstructured_text_defaults_to_trace() {
     let classifier = MemoryClassifier;
     let mut input = candidate("", "", "", "Miscellaneous note without structure.");
-    input.entity.clear();
-    input.slot.clear();
-    input.value.clear();
+    input.entity = None;
+    input.slot = None;
+    input.value = None;
 
     let classified = classifier.classify(input);
 
