@@ -1,4 +1,4 @@
-use super::enums::MemoryType;
+use super::enums::{MemoryLayer, MemoryType};
 use super::schemas::RetentionRule;
 
 const DAY_SECONDS: i64 = 86_400;
@@ -38,52 +38,66 @@ impl PolicySet {
     }
 
     #[must_use]
-    pub fn promote_threshold(&self, memory_type: MemoryType) -> f32 {
-        match memory_type {
-            MemoryType::Fact => 0.75,
-            MemoryType::Preference => 0.70,
-            MemoryType::GoalState => 0.65,
-            MemoryType::Episode => self.promote,
-            MemoryType::Trace => 1.1,
+    pub fn promote_threshold(&self, memory_layer: MemoryLayer) -> f32 {
+        match memory_layer {
+            MemoryLayer::Belief => 0.75,
+            MemoryLayer::SelfModel => 0.70,
+            MemoryLayer::GoalState => 0.65,
+            MemoryLayer::Episode => self.promote,
+            MemoryLayer::Procedure => 0.72,
+            MemoryLayer::Trace => 1.1,
         }
     }
 
     #[must_use]
-    pub fn retention_rule(&self, memory_type: MemoryType) -> RetentionRule {
-        match memory_type {
-            MemoryType::Trace => RetentionRule {
+    pub fn retention_rule(&self, memory_layer: MemoryLayer, memory_type: MemoryType) -> RetentionRule {
+        match memory_layer {
+            MemoryLayer::Trace => RetentionRule {
+                memory_layer,
                 memory_type,
                 default_ttl: Some(3 * DAY_SECONDS),
                 decay_per_day: 0.18,
                 retrieval_priority: 0.1,
                 promotable: false,
             },
-            MemoryType::Episode => RetentionRule {
+            MemoryLayer::Episode => RetentionRule {
+                memory_layer,
                 memory_type,
                 default_ttl: Some(30 * DAY_SECONDS),
                 decay_per_day: 0.04,
                 retrieval_priority: 0.45,
                 promotable: true,
             },
-            MemoryType::Fact => RetentionRule {
+            MemoryLayer::Belief => RetentionRule {
+                memory_layer,
                 memory_type,
                 default_ttl: None,
                 decay_per_day: 0.005,
                 retrieval_priority: 0.75,
                 promotable: true,
             },
-            MemoryType::Preference => RetentionRule {
+            MemoryLayer::SelfModel => RetentionRule {
+                memory_layer,
                 memory_type,
                 default_ttl: None,
                 decay_per_day: 0.002,
                 retrieval_priority: 1.0,
                 promotable: true,
             },
-            MemoryType::GoalState => RetentionRule {
+            MemoryLayer::GoalState => RetentionRule {
+                memory_layer,
                 memory_type,
                 default_ttl: Some(14 * DAY_SECONDS),
                 decay_per_day: 0.03,
                 retrieval_priority: 0.95,
+                promotable: true,
+            },
+            MemoryLayer::Procedure => RetentionRule {
+                memory_layer,
+                memory_type,
+                default_ttl: Some(90 * DAY_SECONDS),
+                decay_per_day: 0.01,
+                retrieval_priority: 0.7,
                 promotable: true,
             },
         }

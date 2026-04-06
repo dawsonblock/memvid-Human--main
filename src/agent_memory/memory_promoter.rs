@@ -1,7 +1,7 @@
 use uuid::Uuid;
 
 use super::clock::Clock;
-use super::enums::{MemoryType, PromotionDecision};
+use super::enums::{MemoryLayer, PromotionDecision};
 use super::policy::PolicySet;
 use super::schemas::{CandidateMemory, DurableMemory, PromotionResult};
 
@@ -30,7 +30,8 @@ impl MemoryPromoter {
             };
         }
 
-        if candidate.memory_type == MemoryType::Trace || score < self.policy.store_trace_threshold()
+        if candidate.memory_layer() == MemoryLayer::Trace
+            || score < self.policy.store_trace_threshold()
         {
             return PromotionResult {
                 decision: PromotionDecision::StoreTrace,
@@ -40,7 +41,7 @@ impl MemoryPromoter {
             };
         }
 
-        if score < self.policy.promote_threshold(candidate.memory_type) {
+        if score < self.policy.promote_threshold(candidate.memory_layer()) {
             return PromotionResult {
                 decision: PromotionDecision::StoreTrace,
                 score,
@@ -65,14 +66,16 @@ impl MemoryPromoter {
                 confidence: candidate.confidence,
                 salience: candidate.salience,
                 scope: candidate.scope,
-                ttl: candidate.ttl.or(self
-                    .policy
-                    .retention_rule(candidate.memory_type)
-                    .default_ttl),
+                ttl: candidate.ttl.or(
+                    self.policy
+                        .retention_rule(candidate.memory_layer(), candidate.memory_type)
+                        .default_ttl,
+                ),
                 source: candidate.source.clone(),
                 event_at: candidate.event_at,
                 valid_from: candidate.valid_from,
                 valid_to: candidate.valid_to,
+                internal_layer: candidate.internal_layer,
                 tags: candidate.tags.clone(),
                 metadata: candidate.metadata.clone(),
                 is_retraction: candidate.is_retraction,

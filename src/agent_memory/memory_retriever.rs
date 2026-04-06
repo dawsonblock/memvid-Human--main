@@ -1,6 +1,6 @@
 use super::adapters::memvid_store::MemoryStore;
 use super::clock::Clock;
-use super::enums::QueryIntent;
+use super::enums::{MemoryLayer, QueryIntent};
 use super::errors::Result;
 use super::ranker::Ranker;
 use super::retention::RetentionManager;
@@ -40,6 +40,7 @@ impl MemoryRetriever {
                             slot: Some(belief.slot.clone()),
                             value: Some(belief.current_value.clone()),
                             text: belief.current_value,
+                            memory_layer: Some(MemoryLayer::Belief),
                             memory_type: None,
                             score: belief.confidence,
                             timestamp: belief.last_reviewed_at,
@@ -84,6 +85,7 @@ impl MemoryRetriever {
                             slot: Some(memory.slot.clone()),
                             value: Some(memory.value.clone()),
                             text: memory.raw_text.clone(),
+                            memory_layer: Some(memory.memory_layer()),
                             memory_type: Some(memory.memory_type),
                             score: memory.confidence + 0.8,
                             timestamp: memory

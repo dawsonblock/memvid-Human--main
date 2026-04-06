@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 
-use super::enums::{MemoryType, QueryIntent};
+use super::enums::{MemoryLayer, MemoryType, QueryIntent};
 use super::schemas::RetrievalHit;
 
 /// Deterministic reranker for governed retrieval hits.
@@ -17,8 +17,9 @@ impl Ranker {
     ) -> Vec<RetrievalHit> {
         for hit in &mut hits {
             let mut score = hit.score;
-            if let Some(memory_type) = hit.memory_type {
-                score += Self::type_bonus(intent, memory_type);
+            let memory_layer = hit.memory_layer.or_else(|| hit.memory_type.map(MemoryType::memory_layer));
+            if let Some(layer) = memory_layer {
+                score += Self::type_bonus(intent, layer);
                 score += Self::recency_bonus(intent, hit.timestamp, now);
             }
             if hit.from_belief {
@@ -33,16 +34,18 @@ impl Ranker {
         hits
     }
 
-    fn type_bonus(intent: QueryIntent, memory_type: MemoryType) -> f32 {
-        match (intent, memory_type) {
-            (QueryIntent::PreferenceLookup, MemoryType::Preference) => 1.4,
-            (QueryIntent::TaskState, MemoryType::GoalState) => 1.5,
-            (QueryIntent::TaskState, MemoryType::Episode) => 0.9,
-            (QueryIntent::CurrentFact, MemoryType::Fact) => 1.1,
-            (QueryIntent::HistoricalFact, MemoryType::Episode) => 0.6,
-            (QueryIntent::HistoricalFact, MemoryType::Fact) => 0.8,
-            (QueryIntent::EpisodicRecall, MemoryType::Episode) => 1.3,
-            (_, MemoryType::Trace) => -0.2,
+    fn type_bonus(intent: QueryIntent, memory_layer: MemoryLayer) -> f32 {
+        match (intent, memory_layer) {
+            (QueryIntent::PreferenceLookup, MemoryLayer::SelfModel) => 1.4,
+            (QueryIntent::TaskState, MemoryLayer::GoalState) => 1.5,
+            (QueryIntent::TaskState, MemoryLayer::Episode) => 0.9,
+            (QueryIntent::TaskState, MemoryLayer::Procedure) => 0.55,
+            (QueryIntent::CurrentFact, MemoryLayer::Belief) => 1.1,
+            (QueryIntent::HistoricalFact, MemoryLayer::Episode) => 0.9,
+            (QueryIntent::HistoricalFact, MemoryLayer::Belief) => 0.8,
+            (QueryIntent::EpisodicRecall, MemoryLayer::Episode) => 1.3,
+            (QueryIntent::SemanticBackground, MemoryLayer::Procedure) => 0.25,
+            (_, MemoryLayer::Trace) => -0.2,
             _ => 0.0,
         }
     }

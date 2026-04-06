@@ -25,7 +25,9 @@ impl RetentionManager {
 
     #[must_use]
     pub fn evaluate(&self, memory: &DurableMemory, now: DateTime<Utc>) -> RetentionEvaluation {
-        let rule = self.policy.retention_rule(memory.memory_type);
+        let rule = self
+            .policy
+            .retention_rule(memory.memory_layer(), memory.memory_type);
         let expired = memory
             .ttl
             .or(rule.default_ttl)

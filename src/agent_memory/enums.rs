@@ -133,6 +133,19 @@ impl MemoryLayer {
             Self::Procedure => "procedure",
         }
     }
+
+    #[must_use]
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "trace" => Some(Self::Trace),
+            "episode" => Some(Self::Episode),
+            "belief" => Some(Self::Belief),
+            "goal_state" | "goalstate" => Some(Self::GoalState),
+            "self_model" | "selfmodel" => Some(Self::SelfModel),
+            "procedure" => Some(Self::Procedure),
+            _ => None,
+        }
+    }
 }
 
 impl MemoryType {
@@ -149,6 +162,18 @@ impl MemoryType {
 }
 
 impl GoalStatus {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::Inactive => "inactive",
+            Self::Blocked => "blocked",
+            Self::WaitingOnUser => "waiting_on_user",
+            Self::WaitingOnSystem => "waiting_on_system",
+            Self::Completed => "completed",
+        }
+    }
+
     #[must_use]
     pub fn from_text(value: &str, raw_text: &str) -> Self {
         let lower = format!("{value} {raw_text}").to_lowercase();
@@ -169,9 +194,37 @@ impl GoalStatus {
             Self::Active
         }
     }
+
+    #[must_use]
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "active" => Some(Self::Active),
+            "inactive" => Some(Self::Inactive),
+            "blocked" => Some(Self::Blocked),
+            "waiting_on_user" => Some(Self::WaitingOnUser),
+            "waiting_on_system" => Some(Self::WaitingOnSystem),
+            "completed" => Some(Self::Completed),
+            _ => None,
+        }
+    }
 }
 
 impl SelfModelKind {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Preference => "preference",
+            Self::ResponseStyle => "response_style",
+            Self::RiskTolerance => "risk_tolerance",
+            Self::ToolPreference => "tool_preference",
+            Self::ProjectNorm => "project_norm",
+            Self::Constraint => "constraint",
+            Self::Value => "value",
+            Self::WorkPattern => "work_pattern",
+            Self::CapabilityLimit => "capability_limit",
+        }
+    }
+
     #[must_use]
     pub fn from_slot(slot: &str) -> Self {
         let lower = slot.to_lowercase();
@@ -193,6 +246,43 @@ impl SelfModelKind {
             Self::CapabilityLimit
         } else {
             Self::Preference
+        }
+    }
+
+    #[must_use]
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "preference" => Some(Self::Preference),
+            "response_style" => Some(Self::ResponseStyle),
+            "risk_tolerance" => Some(Self::RiskTolerance),
+            "tool_preference" => Some(Self::ToolPreference),
+            "project_norm" => Some(Self::ProjectNorm),
+            "constraint" => Some(Self::Constraint),
+            "value" => Some(Self::Value),
+            "work_pattern" => Some(Self::WorkPattern),
+            "capability_limit" => Some(Self::CapabilityLimit),
+            _ => None,
+        }
+    }
+}
+
+impl ProcedureStatus {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::CoolingDown => "cooling_down",
+            Self::Retired => "retired",
+        }
+    }
+
+    #[must_use]
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "active" => Some(Self::Active),
+            "cooling_down" => Some(Self::CoolingDown),
+            "retired" => Some(Self::Retired),
+            _ => None,
         }
     }
 }

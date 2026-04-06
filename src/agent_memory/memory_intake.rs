@@ -55,6 +55,7 @@ impl MemoryIntake {
             event_at: None,
             valid_from: None,
             valid_to: None,
+            internal_layer: None,
             tags: input.tags,
             metadata: input.metadata,
             is_retraction: input.is_retraction,

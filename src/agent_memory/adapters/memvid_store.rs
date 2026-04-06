@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use crate::Memvid;
-use crate::agent_memory::enums::{BeliefStatus, MemoryType, Scope, SourceType};
+use crate::agent_memory::enums::{BeliefStatus, MemoryLayer, MemoryType, Scope, SourceType};
 use crate::agent_memory::errors::{AgentMemoryError, Result};
 use crate::agent_memory::schemas::{BeliefRecord, DurableMemory, RetrievalHit, RetrievalQuery};
 use crate::types::{AclEnforcementMode, MemoryCardBuilder, MemoryKind, PutOptions, SearchRequest};
@@ -23,6 +23,7 @@ pub trait MemoryStore {
     fn update_belief(&mut self, belief: &BeliefRecord) -> Result<()>;
     fn get_active_belief(&mut self, entity: &str, slot: &str) -> Result<Option<BeliefRecord>>;
     fn search(&mut self, query: &RetrievalQuery) -> Result<Vec<RetrievalHit>>;
+    fn list_memories_by_layer(&mut self, layer: MemoryLayer) -> Result<Vec<DurableMemory>>;
     fn list_memories_for_belief(&mut self, entity: &str, slot: &str) -> Result<Vec<DurableMemory>>;
     fn expire_memory(&mut self, memory_id: &str) -> Result<()>;
 }
@@ -55,6 +56,12 @@ fn parse_memory_type(value: Option<&String>) -> MemoryType {
     }
 }
 
+fn parse_memory_layer(value: Option<&String>, memory_type: MemoryType) -> MemoryLayer {
+    value
+        .and_then(|text| MemoryLayer::from_str(text))
+        .unwrap_or_else(|| memory_type.memory_layer())
+}
+
 fn parse_source_type(value: Option<&String>) -> SourceType {
     match value.map(std::string::String::as_str) {
         Some("file") => SourceType::File,
@@ -65,13 +72,13 @@ fn parse_source_type(value: Option<&String>) -> SourceType {
     }
 }
 
-fn type_to_memory_kind(memory_type: MemoryType) -> MemoryKind {
-    match memory_type {
-        MemoryType::Trace => MemoryKind::Other,
-        MemoryType::Episode => MemoryKind::Event,
-        MemoryType::Fact => MemoryKind::Fact,
-        MemoryType::Preference => MemoryKind::Preference,
-        MemoryType::GoalState => MemoryKind::Goal,
+fn memory_kind(memory: &DurableMemory) -> MemoryKind {
+    match memory.memory_layer() {
+        MemoryLayer::Trace | MemoryLayer::Procedure => MemoryKind::Other,
+        MemoryLayer::Episode => MemoryKind::Event,
+        MemoryLayer::Belief => MemoryKind::Fact,
+        MemoryLayer::SelfModel => MemoryKind::Preference,
+        MemoryLayer::GoalState => MemoryKind::Goal,
     }
 }
 
@@ -113,6 +120,10 @@ fn memory_metadata(memory: &DurableMemory) -> BTreeMap<String, String> {
             memory.memory_layer().as_str().to_string(),
         ),
         (
+            "agent_source_id".to_string(),
+            memory.source.source_id.clone(),
+        ),
+        (
             "agent_confidence".to_string(),
             memory.confidence.to_string(),
         ),
@@ -128,6 +139,10 @@ fn memory_metadata(memory: &DurableMemory) -> BTreeMap<String, String> {
         (
             "agent_source_weight".to_string(),
             memory.source.trust_weight.to_string(),
+        ),
+        (
+            "agent_source_label".to_string(),
+            memory.source.source_label.clone().unwrap_or_default(),
         ),
         (
             "agent_observed_at".to_string(),
@@ -273,12 +288,10 @@ impl MemoryStore for InMemoryMemoryStore {
                 slot: Some(memory.slot.clone()),
                 value: Some(memory.value.clone()),
                 text: memory.raw_text.clone(),
+                memory_layer: Some(memory.memory_layer()),
                 memory_type: Some(memory.memory_type),
                 score,
-                timestamp: memory
-                    .event_at
-                    .or(memory.valid_from)
-                    .unwrap_or(memory.stored_at),
+                timestamp: memory.event_timestamp(),
                 scope: Some(memory.scope),
                 source: Some(memory.source.source_type),
                 from_belief: false,
@@ -291,11 +304,24 @@ impl MemoryStore for InMemoryMemoryStore {
         Ok(hits)
     }
 
+    fn list_memories_by_layer(&mut self, layer: MemoryLayer) -> Result<Vec<DurableMemory>> {
+        Ok(self
+            .memories
+            .iter()
+            .filter(|memory| memory.memory_layer() == layer)
+            .cloned()
+            .collect())
+    }
+
     fn list_memories_for_belief(&mut self, entity: &str, slot: &str) -> Result<Vec<DurableMemory>> {
         Ok(self
             .memories
             .iter()
-            .filter(|memory| memory.entity == entity && memory.slot == slot)
+            .filter(|memory| {
+                memory.memory_layer() == MemoryLayer::Belief
+                    && memory.entity == entity
+                    && memory.slot == slot
+            })
             .cloned()
             .collect())
     }
@@ -363,7 +389,10 @@ impl MemvidStore {
                 .cloned()
                 .unwrap_or_default(),
             raw_text,
-            memory_type: parse_memory_type(extra_metadata.get("agent_memory_type")),
+            memory_type: {
+                let memory_type = parse_memory_type(extra_metadata.get("agent_memory_type"));
+                memory_type
+            },
             confidence: extra_metadata
                 .get("agent_confidence")
                 .and_then(|value| value.parse::<f32>().ok())
@@ -382,8 +411,14 @@ impl MemvidStore {
                     .get("agent_source_id")
                     .cloned()
                     .unwrap_or_else(|| format!("frame:{frame_id}")),
-                source_label: None,
-                observed_by: None,
+                source_label: extra_metadata
+                    .get("agent_source_label")
+                    .cloned()
+                    .filter(|value| !value.is_empty()),
+                observed_by: extra_metadata
+                    .get("agent_observed_by")
+                    .cloned()
+                    .filter(|value| !value.is_empty()),
                 trust_weight: extra_metadata
                     .get("agent_source_weight")
                     .and_then(|value| value.parse::<f32>().ok())
@@ -392,6 +427,10 @@ impl MemvidStore {
             event_at: parse_datetime(extra_metadata.get("agent_event_at"))?,
             valid_from: parse_datetime(extra_metadata.get("agent_valid_from"))?,
             valid_to: parse_datetime(extra_metadata.get("agent_valid_to"))?,
+            internal_layer: Some(parse_memory_layer(
+                extra_metadata.get("agent_memory_layer"),
+                parse_memory_type(extra_metadata.get("agent_memory_type")),
+            )),
             tags: extra_metadata
                 .get("agent_tags")
                 .map(|value| value.split(',').map(ToString::to_string).collect())
@@ -443,6 +482,7 @@ impl MemvidStore {
                 slot: Some(memory.slot.clone()),
                 value: Some(memory.value.clone()),
                 text: memory.raw_text.clone(),
+                memory_layer: Some(memory.memory_layer()),
                 memory_type: Some(memory.memory_type),
                 score,
                 timestamp: memory
@@ -498,13 +538,13 @@ impl MemoryStore for MemvidStore {
             PutOptions {
                 timestamp: Some(memory.stored_at.timestamp()),
                 track: Some(TRACK_MEMORY.to_string()),
-                kind: Some(format!("agent_memory_{:?}", memory.memory_type).to_lowercase()),
+                kind: Some(format!("agent_memory_{}", memory.memory_layer().as_str())),
                 uri: Some(uri.clone()),
                 title: Some(format!("{}:{}", memory.entity, memory.slot)),
                 metadata: None,
                 search_text: Some(memory.raw_text.clone()),
                 tags: memory.tags.clone(),
-                labels: vec![format!("agent-memory-{:?}", memory.memory_type).to_lowercase()],
+                labels: vec![format!("agent-memory-{}", memory.memory_layer().as_str())],
                 extra_metadata: memory_metadata(memory),
                 ..PutOptions::default()
             },
@@ -513,7 +553,7 @@ impl MemoryStore for MemvidStore {
         let frame_id = self.frame_id_for_uri(&uri)?;
 
         let mut builder = MemoryCardBuilder::new()
-            .kind(type_to_memory_kind(memory.memory_type))
+            .kind(memory_kind(memory))
             .entity(memory.entity.clone())
             .slot(memory.slot.clone())
             .value(memory.value.clone())
@@ -656,6 +696,9 @@ impl MemoryStore for MemvidStore {
                     slot: extra.get("agent_slot").cloned(),
                     value: extra.get("agent_value").cloned(),
                     text: hit.chunk_text.unwrap_or(hit.text),
+                    memory_layer: extra
+                        .get("agent_memory_layer")
+                        .and_then(|value| MemoryLayer::from_str(value)),
                     memory_type: Some(parse_memory_type(extra.get("agent_memory_type"))),
                     score: hit.score.unwrap_or(0.1),
                     timestamp: query.as_of.unwrap_or_else(Utc::now),
@@ -689,6 +732,7 @@ impl MemoryStore for MemvidStore {
                     slot: trace_metadata.get("slot").cloned(),
                     value: None,
                     text: hit.chunk_text.unwrap_or(hit.text),
+                    memory_layer: Some(MemoryLayer::Trace),
                     memory_type: Some(MemoryType::Trace),
                     score: hit.score.unwrap_or(0.05),
                     timestamp: query.as_of.unwrap_or_else(Utc::now),
@@ -703,24 +747,31 @@ impl MemoryStore for MemvidStore {
         Ok(hits)
     }
 
-    fn list_memories_for_belief(&mut self, entity: &str, slot: &str) -> Result<Vec<DurableMemory>> {
-        let cards: Vec<_> = self
-            .memvid
-            .memories()
-            .get_cards(entity, slot)
-            .into_iter()
-            .cloned()
-            .collect();
+    fn list_memories_by_layer(&mut self, layer: MemoryLayer) -> Result<Vec<DurableMemory>> {
+        let cards: Vec<_> = self.memvid.memories().cards().to_vec();
         let mut memories = Vec::new();
         for card in &cards {
+            if card.entity.starts_with(BELIEF_PREFIX) || card.entity == expiry_entity() {
+                continue;
+            }
             let frame = self.memvid.frame_by_id(card.source_frame_id)?;
             if !frame.extra_metadata.contains_key("agent_memory_id") {
                 continue;
             }
-            memories
-                .push(self.build_durable_from_frame(card.source_frame_id, &frame.extra_metadata)?);
+            let memory = self.build_durable_from_frame(card.source_frame_id, &frame.extra_metadata)?;
+            if memory.memory_layer() == layer {
+                memories.push(memory);
+            }
         }
         Ok(memories)
+    }
+
+    fn list_memories_for_belief(&mut self, entity: &str, slot: &str) -> Result<Vec<DurableMemory>> {
+        Ok(self
+            .list_memories_by_layer(MemoryLayer::Belief)?
+            .into_iter()
+            .filter(|memory| memory.entity == entity && memory.slot == slot)
+            .collect())
     }
 
     fn expire_memory(&mut self, memory_id: &str) -> Result<()> {

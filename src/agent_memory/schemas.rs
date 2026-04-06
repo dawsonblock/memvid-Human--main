@@ -36,6 +36,7 @@ pub struct CandidateMemory {
     pub event_at: Option<DateTime<Utc>>,
     pub valid_from: Option<DateTime<Utc>>,
     pub valid_to: Option<DateTime<Utc>>,
+    pub internal_layer: Option<MemoryLayer>,
     pub tags: Vec<String>,
     pub metadata: BTreeMap<String, String>,
     pub is_retraction: bool,
@@ -44,7 +45,8 @@ pub struct CandidateMemory {
 impl CandidateMemory {
     #[must_use]
     pub fn memory_layer(&self) -> MemoryLayer {
-        self.memory_type.memory_layer()
+        self.internal_layer
+            .unwrap_or_else(|| self.memory_type.memory_layer())
     }
 
     #[must_use]
@@ -52,6 +54,38 @@ impl CandidateMemory {
         self.event_at
             .or(self.valid_from)
             .unwrap_or(self.observed_at)
+    }
+
+    #[must_use]
+    pub fn to_episode_memory(&self, stored_at: DateTime<Utc>) -> DurableMemory {
+        let mut metadata = self.metadata.clone();
+        metadata.insert(
+            "source_memory_layer".to_string(),
+            self.memory_layer().as_str().to_string(),
+        );
+
+        DurableMemory {
+            memory_id: uuid::Uuid::new_v4().to_string(),
+            candidate_id: self.candidate_id.clone(),
+            stored_at,
+            entity: self.entity.clone(),
+            slot: self.slot.clone(),
+            value: self.value.clone(),
+            raw_text: self.raw_text.clone(),
+            memory_type: MemoryType::Episode,
+            confidence: self.confidence,
+            salience: self.salience.max(0.55),
+            scope: self.scope,
+            ttl: None,
+            source: self.source.clone(),
+            event_at: Some(self.event_timestamp()),
+            valid_from: self.valid_from,
+            valid_to: self.valid_to,
+            internal_layer: Some(MemoryLayer::Episode),
+            tags: self.tags.clone(),
+            metadata,
+            is_retraction: false,
+        }
     }
 }
 
@@ -74,6 +108,7 @@ pub struct DurableMemory {
     pub event_at: Option<DateTime<Utc>>,
     pub valid_from: Option<DateTime<Utc>>,
     pub valid_to: Option<DateTime<Utc>>,
+    pub internal_layer: Option<MemoryLayer>,
     pub tags: Vec<String>,
     pub metadata: BTreeMap<String, String>,
     pub is_retraction: bool,
@@ -82,12 +117,36 @@ pub struct DurableMemory {
 impl DurableMemory {
     #[must_use]
     pub fn memory_layer(&self) -> MemoryLayer {
-        self.memory_type.memory_layer()
+        self.internal_layer
+            .unwrap_or_else(|| self.memory_type.memory_layer())
     }
 
     #[must_use]
     pub fn event_timestamp(&self) -> DateTime<Utc> {
         self.event_at.or(self.valid_from).unwrap_or(self.stored_at)
+    }
+
+    #[must_use]
+    pub fn with_supporting_episode(mut self, episode_id: &str) -> Self {
+        let mut supporting_ids: Vec<String> = self
+            .metadata
+            .get("supporting_episode_ids")
+            .map(|value| {
+                value
+                    .split(',')
+                    .filter(|entry| !entry.is_empty())
+                    .map(ToString::to_string)
+                    .collect()
+            })
+            .unwrap_or_default();
+        if !supporting_ids.iter().any(|existing| existing == episode_id) {
+            supporting_ids.push(episode_id.to_string());
+        }
+        self.metadata.insert(
+            "supporting_episode_ids".to_string(),
+            supporting_ids.join(","),
+        );
+        self
     }
 
     #[must_use]
@@ -177,6 +236,73 @@ impl DurableMemory {
             supporting_memory_ids: vec![self.memory_id.clone()],
             scope: self.scope,
             tags: self.tags.clone(),
+            metadata: self.metadata.clone(),
+        })
+    }
+
+    #[must_use]
+    pub fn to_procedure_record(&self) -> Option<ProcedureRecord> {
+        if self.memory_layer() != MemoryLayer::Procedure {
+            return None;
+        }
+
+        Some(ProcedureRecord {
+            procedure_id: self.memory_id.clone(),
+            name: self
+                .metadata
+                .get("procedure_name")
+                .cloned()
+                .unwrap_or_else(|| self.slot.clone()),
+            description: self.raw_text.clone(),
+            context_tags: self
+                .metadata
+                .get("context_tags")
+                .map(|value| {
+                    value
+                        .split(',')
+                        .filter(|entry| !entry.is_empty())
+                        .map(ToString::to_string)
+                        .collect()
+                })
+                .unwrap_or_else(|| self.tags.clone()),
+            success_count: self
+                .metadata
+                .get("success_count")
+                .and_then(|value| value.parse::<u32>().ok())
+                .unwrap_or(0),
+            failure_count: self
+                .metadata
+                .get("failure_count")
+                .and_then(|value| value.parse::<u32>().ok())
+                .unwrap_or(0),
+            confidence: self.confidence,
+            status: self
+                .metadata
+                .get("procedure_status")
+                .and_then(|value| ProcedureStatus::from_str(value))
+                .unwrap_or(ProcedureStatus::Active),
+            learned_from_memory_ids: self
+                .metadata
+                .get("learned_from_memory_ids")
+                .map(|value| {
+                    value
+                        .split(',')
+                        .filter(|entry| !entry.is_empty())
+                        .map(ToString::to_string)
+                        .collect()
+                })
+                .unwrap_or_default(),
+            last_used_at: self
+                .metadata
+                .get("last_used_at")
+                .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+                .map(|value| value.with_timezone(&Utc)),
+            last_succeeded_at: self
+                .metadata
+                .get("last_succeeded_at")
+                .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+                .map(|value| value.with_timezone(&Utc)),
+            updated_at: self.stored_at,
             metadata: self.metadata.clone(),
         })
     }
@@ -297,6 +423,7 @@ pub struct BeliefRecord {
 /// Type-specific retention policy.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RetentionRule {
+    pub memory_layer: MemoryLayer,
     pub memory_type: MemoryType,
     pub default_ttl: Option<i64>,
     pub decay_per_day: f32,
@@ -326,6 +453,7 @@ pub struct RetrievalHit {
     pub slot: Option<String>,
     pub value: Option<String>,
     pub text: String,
+    pub memory_layer: Option<MemoryLayer>,
     pub memory_type: Option<MemoryType>,
     pub score: f32,
     pub timestamp: DateTime<Utc>,
