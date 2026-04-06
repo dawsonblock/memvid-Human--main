@@ -41,28 +41,101 @@ impl<'a, S: MemoryStore> GoalStateStore<'a, S> {
 
     pub fn list_all(&mut self) -> Result<Vec<GoalRecord>> {
         let mut records: Vec<_> = self
-            .store
-            .list_memories_by_layer(MemoryLayer::GoalState)?
+            .list_all_memories()?
             .into_iter()
             .filter_map(|memory| memory.to_goal_record())
             .collect();
-        records.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
         Ok(records)
+    }
+
+    pub fn list_all_memories(&mut self) -> Result<Vec<DurableMemory>> {
+        let mut memories = self.store.list_memories_by_layer(MemoryLayer::GoalState)?;
+        memories.sort_by(|left, right| right.stored_at.cmp(&left.stored_at));
+        Ok(memories)
     }
 
     pub fn list_active(&mut self) -> Result<Vec<GoalRecord>> {
         Ok(self
             .list_all()?
             .into_iter()
-            .filter(|record| {
-                matches!(
-                    record.status,
-                    GoalStatus::Active
-                        | GoalStatus::Blocked
-                        | GoalStatus::WaitingOnUser
-                        | GoalStatus::WaitingOnSystem
-                )
+            .filter(|record| Self::is_active_status(record.status))
+            .collect())
+    }
+
+    pub fn list_active_memories(&mut self) -> Result<Vec<DurableMemory>> {
+        Ok(self
+            .list_all_memories()?
+            .into_iter()
+            .filter(|memory| {
+                memory
+                    .to_goal_record()
+                    .is_some_and(|record| Self::is_active_status(record.status))
             })
             .collect())
+    }
+
+    pub fn list_for_entity(&mut self, entity: &str) -> Result<Vec<GoalRecord>> {
+        Ok(self
+            .list_all()?
+            .into_iter()
+            .filter(|record| record.entity == entity)
+            .collect())
+    }
+
+    pub fn list_active_for_entity(&mut self, entity: &str) -> Result<Vec<GoalRecord>> {
+        Ok(self
+            .list_active()?
+            .into_iter()
+            .filter(|record| record.entity == entity)
+            .collect())
+    }
+
+    pub fn list_matching_blockers(
+        &mut self,
+        entity: &str,
+        slot: &str,
+        blocker_key: &str,
+    ) -> Result<Vec<GoalRecord>> {
+        Ok(self
+            .list_for_entity(entity)?
+            .into_iter()
+            .filter(|record| record.slot == slot)
+            .filter(|record| {
+                Self::blocker_key(record).is_some_and(|existing| existing == blocker_key)
+            })
+            .collect())
+    }
+
+    #[must_use]
+    pub fn blocker_key(record: &GoalRecord) -> Option<String> {
+        match record.status {
+            GoalStatus::Blocked | GoalStatus::WaitingOnUser | GoalStatus::WaitingOnSystem => {
+                if let Some(reason) = record.metadata.get("blocker_reason") {
+                    return Some(reason.trim().to_lowercase());
+                }
+
+                let fallback = if record.value.eq_ignore_ascii_case(record.status.as_str()) {
+                    record.summary.trim()
+                } else {
+                    record.value.trim()
+                };
+                if fallback.is_empty() {
+                    None
+                } else {
+                    Some(fallback.to_lowercase())
+                }
+            }
+            _ => None,
+        }
+    }
+
+    fn is_active_status(status: GoalStatus) -> bool {
+        matches!(
+            status,
+            GoalStatus::Active
+                | GoalStatus::Blocked
+                | GoalStatus::WaitingOnUser
+                | GoalStatus::WaitingOnSystem
+        )
     }
 }

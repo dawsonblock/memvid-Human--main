@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 
-use super::enums::{MemoryLayer, MemoryType, QueryIntent};
+use super::enums::{MemoryLayer, MemoryType, ProcedureStatus, QueryIntent};
 use super::schemas::RetrievalHit;
 
 /// Deterministic reranker for governed retrieval hits.
@@ -30,6 +30,7 @@ impl Ranker {
             if hit.expired {
                 score -= 1.0;
             }
+            score += Self::procedure_lifecycle_penalty(hit);
             hit.score = score;
         }
         hits.sort_by(|left, right| right.score.total_cmp(&left.score));
@@ -60,6 +61,22 @@ impl Ranker {
             }
             QueryIntent::HistoricalFact => 0.0,
             _ => (0.5 - (age_days / 180.0)).clamp(0.0, 0.5),
+        }
+    }
+
+    fn procedure_lifecycle_penalty(hit: &RetrievalHit) -> f32 {
+        if hit.memory_layer != Some(MemoryLayer::Procedure) {
+            return 0.0;
+        }
+
+        match hit
+            .metadata
+            .get("procedure_status")
+            .and_then(|value| ProcedureStatus::from_str(value))
+        {
+            Some(ProcedureStatus::CoolingDown) => -0.75,
+            Some(ProcedureStatus::Retired) => -4.0,
+            _ => 0.0,
         }
     }
 }

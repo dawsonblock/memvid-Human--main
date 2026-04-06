@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use super::adapters::memvid_store::MemoryStore;
 use super::clock::Clock;
 use super::enums::MemoryLayer;
@@ -35,13 +37,45 @@ impl<'a, S: MemoryStore> EpisodeStore<'a, S> {
 
     pub fn list_recent(&mut self, limit: usize) -> Result<Vec<EpisodeRecord>> {
         let mut episodes: Vec<_> = self
-            .store
-            .list_memories_by_layer(MemoryLayer::Episode)?
+            .list_recent_memories(limit)?
             .into_iter()
             .map(|memory| memory.to_episode_record())
             .collect();
-        episodes.sort_by(|left, right| right.event_at.cmp(&left.event_at));
+        Ok(episodes)
+    }
+
+    pub fn list_recent_memories(&mut self, limit: usize) -> Result<Vec<DurableMemory>> {
+        let mut episodes = self.store.list_memories_by_layer(MemoryLayer::Episode)?;
+        episodes.sort_by(|left, right| right.event_timestamp().cmp(&left.event_timestamp()));
         episodes.truncate(limit);
+        Ok(episodes)
+    }
+
+    pub fn list_recent_for_entity(&mut self, entity: &str, limit: usize) -> Result<Vec<EpisodeRecord>> {
+        let mut episodes: Vec<_> = self
+            .store
+            .list_memories_by_layer(MemoryLayer::Episode)?
+            .into_iter()
+            .filter(|memory| memory.entity == entity)
+            .collect();
+        episodes.sort_by(|left, right| right.event_timestamp().cmp(&left.event_timestamp()));
+        episodes.truncate(limit);
+        Ok(episodes
+            .into_iter()
+            .map(|memory| memory.to_episode_record())
+            .collect())
+    }
+
+    pub fn list_by_memory_ids(&mut self, memory_ids: &[String]) -> Result<Vec<EpisodeRecord>> {
+        let wanted: HashSet<&str> = memory_ids.iter().map(String::as_str).collect();
+        let mut episodes: Vec<_> = self
+            .store
+            .list_memories_by_layer(MemoryLayer::Episode)?
+            .into_iter()
+            .filter(|memory| wanted.contains(memory.memory_id.as_str()))
+            .map(|memory| memory.to_episode_record())
+            .collect();
+        episodes.sort_by(|left, right| right.event_at.cmp(&left.event_at));
         Ok(episodes)
     }
 
@@ -59,6 +93,22 @@ impl<'a, S: MemoryStore> EpisodeStore<'a, S> {
             .map(|memory| memory.to_episode_record())
             .collect();
         episodes.sort_by(|left, right| right.event_at.cmp(&left.event_at));
+        Ok(episodes)
+    }
+
+    pub fn list_by_workflow_key_memories(&mut self, workflow_key: &str) -> Result<Vec<DurableMemory>> {
+        let mut episodes: Vec<_> = self
+            .store
+            .list_memories_by_layer(MemoryLayer::Episode)?
+            .into_iter()
+            .filter(|memory| {
+                memory
+                    .metadata
+                    .get("workflow_key")
+                    .is_some_and(|value| value == workflow_key)
+            })
+            .collect();
+        episodes.sort_by(|left, right| right.event_timestamp().cmp(&left.event_timestamp()));
         Ok(episodes)
     }
 }

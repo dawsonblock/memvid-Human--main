@@ -1,3 +1,7 @@
+use std::collections::HashSet;
+
+use chrono::{DateTime, Utc};
+
 use super::adapters::memvid_store::MemoryStore;
 use super::enums::{MemoryLayer, SelfModelKind};
 use super::errors::{AgentMemoryError, Result};
@@ -40,15 +44,45 @@ impl<'a, S: MemoryStore> SelfModelStore<'a, S> {
     }
 
     pub fn list_for_entity(&mut self, entity: &str) -> Result<Vec<SelfModelRecord>> {
-        let mut records: Vec<_> = self
+        let records: Vec<_> = self
+            .list_for_entity_memories(entity)?
+            .into_iter()
+            .filter_map(|memory| memory.to_self_model_record())
+            .collect();
+        Ok(records)
+    }
+
+    pub fn list_for_entity_memories(&mut self, entity: &str) -> Result<Vec<DurableMemory>> {
+        let mut memories: Vec<_> = self
             .store
             .list_memories_by_layer(MemoryLayer::SelfModel)?
             .into_iter()
             .filter(|memory| memory.entity == entity)
-            .filter_map(|memory| memory.to_self_model_record())
             .collect();
-        records.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
-        Ok(records)
+        memories.sort_by(|left, right| right.stored_at.cmp(&left.stored_at));
+        Ok(memories)
+    }
+
+    pub fn get_latest_for_entity_slot(
+        &mut self,
+        entity: &str,
+        slot: &str,
+    ) -> Result<Option<SelfModelRecord>> {
+        Ok(self
+            .list_for_entity(entity)?
+            .into_iter()
+            .find(|record| record.slot == slot))
+    }
+
+    pub fn list_latest_for_entity(&mut self, entity: &str) -> Result<Vec<SelfModelRecord>> {
+        let mut seen_slots = HashSet::new();
+        let mut latest = Vec::new();
+        for record in self.list_for_entity(entity)? {
+            if seen_slots.insert(record.slot.clone()) {
+                latest.push(record);
+            }
+        }
+        Ok(latest)
     }
 
     pub fn matching_values(
@@ -61,6 +95,20 @@ impl<'a, S: MemoryStore> SelfModelStore<'a, S> {
             .list_for_entity(entity)?
             .into_iter()
             .filter(|record| record.slot == slot && record.value == value)
+            .collect())
+    }
+
+    pub fn matching_values_since(
+        &mut self,
+        entity: &str,
+        slot: &str,
+        value: &str,
+        since: DateTime<Utc>,
+    ) -> Result<Vec<SelfModelRecord>> {
+        Ok(self
+            .matching_values(entity, slot, value)?
+            .into_iter()
+            .filter(|record| record.observed_at >= since)
             .collect())
     }
 }

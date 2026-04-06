@@ -28,14 +28,40 @@ impl<'a, S: MemoryStore> ProcedureStore<'a, S> {
     }
 
     pub fn list_all(&mut self) -> Result<Vec<ProcedureRecord>> {
-        let mut records: Vec<_> = self
-            .store
-            .list_memories_by_layer(MemoryLayer::Procedure)?
+        let records: Vec<_> = self
+            .list_all_memories()?
             .into_iter()
             .filter_map(|memory| memory.to_procedure_record())
             .collect();
-        records.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
         Ok(records)
+    }
+
+    pub fn list_all_memories(&mut self) -> Result<Vec<DurableMemory>> {
+        let mut memories = self.store.list_memories_by_layer(MemoryLayer::Procedure)?;
+        memories.sort_by(|left, right| right.stored_at.cmp(&left.stored_at));
+        Ok(memories)
+    }
+
+    pub fn list_active(&mut self) -> Result<Vec<ProcedureRecord>> {
+        Ok(self
+            .list_all()?
+            .into_iter()
+            .filter(|record| record.status != ProcedureStatus::Retired)
+            .collect())
+    }
+
+    pub fn list_by_context_tag(&mut self, tag: &str) -> Result<Vec<ProcedureRecord>> {
+        let tag_lower = tag.to_lowercase();
+        Ok(self
+            .list_active()?
+            .into_iter()
+            .filter(|record| {
+                record
+                    .context_tags
+                    .iter()
+                    .any(|existing| existing.to_lowercase() == tag_lower)
+            })
+            .collect())
     }
 
     pub fn get_by_workflow_key(&mut self, workflow_key: &str) -> Result<Option<ProcedureRecord>> {
