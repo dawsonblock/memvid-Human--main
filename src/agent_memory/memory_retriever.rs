@@ -6,11 +6,22 @@ use super::enums::{MemoryLayer, ProcedureStatus, QueryIntent};
 use super::episode_store::EpisodeStore;
 use super::errors::Result;
 use super::goal_state_store::GoalStateStore;
-use super::procedure_store::ProcedureStore;
+use super::procedure_store::{ProcedureStore, effective_procedure_status};
 use super::ranker::Ranker;
 use super::retention::RetentionManager;
-use super::schemas::{DurableMemory, ProcedureRecord, RetrievalHit, RetrievalQuery};
+use super::schemas::{DurableMemory, RetrievalHit, RetrievalQuery};
 use super::self_model_store::SelfModelStore;
+
+const TASK_CONTEXT_MATCH_KEY: &str = "task_context_match";
+
+#[derive(Debug, Default)]
+struct TaskContext {
+    workflow_keys: HashSet<String>,
+    goal_slots: HashSet<String>,
+    goal_tags: HashSet<String>,
+    supporting_episode_ids: HashSet<String>,
+    normalized_query: String,
+}
 
 /// Read orchestrator for governed retrieval.
 #[derive(Debug, Clone)]
@@ -201,42 +212,63 @@ impl MemoryRetriever {
             hits.push(self.hit_from_memory(memory, query, now));
         }
 
-        let supporting_episode_ids: Vec<_> = goal_memories
+        let task_context = Self::task_context(query, &goal_memories);
+        let supporting_episode_ids: Vec<_> = task_context
+            .supporting_episode_ids
             .iter()
-            .flat_map(Self::supporting_episode_ids)
+            .cloned()
             .collect();
         if !supporting_episode_ids.is_empty() {
             let mut episode_store = EpisodeStore::new(store);
             for record in episode_store.list_by_memory_ids(&supporting_episode_ids)? {
                 let memory = Self::episode_record_to_memory(record);
-                hits.push(self.hit_from_memory(&memory, query, now));
+                hits.push(self.hit_from_memory_with_task_context(
+                    &memory,
+                    query,
+                    now,
+                    "supporting_episode",
+                ));
             }
         }
 
-        if let Some(entity) = query.entity.as_deref() {
+        if !goal_memories.is_empty() {
             let mut episode_store = EpisodeStore::new(store);
             for memory in episode_store
                 .list_recent_memories(query.top_k.saturating_mul(3).max(6))?
                 .into_iter()
-                .filter(|memory| memory.entity == entity)
-                .filter(|memory| query.slot.as_deref().is_none_or(|slot| memory.slot == slot))
+                .filter(|memory| {
+                    query
+                        .entity
+                        .as_deref()
+                        .is_none_or(|entity| memory.entity == entity)
+                })
+                .filter(|memory| Self::episode_matches_task_context(memory, &task_context, query))
             {
-                hits.push(self.hit_from_memory(&memory, query, now));
+                hits.push(self.hit_from_memory_with_task_context(
+                    &memory,
+                    query,
+                    now,
+                    "aligned_episode",
+                ));
             }
         }
 
-        let context_terms = Self::context_terms(query, &goal_memories);
         let mut procedure_store = ProcedureStore::new(store);
         for memory in procedure_store.list_all_memories()? {
-            if !Self::procedure_matches_context(&memory, &context_terms) {
+            if !Self::procedure_matches_task_context(&memory, &task_context, query) {
                 continue;
             }
             if memory.to_procedure_record().is_some_and(|record| {
-                Self::effective_procedure_status(&record) == ProcedureStatus::Retired
+                effective_procedure_status(&record) == ProcedureStatus::Retired
             }) {
                 continue;
             }
-            hits.push(self.hit_from_memory(&memory, query, now));
+            hits.push(self.hit_from_memory_with_task_context(
+                &memory,
+                query,
+                now,
+                "aligned_procedure",
+            ));
         }
 
         Ok(hits)
@@ -279,9 +311,7 @@ impl MemoryRetriever {
         if let Some(record) = memory.to_procedure_record() {
             metadata.insert(
                 "procedure_status".to_string(),
-                Self::effective_procedure_status(&record)
-                    .as_str()
-                    .to_string(),
+                effective_procedure_status(&record).as_str().to_string(),
             );
         }
 
@@ -304,6 +334,21 @@ impl MemoryRetriever {
             expired: retention.expired,
             metadata,
         }
+    }
+
+    fn hit_from_memory_with_task_context(
+        &self,
+        memory: &DurableMemory,
+        query: &RetrievalQuery,
+        now: chrono::DateTime<chrono::Utc>,
+        context_match: &str,
+    ) -> RetrievalHit {
+        let mut hit = self.hit_from_memory(memory, query, now);
+        hit.metadata.insert(
+            TASK_CONTEXT_MATCH_KEY.to_string(),
+            context_match.to_string(),
+        );
+        hit
     }
 
     fn filter_and_dedup_hits(
@@ -344,14 +389,26 @@ impl MemoryRetriever {
         let memory_layer = hit
             .memory_layer
             .or_else(|| hit.memory_type.map(super::enums::MemoryType::memory_layer));
-        let strict_entity_match = !matches!(memory_layer, Some(MemoryLayer::Procedure));
+        let has_task_context_match = hit.metadata.contains_key(TASK_CONTEXT_MATCH_KEY);
+        let strict_entity_match =
+            !matches!(memory_layer, Some(MemoryLayer::Procedure)) || !has_task_context_match;
         let strict_slot_match = !matches!(
             (query.intent, memory_layer),
             (
                 QueryIntent::TaskState,
                 Some(MemoryLayer::Episode | MemoryLayer::Procedure)
             ) | (QueryIntent::EpisodicRecall, Some(MemoryLayer::Episode))
-        );
+        ) || !has_task_context_match;
+
+        if query.intent == QueryIntent::TaskState
+            && matches!(
+                memory_layer,
+                Some(MemoryLayer::Procedure | MemoryLayer::Episode)
+            )
+            && !has_task_context_match
+        {
+            return false;
+        }
 
         if let Some(scope) = query.scope
             && hit.scope.is_some_and(|hit_scope| hit_scope != scope)
@@ -423,38 +480,36 @@ impl MemoryRetriever {
             .unwrap_or_default()
     }
 
-    fn context_terms(query: &RetrievalQuery, goal_memories: &[DurableMemory]) -> HashSet<String> {
-        let mut terms = HashSet::new();
+    fn task_context(query: &RetrievalQuery, goal_memories: &[DurableMemory]) -> TaskContext {
+        let mut context = TaskContext {
+            normalized_query: query.query_text.to_lowercase(),
+            ..TaskContext::default()
+        };
 
-        if let Some(entity) = query.entity.as_deref() {
-            terms.insert(entity.to_lowercase());
-        }
         if let Some(slot) = query.slot.as_deref() {
-            terms.insert(slot.to_lowercase());
-        }
-        for token in query.query_text.split_whitespace() {
-            let normalized = token
-                .trim_matches(|character: char| !character.is_alphanumeric())
-                .to_lowercase();
-            if normalized.len() >= 3 {
-                terms.insert(normalized);
-            }
+            context.goal_slots.insert(slot.to_lowercase());
         }
         for memory in goal_memories {
             if let Some(workflow_key) = memory.metadata.get("workflow_key") {
-                terms.insert(workflow_key.to_lowercase());
+                context.workflow_keys.insert(workflow_key.to_lowercase());
             }
             for tag in &memory.tags {
-                terms.insert(tag.to_lowercase());
+                context.goal_tags.insert(tag.to_lowercase());
             }
-            terms.insert(memory.slot.to_lowercase());
-            terms.insert(memory.value.to_lowercase());
+            context.goal_slots.insert(memory.slot.to_lowercase());
+            context
+                .supporting_episode_ids
+                .extend(Self::supporting_episode_ids(memory));
         }
 
-        terms
+        context
     }
 
-    fn procedure_matches_context(memory: &DurableMemory, context_terms: &HashSet<String>) -> bool {
+    fn procedure_matches_task_context(
+        memory: &DurableMemory,
+        task_context: &TaskContext,
+        query: &RetrievalQuery,
+    ) -> bool {
         let Some(record) = memory.to_procedure_record() else {
             return false;
         };
@@ -463,50 +518,62 @@ impl MemoryRetriever {
             .metadata
             .get("workflow_key")
             .map(|value| value.to_lowercase());
-        if workflow_key
-            .as_ref()
-            .is_some_and(|workflow_key| context_terms.contains(workflow_key))
-        {
+        if workflow_key.as_ref().is_some_and(|workflow_key| {
+            task_context.workflow_keys.contains(workflow_key)
+                || task_context.normalized_query.contains(workflow_key)
+        }) {
             return true;
         }
 
-        if record
-            .context_tags
-            .iter()
-            .map(|tag| tag.to_lowercase())
-            .any(|tag| context_terms.contains(&tag))
-        {
+        if query.slot.as_deref().is_some_and(|slot| {
+            slot.eq_ignore_ascii_case(&record.name)
+                || record
+                    .context_tags
+                    .iter()
+                    .any(|tag| tag.eq_ignore_ascii_case(slot))
+        }) {
             return true;
         }
 
-        let searchable = format!(
-            "{} {} {}",
-            record.name,
-            record.description,
-            record.context_tags.join(" ")
-        );
-        Self::lexical_overlap(
-            &searchable,
-            &context_terms.iter().cloned().collect::<Vec<_>>().join(" "),
-        ) > 0.0
+        record.context_tags.iter().any(|tag| {
+            task_context.goal_tags.contains(&tag.to_lowercase())
+                || task_context.goal_slots.contains(&tag.to_lowercase())
+        })
     }
 
-    fn effective_procedure_status(record: &ProcedureRecord) -> ProcedureStatus {
-        if record.status == ProcedureStatus::Retired {
-            return ProcedureStatus::Retired;
-        }
-        if record.status == ProcedureStatus::CoolingDown {
-            return ProcedureStatus::CoolingDown;
+    fn episode_matches_task_context(
+        memory: &DurableMemory,
+        task_context: &TaskContext,
+        query: &RetrievalQuery,
+    ) -> bool {
+        if task_context
+            .supporting_episode_ids
+            .contains(&memory.memory_id)
+        {
+            return true;
         }
 
-        let total = record.success_count + record.failure_count;
-        if total >= 5 && record.failure_count >= record.success_count.saturating_add(3) {
-            ProcedureStatus::Retired
-        } else if total >= 3 && record.failure_count > record.success_count {
-            ProcedureStatus::CoolingDown
-        } else {
-            ProcedureStatus::Active
+        if let Some(workflow_key) = memory.metadata.get("workflow_key") {
+            let workflow_key = workflow_key.to_lowercase();
+            if task_context.workflow_keys.contains(&workflow_key)
+                || task_context.normalized_query.contains(&workflow_key)
+            {
+                return true;
+            }
         }
+
+        if query
+            .slot
+            .as_deref()
+            .is_some_and(|slot| memory.slot == slot)
+        {
+            return true;
+        }
+
+        memory
+            .tags
+            .iter()
+            .any(|tag| task_context.goal_tags.contains(&tag.to_lowercase()))
     }
 
     fn is_retired_procedure_hit(hit: &RetrievalHit) -> bool {

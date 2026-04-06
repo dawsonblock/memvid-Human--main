@@ -12,7 +12,7 @@ use memvid_core::agent_memory::ranker::Ranker;
 use memvid_core::agent_memory::retention::RetentionManager;
 use memvid_core::agent_memory::schemas::RetrievalQuery;
 
-use common::{durable, ts};
+use common::{candidate, controller, durable, ts};
 
 #[test]
 fn repeated_successful_workflows_promote_into_procedure_memory() {
@@ -169,6 +169,141 @@ fn task_state_query_downranks_cooling_down_procedures_and_filters_retired_ones()
     assert!(
         hits.iter()
             .any(|hit| hit.memory_id.as_deref() == Some("procedure-cooling"))
+    );
+}
+
+#[test]
+fn successful_workflow_promotion_persists_status_transition_metadata() {
+    let mut store = InMemoryMemoryStore::default();
+    store
+        .put_memory(&procedure_memory(
+            "procedure-stale",
+            ProcedureStatus::CoolingDown,
+            3,
+            4,
+            ts(1_700_000_000),
+        ))
+        .expect("stale procedure stored");
+
+    let mut first = durable(
+        "project",
+        "event",
+        "repo_review",
+        "Completed the repo review workflow successfully",
+        MemoryType::Episode,
+        SourceType::Tool,
+        0.8,
+        ts(1_700_000_010),
+    );
+    first
+        .metadata
+        .insert("workflow_key".to_string(), "repo_review".to_string());
+    first
+        .metadata
+        .insert("outcome".to_string(), "success".to_string());
+
+    let mut second = durable(
+        "project",
+        "event",
+        "repo_review",
+        "Completed the repo review workflow successfully again",
+        MemoryType::Episode,
+        SourceType::Tool,
+        0.8,
+        ts(1_700_000_020),
+    );
+    second
+        .metadata
+        .insert("workflow_key".to_string(), "repo_review".to_string());
+    second
+        .metadata
+        .insert("outcome".to_string(), "success".to_string());
+
+    {
+        let mut episode_store = EpisodeStore::new(&mut store);
+        episode_store
+            .save_memory(&first)
+            .expect("first episode stored");
+        episode_store
+            .save_memory(&second)
+            .expect("second episode stored");
+    }
+
+    let outcomes = ConsolidationEngine
+        .consolidate(
+            &mut store,
+            Some(&second),
+            None,
+            &FixedClock::new(ts(1_700_000_030)),
+        )
+        .expect("consolidation succeeds");
+
+    let transition = outcomes
+        .iter()
+        .find_map(|outcome| outcome.procedure_status_transition.as_ref())
+        .expect("procedure transition present");
+    assert_eq!(transition.previous_status, ProcedureStatus::CoolingDown);
+    assert_eq!(transition.next_status, ProcedureStatus::Active);
+
+    let learned_procedure = {
+        let mut procedure_store = ProcedureStore::new(&mut store);
+        procedure_store
+            .get_by_workflow_key("repo_review")
+            .expect("procedure lookup succeeds")
+            .expect("procedure exists")
+    };
+    assert_eq!(learned_procedure.status, ProcedureStatus::Active);
+    assert_eq!(
+        learned_procedure
+            .metadata
+            .get("prior_procedure_status")
+            .map(String::as_str),
+        Some("cooling_down")
+    );
+}
+
+#[test]
+fn controller_emits_procedure_status_change_when_reconciling_stale_lifecycle() {
+    let (mut controller, sink) = controller(ts(1_700_000_000));
+    controller
+        .store_mut()
+        .put_memory(&procedure_memory(
+            "procedure-stale-active",
+            ProcedureStatus::Active,
+            1,
+            6,
+            ts(1_699_999_000),
+        ))
+        .expect("stale procedure stored");
+
+    controller
+        .ingest(candidate(
+            "user",
+            "location",
+            "Berlin",
+            "The user currently lives in Berlin.",
+        ))
+        .expect("ingest succeeds")
+        .expect("memory stored");
+
+    let transition_event = sink
+        .events()
+        .into_iter()
+        .find(|event| event.action == "procedure_status_changed")
+        .expect("status change event emitted");
+    assert_eq!(
+        transition_event
+            .details
+            .get("previous_status")
+            .map(String::as_str),
+        Some("active")
+    );
+    assert_eq!(
+        transition_event
+            .details
+            .get("next_status")
+            .map(String::as_str),
+        Some("retired")
     );
 }
 

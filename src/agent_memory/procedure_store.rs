@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
@@ -7,6 +7,47 @@ use super::adapters::memvid_store::MemoryStore;
 use super::enums::{MemoryLayer, MemoryType, ProcedureStatus, Scope, SourceType};
 use super::errors::{AgentMemoryError, Result};
 use super::schemas::{DurableMemory, ProcedureRecord, Provenance};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProcedureStatusTransition {
+    pub procedure_id: String,
+    pub workflow_key: String,
+    pub previous_status: ProcedureStatus,
+    pub next_status: ProcedureStatus,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProcedureUpsertOutcome {
+    pub record: ProcedureRecord,
+    pub status_transition: Option<ProcedureStatusTransition>,
+}
+
+#[must_use]
+pub fn effective_procedure_status(record: &ProcedureRecord) -> ProcedureStatus {
+    if record.status == ProcedureStatus::Retired {
+        return ProcedureStatus::Retired;
+    }
+    if record.status == ProcedureStatus::CoolingDown {
+        return ProcedureStatus::CoolingDown;
+    }
+
+    let total_runs = record.success_count + record.failure_count;
+    if total_runs >= 5 && record.failure_count >= record.success_count.saturating_add(3) {
+        ProcedureStatus::Retired
+    } else if total_runs >= 3 && record.failure_count > record.success_count {
+        ProcedureStatus::CoolingDown
+    } else {
+        ProcedureStatus::Active
+    }
+}
+
+fn workflow_key_for(record: &ProcedureRecord) -> String {
+    record
+        .metadata
+        .get("workflow_key")
+        .cloned()
+        .unwrap_or_else(|| record.name.clone())
+}
 
 /// Dedicated bounded store for learned operational procedures.
 pub struct ProcedureStore<'a, S: MemoryStore> {
@@ -46,7 +87,7 @@ impl<'a, S: MemoryStore> ProcedureStore<'a, S> {
         Ok(self
             .list_all()?
             .into_iter()
-            .filter(|record| record.status != ProcedureStatus::Retired)
+            .filter(|record| effective_procedure_status(record) != ProcedureStatus::Retired)
             .collect())
     }
 
@@ -79,7 +120,7 @@ impl<'a, S: MemoryStore> ProcedureStore<'a, S> {
         description: &str,
         learned_from_memory_ids: &[String],
         now: DateTime<Utc>,
-    ) -> Result<ProcedureRecord> {
+    ) -> Result<ProcedureUpsertOutcome> {
         let existing = self.get_by_workflow_key(workflow_key)?;
         let mut merged_memory_ids = existing
             .as_ref()
@@ -107,8 +148,9 @@ impl<'a, S: MemoryStore> ProcedureStore<'a, S> {
             .unwrap_or_default();
         metadata.insert("workflow_key".to_string(), workflow_key.to_string());
         metadata.insert("procedure_name".to_string(), workflow_key.to_string());
+        let previous_status = existing.as_ref().map(|record| record.status);
 
-        let record = ProcedureRecord {
+        let mut record = ProcedureRecord {
             procedure_id: Uuid::new_v4().to_string(),
             name: workflow_key.to_string(),
             description: description.to_string(),
@@ -126,8 +168,72 @@ impl<'a, S: MemoryStore> ProcedureStore<'a, S> {
             updated_at: now,
             metadata,
         };
+        record.status = effective_procedure_status(&record);
+
+        let status_transition = previous_status.and_then(|previous_status| {
+            (previous_status != record.status).then(|| ProcedureStatusTransition {
+                procedure_id: record.procedure_id.clone(),
+                workflow_key: workflow_key.to_string(),
+                previous_status,
+                next_status: record.status,
+            })
+        });
+        if let Some(transition) = &status_transition {
+            record.metadata.insert(
+                "prior_procedure_status".to_string(),
+                transition.previous_status.as_str().to_string(),
+            );
+            record
+                .metadata
+                .insert("status_transition_at".to_string(), now.to_rfc3339());
+        }
+
         self.persist_record(&record)?;
-        Ok(record)
+        Ok(ProcedureUpsertOutcome {
+            record,
+            status_transition,
+        })
+    }
+
+    pub fn sync_all_effective_statuses(
+        &mut self,
+        now: DateTime<Utc>,
+    ) -> Result<Vec<ProcedureStatusTransition>> {
+        let mut seen_workflows = HashSet::new();
+        let mut transitions = Vec::new();
+
+        for record in self.list_all()? {
+            let workflow_key = workflow_key_for(&record);
+            if !seen_workflows.insert(workflow_key.clone()) {
+                continue;
+            }
+
+            let effective_status = effective_procedure_status(&record);
+            if effective_status == record.status {
+                continue;
+            }
+
+            let mut updated = record.clone();
+            updated.status = effective_status;
+            updated.updated_at = now;
+            updated.metadata.insert(
+                "prior_procedure_status".to_string(),
+                record.status.as_str().to_string(),
+            );
+            updated
+                .metadata
+                .insert("status_transition_at".to_string(), now.to_rfc3339());
+
+            self.persist_record(&updated)?;
+            transitions.push(ProcedureStatusTransition {
+                procedure_id: updated.procedure_id,
+                workflow_key,
+                previous_status: record.status,
+                next_status: effective_status,
+            });
+        }
+
+        Ok(transitions)
     }
 
     fn persist_record(&mut self, record: &ProcedureRecord) -> Result<String> {

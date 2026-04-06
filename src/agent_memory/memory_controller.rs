@@ -14,7 +14,7 @@ use super::goal_state_store::GoalStateStore;
 use super::memory_classifier::MemoryClassifier;
 use super::memory_promoter::MemoryPromoter;
 use super::memory_retriever::MemoryRetriever;
-use super::procedure_store::ProcedureStore;
+use super::procedure_store::{ProcedureStatusTransition, ProcedureStore};
 use super::schemas::{AuditEvent, CandidateMemory, RetrievalHit, RetrievalQuery};
 use super::self_model_store::SelfModelStore;
 
@@ -339,6 +339,23 @@ impl<S: MemoryStore> MemoryController<S> {
                     self.clock.as_ref(),
                 )?;
                 for outcome in consolidation_outcomes {
+                    let mut details = BTreeMap::from([
+                        (
+                            "target_layer".to_string(),
+                            outcome.record.target_layer.as_str().to_string(),
+                        ),
+                        ("reason".to_string(), outcome.record.reason.clone()),
+                    ]);
+                    if let Some(transition) = &outcome.procedure_status_transition {
+                        details.insert(
+                            "previous_procedure_status".to_string(),
+                            transition.previous_status.as_str().to_string(),
+                        );
+                        details.insert(
+                            "next_procedure_status".to_string(),
+                            transition.next_status.as_str().to_string(),
+                        );
+                    }
                     self.audit.emit(AuditEvent {
                         event_id: String::new(),
                         occurred_at: self.clock.now(),
@@ -347,13 +364,7 @@ impl<S: MemoryStore> MemoryController<S> {
                         memory_id: Some(outcome.trace_id.clone()),
                         belief_id: None,
                         query_text: None,
-                        details: BTreeMap::from([
-                            (
-                                "target_layer".to_string(),
-                                outcome.record.target_layer.as_str().to_string(),
-                            ),
-                            ("reason".to_string(), outcome.record.reason.clone()),
-                        ]),
+                        details,
                     });
                     if let Some(procedure_id) = outcome.learned_procedure_id {
                         self.audit.emit(AuditEvent {
@@ -370,6 +381,23 @@ impl<S: MemoryStore> MemoryController<S> {
                             )]),
                         });
                     }
+                    if let Some(transition) = outcome.procedure_status_transition {
+                        self.emit_procedure_status_transition(
+                            Some(classified.candidate_id.clone()),
+                            transition,
+                        );
+                    }
+                }
+
+                let lifecycle_transitions = {
+                    let mut procedure_store = ProcedureStore::new(&mut self.store);
+                    procedure_store.sync_all_effective_statuses(self.clock.now())?
+                };
+                for transition in lifecycle_transitions {
+                    self.emit_procedure_status_transition(
+                        Some(classified.candidate_id.clone()),
+                        transition,
+                    );
                 }
 
                 Ok(Some(memory_id))
@@ -407,5 +435,32 @@ impl<S: MemoryStore> MemoryController<S> {
 
     pub fn store_mut(&mut self) -> &mut S {
         &mut self.store
+    }
+
+    fn emit_procedure_status_transition(
+        &self,
+        candidate_id: Option<String>,
+        transition: ProcedureStatusTransition,
+    ) {
+        self.audit.emit(AuditEvent {
+            event_id: String::new(),
+            occurred_at: self.clock.now(),
+            action: "procedure_status_changed".to_string(),
+            candidate_id,
+            memory_id: Some(transition.procedure_id),
+            belief_id: None,
+            query_text: None,
+            details: BTreeMap::from([
+                ("workflow_key".to_string(), transition.workflow_key),
+                (
+                    "previous_status".to_string(),
+                    transition.previous_status.as_str().to_string(),
+                ),
+                (
+                    "next_status".to_string(),
+                    transition.next_status.as_str().to_string(),
+                ),
+            ]),
+        });
     }
 }

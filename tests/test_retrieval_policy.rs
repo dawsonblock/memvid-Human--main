@@ -119,30 +119,32 @@ fn preference_query_ranks_preference_memory_above_generic_semantic_hits() {
 #[test]
 fn task_query_ranks_goal_state_and_recent_episodes_above_background_text() {
     let mut store = InMemoryMemoryStore::default();
-    store
-        .put_memory(&durable(
-            "project",
-            "task_status",
-            "blocked",
-            "The current task is blocked waiting on review",
-            MemoryType::GoalState,
-            SourceType::Chat,
-            0.75,
-            ts(1_700_000_050),
-        ))
-        .expect("goal stored");
-    store
-        .put_memory(&durable(
-            "project",
-            "event",
-            "review_requested",
-            "Yesterday the team requested review for the task",
-            MemoryType::Episode,
-            SourceType::Chat,
-            0.75,
-            ts(1_700_000_040),
-        ))
-        .expect("episode stored");
+    let episode = durable(
+        "project",
+        "event",
+        "review_requested",
+        "Yesterday the team requested review for the task",
+        MemoryType::Episode,
+        SourceType::Chat,
+        0.75,
+        ts(1_700_000_040),
+    );
+    let episode_id = episode.memory_id.clone();
+    store.put_memory(&episode).expect("episode stored");
+
+    let mut goal = durable(
+        "project",
+        "task_status",
+        "blocked",
+        "The current task is blocked waiting on review",
+        MemoryType::GoalState,
+        SourceType::Chat,
+        0.75,
+        ts(1_700_000_050),
+    );
+    goal.metadata
+        .insert("supporting_episode_ids".to_string(), episode_id);
+    store.put_memory(&goal).expect("goal stored");
     store
         .put_memory(&durable(
             "project",
@@ -181,6 +183,126 @@ fn task_query_ranks_goal_state_and_recent_episodes_above_background_text() {
     assert_eq!(
         hits.get(1).and_then(|hit| hit.memory_type),
         Some(MemoryType::Episode)
+    );
+}
+
+#[test]
+fn task_query_excludes_unaligned_episode_and_procedure_context() {
+    let mut store = InMemoryMemoryStore::default();
+    let supporting_episode = durable(
+        "project",
+        "event",
+        "review_requested",
+        "Requested review for the current task",
+        MemoryType::Episode,
+        SourceType::Chat,
+        0.75,
+        ts(1_700_000_010),
+    );
+    let supporting_episode_id = supporting_episode.memory_id.clone();
+    store
+        .put_memory(&supporting_episode)
+        .expect("supporting episode stored");
+    store
+        .put_memory(&durable(
+            "project",
+            "event",
+            "unrelated_followup",
+            "A different thread discussed documentation cleanup",
+            MemoryType::Episode,
+            SourceType::Chat,
+            0.75,
+            ts(1_700_000_020),
+        ))
+        .expect("unrelated episode stored");
+
+    let mut goal = durable(
+        "project",
+        "task_status",
+        "blocked",
+        "Blocked waiting on review",
+        MemoryType::GoalState,
+        SourceType::Chat,
+        0.75,
+        ts(1_700_000_030),
+    );
+    goal.metadata
+        .insert("supporting_episode_ids".to_string(), supporting_episode_id);
+    goal.metadata
+        .insert("workflow_key".to_string(), "repo_review".to_string());
+    store.put_memory(&goal).expect("goal stored");
+
+    let mut aligned_procedure = durable(
+        "procedure",
+        "repo_review",
+        "repo_review",
+        "Review the repo in a consistent order",
+        MemoryType::Trace,
+        SourceType::System,
+        1.0,
+        ts(1_700_000_040),
+    );
+    aligned_procedure.internal_layer =
+        Some(memvid_core::agent_memory::enums::MemoryLayer::Procedure);
+    aligned_procedure
+        .metadata
+        .insert("procedure_name".to_string(), "repo_review".to_string());
+    aligned_procedure
+        .metadata
+        .insert("workflow_key".to_string(), "repo_review".to_string());
+    aligned_procedure
+        .metadata
+        .insert("context_tags".to_string(), "repo_review,review".to_string());
+    aligned_procedure
+        .metadata
+        .insert("procedure_status".to_string(), "active".to_string());
+    store
+        .put_memory(&aligned_procedure)
+        .expect("aligned procedure stored");
+
+    let mut unrelated_procedure = aligned_procedure.clone();
+    unrelated_procedure.memory_id = "memory-procedure-unrelated".to_string();
+    unrelated_procedure.slot = "doc_cleanup".to_string();
+    unrelated_procedure.value = "doc_cleanup".to_string();
+    unrelated_procedure
+        .metadata
+        .insert("workflow_key".to_string(), "doc_cleanup".to_string());
+    unrelated_procedure
+        .metadata
+        .insert("context_tags".to_string(), "docs,cleanup".to_string());
+    store
+        .put_memory(&unrelated_procedure)
+        .expect("unrelated procedure stored");
+
+    let retriever = MemoryRetriever::new(Ranker, RetentionManager::new(PolicySet::default()));
+    let hits = retriever
+        .retrieve(
+            &mut store,
+            &RetrievalQuery {
+                query_text: "what is the current task status for repo_review".to_string(),
+                intent: QueryIntent::TaskState,
+                entity: Some("project".to_string()),
+                slot: None,
+                scope: None,
+                top_k: 5,
+                as_of: None,
+                include_expired: false,
+            },
+            &FixedClock::new(ts(1_700_000_100)),
+        )
+        .expect("retrieval works");
+
+    assert!(
+        hits.iter()
+            .any(|hit| hit.memory_id.as_deref() == Some(aligned_procedure.memory_id.as_str()))
+    );
+    assert!(
+        hits.iter()
+            .all(|hit| hit.memory_id.as_deref() != Some("memory-procedure-unrelated"))
+    );
+    assert!(
+        hits.iter()
+            .all(|hit| hit.value.as_deref() != Some("unrelated_followup"))
     );
 }
 

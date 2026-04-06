@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 
 use super::enums::{MemoryLayer, ProcedureStatus};
 use super::policy::PolicySet;
+use super::procedure_store::effective_procedure_status;
 use super::schemas::{DurableMemory, ProcedureRecord, RetentionRule};
 
 const DAY_SECONDS: i64 = 86_400;
@@ -64,7 +65,7 @@ impl RetentionManager {
     }
 
     fn adjust_procedure_rule(rule: &mut RetentionRule, record: &ProcedureRecord) {
-        let effective_status = Self::effective_procedure_status(record);
+        let effective_status = effective_procedure_status(record);
         let total_runs = record.success_count + record.failure_count;
         let failure_ratio = if total_runs == 0 {
             0.0
@@ -104,24 +105,6 @@ impl RetentionManager {
 
         if failure_ratio >= 0.7 && total_runs >= 4 {
             rule.decay_per_day *= 1.35;
-        }
-    }
-
-    fn effective_procedure_status(record: &ProcedureRecord) -> ProcedureStatus {
-        if record.status == ProcedureStatus::Retired {
-            return ProcedureStatus::Retired;
-        }
-        if record.status == ProcedureStatus::CoolingDown {
-            return ProcedureStatus::CoolingDown;
-        }
-
-        let total_runs = record.success_count + record.failure_count;
-        if total_runs >= 5 && record.failure_count >= record.success_count.saturating_add(3) {
-            ProcedureStatus::Retired
-        } else if total_runs >= 3 && record.failure_count > record.success_count {
-            ProcedureStatus::CoolingDown
-        } else {
-            ProcedureStatus::Active
         }
     }
 }

@@ -9,7 +9,7 @@ use super::enums::MemoryLayer;
 use super::episode_store::EpisodeStore;
 use super::errors::Result;
 use super::goal_state_store::GoalStateStore;
-use super::procedure_store::ProcedureStore;
+use super::procedure_store::{ProcedureStatusTransition, ProcedureStore};
 use super::schemas::{ConsolidationRecord, DurableMemory};
 use super::self_model_store::SelfModelStore;
 
@@ -23,6 +23,7 @@ pub struct ConsolidationOutcome {
     pub record: ConsolidationRecord,
     pub trace_id: String,
     pub learned_procedure_id: Option<String>,
+    pub procedure_status_transition: Option<ProcedureStatusTransition>,
 }
 
 /// Bounded consolidation process over recent episodes and durable preferences.
@@ -81,7 +82,7 @@ impl ConsolidationEngine {
                             "workflow {workflow_key} has succeeded repeatedly and should be reused"
                         )
                     });
-                let procedure = {
+                let procedure_outcome = {
                     let mut procedure_store = ProcedureStore::new(store);
                     procedure_store.upsert_success(
                         workflow_key,
@@ -93,26 +94,40 @@ impl ConsolidationEngine {
                 let record = ConsolidationRecord {
                     consolidation_id: Uuid::new_v4().to_string(),
                     target_layer: MemoryLayer::Procedure,
-                    target_id: Some(procedure.procedure_id.clone()),
+                    target_id: Some(procedure_outcome.record.procedure_id.clone()),
                     source_memory_ids,
                     reason: format!(
                         "repeated successful workflow {workflow_key} promoted into procedure memory"
                     ),
-                    confidence: procedure.confidence,
+                    confidence: procedure_outcome.record.confidence,
                     created_at: now,
-                    metadata: BTreeMap::from([
-                        ("workflow_key".to_string(), workflow_key.clone()),
-                        (
-                            "window_days".to_string(),
-                            CONSOLIDATION_WINDOW_DAYS.to_string(),
-                        ),
-                    ]),
+                    metadata: {
+                        let mut metadata = BTreeMap::from([
+                            ("workflow_key".to_string(), workflow_key.clone()),
+                            (
+                                "window_days".to_string(),
+                                CONSOLIDATION_WINDOW_DAYS.to_string(),
+                            ),
+                        ]);
+                        if let Some(transition) = &procedure_outcome.status_transition {
+                            metadata.insert(
+                                "previous_procedure_status".to_string(),
+                                transition.previous_status.as_str().to_string(),
+                            );
+                            metadata.insert(
+                                "next_procedure_status".to_string(),
+                                transition.next_status.as_str().to_string(),
+                            );
+                        }
+                        metadata
+                    },
                 };
                 let trace_id = self.persist_record(store, &record)?;
                 outcomes.push(ConsolidationOutcome {
                     record,
                     trace_id,
-                    learned_procedure_id: Some(procedure.procedure_id),
+                    learned_procedure_id: Some(procedure_outcome.record.procedure_id),
+                    procedure_status_transition: procedure_outcome.status_transition,
                 });
             }
         }
@@ -171,6 +186,7 @@ impl ConsolidationEngine {
             record,
             trace_id,
             learned_procedure_id: None,
+            procedure_status_transition: None,
         }))
     }
 
@@ -237,6 +253,7 @@ impl ConsolidationEngine {
             record,
             trace_id,
             learned_procedure_id: None,
+            procedure_status_transition: None,
         }))
     }
 
@@ -297,6 +314,7 @@ impl ConsolidationEngine {
             record,
             trace_id,
             learned_procedure_id: None,
+            procedure_status_transition: None,
         }))
     }
 
