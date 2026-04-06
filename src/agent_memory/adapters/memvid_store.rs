@@ -1,0 +1,757 @@
+use std::collections::{BTreeMap, HashMap, HashSet};
+
+use chrono::{DateTime, Utc};
+use uuid::Uuid;
+
+use crate::Memvid;
+use crate::agent_memory::enums::{BeliefStatus, MemoryType, Scope, SourceType};
+use crate::agent_memory::errors::{AgentMemoryError, Result};
+use crate::agent_memory::schemas::{BeliefRecord, DurableMemory, RetrievalHit, RetrievalQuery};
+use crate::types::{AclEnforcementMode, MemoryCardBuilder, MemoryKind, PutOptions, SearchRequest};
+
+const TRACK_TRACE: &str = "agent_memory_trace";
+const TRACK_MEMORY: &str = "agent_memory_memory";
+const TRACK_BELIEF: &str = "agent_memory_belief";
+const TRACK_SYSTEM: &str = "agent_memory_system";
+const BELIEF_PREFIX: &str = "__agent_memory_belief__";
+const EXPIRY_PREFIX: &str = "__agent_memory_expiry__";
+
+/// Narrow governed-memory store abstraction.
+pub trait MemoryStore {
+    fn put_trace(&mut self, raw_text: &str, metadata: BTreeMap<String, String>) -> Result<String>;
+    fn put_memory(&mut self, memory: &DurableMemory) -> Result<String>;
+    fn update_belief(&mut self, belief: &BeliefRecord) -> Result<()>;
+    fn get_active_belief(&mut self, entity: &str, slot: &str) -> Result<Option<BeliefRecord>>;
+    fn search(&mut self, query: &RetrievalQuery) -> Result<Vec<RetrievalHit>>;
+    fn list_memories_for_belief(&mut self, entity: &str, slot: &str) -> Result<Vec<DurableMemory>>;
+    fn expire_memory(&mut self, memory_id: &str) -> Result<()>;
+}
+
+fn scope_string(scope: Scope) -> &'static str {
+    match scope {
+        Scope::Private => "private",
+        Scope::Task => "task",
+        Scope::Project => "project",
+        Scope::Shared => "shared",
+    }
+}
+
+fn parse_scope(value: Option<&String>) -> Scope {
+    match value.map(std::string::String::as_str) {
+        Some("task") => Scope::Task,
+        Some("project") => Scope::Project,
+        Some("shared") => Scope::Shared,
+        _ => Scope::Private,
+    }
+}
+
+fn parse_memory_type(value: Option<&String>) -> MemoryType {
+    match value.map(std::string::String::as_str) {
+        Some("episode") => MemoryType::Episode,
+        Some("fact") => MemoryType::Fact,
+        Some("preference") => MemoryType::Preference,
+        Some("goalstate" | "goal_state") => MemoryType::GoalState,
+        _ => MemoryType::Trace,
+    }
+}
+
+fn parse_source_type(value: Option<&String>) -> SourceType {
+    match value.map(std::string::String::as_str) {
+        Some("file") => SourceType::File,
+        Some("tool") => SourceType::Tool,
+        Some("system") => SourceType::System,
+        Some("external") => SourceType::External,
+        _ => SourceType::Chat,
+    }
+}
+
+fn type_to_memory_kind(memory_type: MemoryType) -> MemoryKind {
+    match memory_type {
+        MemoryType::Trace => MemoryKind::Other,
+        MemoryType::Episode => MemoryKind::Event,
+        MemoryType::Fact => MemoryKind::Fact,
+        MemoryType::Preference => MemoryKind::Preference,
+        MemoryType::GoalState => MemoryKind::Goal,
+    }
+}
+
+fn timestamp_to_datetime(timestamp: i64) -> Result<DateTime<Utc>> {
+    DateTime::<Utc>::from_timestamp(timestamp, 0).ok_or_else(|| AgentMemoryError::Store {
+        reason: format!("invalid unix timestamp: {timestamp}"),
+    })
+}
+
+fn parse_datetime(value: Option<&String>) -> Result<Option<DateTime<Utc>>> {
+    match value {
+        Some(text) => Ok(Some(
+            DateTime::parse_from_rfc3339(text)
+                .map_err(|err| AgentMemoryError::Store {
+                    reason: format!("invalid timestamp '{text}': {err}"),
+                })?
+                .with_timezone(&Utc),
+        )),
+        None => Ok(None),
+    }
+}
+
+fn memory_metadata(memory: &DurableMemory) -> BTreeMap<String, String> {
+    let mut metadata = BTreeMap::from([
+        ("agent_memory_id".to_string(), memory.memory_id.clone()),
+        (
+            "agent_candidate_id".to_string(),
+            memory.candidate_id.clone(),
+        ),
+        ("agent_entity".to_string(), memory.entity.clone()),
+        ("agent_slot".to_string(), memory.slot.clone()),
+        ("agent_value".to_string(), memory.value.clone()),
+        (
+            "agent_memory_type".to_string(),
+            format!("{:?}", memory.memory_type).to_lowercase(),
+        ),
+        (
+            "agent_memory_layer".to_string(),
+            memory.memory_layer().as_str().to_string(),
+        ),
+        (
+            "agent_confidence".to_string(),
+            memory.confidence.to_string(),
+        ),
+        ("agent_salience".to_string(), memory.salience.to_string()),
+        (
+            "agent_scope".to_string(),
+            scope_string(memory.scope).to_string(),
+        ),
+        (
+            "agent_source_type".to_string(),
+            format!("{:?}", memory.source.source_type).to_lowercase(),
+        ),
+        (
+            "agent_source_weight".to_string(),
+            memory.source.trust_weight.to_string(),
+        ),
+        (
+            "agent_observed_at".to_string(),
+            memory.stored_at.to_rfc3339(),
+        ),
+        ("agent_stored_at".to_string(), memory.stored_at.to_rfc3339()),
+        (
+            "agent_is_retraction".to_string(),
+            memory.is_retraction.to_string(),
+        ),
+    ]);
+    if let Some(ttl) = memory.ttl {
+        metadata.insert("agent_ttl".to_string(), ttl.to_string());
+    }
+    if let Some(event_at) = memory.event_at {
+        metadata.insert("agent_event_at".to_string(), event_at.to_rfc3339());
+    }
+    if let Some(valid_from) = memory.valid_from {
+        metadata.insert("agent_valid_from".to_string(), valid_from.to_rfc3339());
+    }
+    if let Some(valid_to) = memory.valid_to {
+        metadata.insert("agent_valid_to".to_string(), valid_to.to_rfc3339());
+    }
+    if !memory.tags.is_empty() {
+        metadata.insert("agent_tags".to_string(), memory.tags.join(","));
+    }
+    for (key, value) in &memory.metadata {
+        metadata.insert(format!("agent_meta_{key}"), value.clone());
+    }
+    metadata
+}
+
+fn retrieval_metadata(memory: &DurableMemory) -> BTreeMap<String, String> {
+    let mut metadata = memory.metadata.clone();
+    metadata.insert(
+        "memory_layer".to_string(),
+        memory.memory_layer().as_str().to_string(),
+    );
+    metadata
+}
+
+fn belief_entity(entity: &str) -> String {
+    format!("{BELIEF_PREFIX}:{entity}")
+}
+
+fn expiry_entity() -> &'static str {
+    EXPIRY_PREFIX
+}
+
+fn simple_score(haystack: &str, query: &str) -> f32 {
+    let haystack_lower = haystack.to_lowercase();
+    let normalized_query = query.to_lowercase();
+    let tokens: Vec<_> = normalized_query
+        .split_whitespace()
+        .filter(|token| !token.is_empty())
+        .collect();
+    if tokens.is_empty() {
+        return 0.0;
+    }
+    let matches = tokens
+        .iter()
+        .filter(|token| haystack_lower.contains(**token))
+        .count();
+    matches as f32 / tokens.len() as f32
+}
+
+/// In-memory test store.
+#[derive(Debug, Default, Clone)]
+pub struct InMemoryMemoryStore {
+    traces: Vec<(String, String, BTreeMap<String, String>)>,
+    memories: Vec<DurableMemory>,
+    beliefs: HashMap<(String, String), BeliefRecord>,
+    expired: HashSet<String>,
+}
+
+impl InMemoryMemoryStore {
+    #[must_use]
+    pub fn memories(&self) -> &[DurableMemory] {
+        &self.memories
+    }
+
+    #[must_use]
+    pub fn beliefs(&self) -> &HashMap<(String, String), BeliefRecord> {
+        &self.beliefs
+    }
+}
+
+impl MemoryStore for InMemoryMemoryStore {
+    fn put_trace(&mut self, raw_text: &str, metadata: BTreeMap<String, String>) -> Result<String> {
+        let trace_id = Uuid::new_v4().to_string();
+        self.traces
+            .push((trace_id.clone(), raw_text.to_string(), metadata));
+        Ok(trace_id)
+    }
+
+    fn put_memory(&mut self, memory: &DurableMemory) -> Result<String> {
+        self.memories.push(memory.clone());
+        Ok(memory.memory_id.clone())
+    }
+
+    fn update_belief(&mut self, belief: &BeliefRecord) -> Result<()> {
+        self.beliefs
+            .insert((belief.entity.clone(), belief.slot.clone()), belief.clone());
+        Ok(())
+    }
+
+    fn get_active_belief(&mut self, entity: &str, slot: &str) -> Result<Option<BeliefRecord>> {
+        Ok(self
+            .beliefs
+            .get(&(entity.to_string(), slot.to_string()))
+            .cloned()
+            .filter(|belief| belief.status == BeliefStatus::Active))
+    }
+
+    fn search(&mut self, query: &RetrievalQuery) -> Result<Vec<RetrievalHit>> {
+        let mut hits = Vec::new();
+        for memory in &self.memories {
+            if let Some(scope) = query.scope
+                && memory.scope != scope
+            {
+                continue;
+            }
+            if self.expired.contains(&memory.memory_id) && !query.include_expired {
+                continue;
+            }
+            if let Some(as_of) = query.as_of
+                && memory.stored_at > as_of
+            {
+                continue;
+            }
+            let text = format!(
+                "{} {} {} {}",
+                memory.entity, memory.slot, memory.value, memory.raw_text
+            );
+            let score = simple_score(&text, &query.query_text);
+            if score == 0.0 {
+                continue;
+            }
+            hits.push(RetrievalHit {
+                memory_id: Some(memory.memory_id.clone()),
+                belief_id: None,
+                entity: Some(memory.entity.clone()),
+                slot: Some(memory.slot.clone()),
+                value: Some(memory.value.clone()),
+                text: memory.raw_text.clone(),
+                memory_type: Some(memory.memory_type),
+                score,
+                timestamp: memory
+                    .event_at
+                    .or(memory.valid_from)
+                    .unwrap_or(memory.stored_at),
+                scope: Some(memory.scope),
+                source: Some(memory.source.source_type),
+                from_belief: false,
+                expired: self.expired.contains(&memory.memory_id),
+                metadata: retrieval_metadata(memory),
+            });
+        }
+        hits.sort_by(|left, right| right.score.total_cmp(&left.score));
+        hits.truncate(query.top_k.saturating_mul(4));
+        Ok(hits)
+    }
+
+    fn list_memories_for_belief(&mut self, entity: &str, slot: &str) -> Result<Vec<DurableMemory>> {
+        Ok(self
+            .memories
+            .iter()
+            .filter(|memory| memory.entity == entity && memory.slot == slot)
+            .cloned()
+            .collect())
+    }
+
+    fn expire_memory(&mut self, memory_id: &str) -> Result<()> {
+        self.expired.insert(memory_id.to_string());
+        Ok(())
+    }
+}
+
+/// Real adapter over memvid frame + memories APIs.
+pub struct MemvidStore {
+    memvid: Memvid,
+}
+
+impl MemvidStore {
+    #[must_use]
+    pub fn new(memvid: Memvid) -> Self {
+        Self { memvid }
+    }
+
+    fn is_expired(&self, memory_id: &str) -> bool {
+        self.memvid
+            .memories()
+            .get_cards(expiry_entity(), memory_id)
+            .iter()
+            .any(|card| !card.is_retracted())
+    }
+
+    fn build_durable_from_frame(
+        &mut self,
+        frame_id: u64,
+        extra_metadata: &BTreeMap<String, String>,
+    ) -> Result<DurableMemory> {
+        let raw_text = self.memvid.frame_text_by_id(frame_id)?;
+        let mut metadata = BTreeMap::new();
+        for (key, value) in extra_metadata {
+            if let Some(stripped) = key.strip_prefix("agent_meta_") {
+                metadata.insert(stripped.to_string(), value.clone());
+            }
+        }
+        Ok(DurableMemory {
+            memory_id: extra_metadata
+                .get("agent_memory_id")
+                .cloned()
+                .ok_or_else(|| AgentMemoryError::Store {
+                    reason: "missing agent_memory_id metadata".to_string(),
+                })?,
+            candidate_id: extra_metadata
+                .get("agent_candidate_id")
+                .cloned()
+                .unwrap_or_default(),
+            stored_at: parse_datetime(extra_metadata.get("agent_stored_at"))?
+                .unwrap_or(timestamp_to_datetime(0)?),
+            entity: extra_metadata
+                .get("agent_entity")
+                .cloned()
+                .unwrap_or_default(),
+            slot: extra_metadata
+                .get("agent_slot")
+                .cloned()
+                .unwrap_or_default(),
+            value: extra_metadata
+                .get("agent_value")
+                .cloned()
+                .unwrap_or_default(),
+            raw_text,
+            memory_type: parse_memory_type(extra_metadata.get("agent_memory_type")),
+            confidence: extra_metadata
+                .get("agent_confidence")
+                .and_then(|value| value.parse::<f32>().ok())
+                .unwrap_or(0.5),
+            salience: extra_metadata
+                .get("agent_salience")
+                .and_then(|value| value.parse::<f32>().ok())
+                .unwrap_or(0.5),
+            scope: parse_scope(extra_metadata.get("agent_scope")),
+            ttl: extra_metadata
+                .get("agent_ttl")
+                .and_then(|value| value.parse::<i64>().ok()),
+            source: crate::agent_memory::schemas::Provenance {
+                source_type: parse_source_type(extra_metadata.get("agent_source_type")),
+                source_id: extra_metadata
+                    .get("agent_source_id")
+                    .cloned()
+                    .unwrap_or_else(|| format!("frame:{frame_id}")),
+                source_label: None,
+                observed_by: None,
+                trust_weight: extra_metadata
+                    .get("agent_source_weight")
+                    .and_then(|value| value.parse::<f32>().ok())
+                    .unwrap_or(0.5),
+            },
+            event_at: parse_datetime(extra_metadata.get("agent_event_at"))?,
+            valid_from: parse_datetime(extra_metadata.get("agent_valid_from"))?,
+            valid_to: parse_datetime(extra_metadata.get("agent_valid_to"))?,
+            tags: extra_metadata
+                .get("agent_tags")
+                .map(|value| value.split(',').map(ToString::to_string).collect())
+                .unwrap_or_default(),
+            metadata,
+            is_retraction: extra_metadata
+                .get("agent_is_retraction")
+                .is_some_and(|value| value == "true"),
+        })
+    }
+
+    fn search_memory_cards(&mut self, query: &RetrievalQuery) -> Result<Vec<RetrievalHit>> {
+        let mut hits = Vec::new();
+        let cards = self.memvid.memories().cards().to_vec();
+        for card in &cards {
+            if card.entity.starts_with(BELIEF_PREFIX) || card.entity == expiry_entity() {
+                continue;
+            }
+            let frame = self.memvid.frame_by_id(card.source_frame_id)?;
+            let extra = frame.extra_metadata.clone();
+            if !extra.contains_key("agent_memory_id") {
+                continue;
+            }
+            let memory = self.build_durable_from_frame(card.source_frame_id, &extra)?;
+            if let Some(scope) = query.scope
+                && memory.scope != scope
+            {
+                continue;
+            }
+            if let Some(as_of) = query.as_of
+                && memory.stored_at > as_of
+            {
+                continue;
+            }
+            let score = simple_score(
+                &format!(
+                    "{} {} {} {}",
+                    memory.entity, memory.slot, memory.value, memory.raw_text
+                ),
+                &query.query_text,
+            );
+            if score == 0.0 {
+                continue;
+            }
+            hits.push(RetrievalHit {
+                memory_id: Some(memory.memory_id.clone()),
+                belief_id: None,
+                entity: Some(memory.entity.clone()),
+                slot: Some(memory.slot.clone()),
+                value: Some(memory.value.clone()),
+                text: memory.raw_text.clone(),
+                memory_type: Some(memory.memory_type),
+                score,
+                timestamp: memory
+                    .event_at
+                    .or(memory.valid_from)
+                    .unwrap_or(memory.stored_at),
+                scope: Some(memory.scope),
+                source: Some(memory.source.source_type),
+                from_belief: false,
+                expired: self.is_expired(&memory.memory_id),
+                metadata: retrieval_metadata(&memory),
+            });
+        }
+        Ok(hits)
+    }
+
+    fn frame_id_for_uri(&self, uri: &str) -> Result<u64> {
+        Ok(self.memvid.frame_by_uri(uri)?.id)
+    }
+}
+
+impl MemoryStore for MemvidStore {
+    fn put_trace(&mut self, raw_text: &str, metadata: BTreeMap<String, String>) -> Result<String> {
+        let trace_id = Uuid::new_v4().to_string();
+        let uri = format!("mv2://agent-memory/trace/{trace_id}");
+        let mut extra_metadata = metadata;
+        extra_metadata.insert("agent_trace_id".to_string(), trace_id.clone());
+        self.memvid.put_bytes_with_options(
+            raw_text.as_bytes(),
+            PutOptions {
+                timestamp: Some(Utc::now().timestamp()),
+                track: Some(TRACK_TRACE.to_string()),
+                kind: Some("agent_memory_trace".to_string()),
+                uri: Some(uri.clone()),
+                title: None,
+                metadata: None,
+                search_text: Some(raw_text.to_string()),
+                tags: vec!["agent-memory".to_string(), "trace".to_string()],
+                labels: Vec::new(),
+                extra_metadata,
+                ..PutOptions::default()
+            },
+        )?;
+        self.memvid.commit()?;
+        let frame_id = self.frame_id_for_uri(&uri)?;
+        Ok(format!("trace:{frame_id}"))
+    }
+
+    fn put_memory(&mut self, memory: &DurableMemory) -> Result<String> {
+        let uri = format!("mv2://agent-memory/memory/{}", memory.memory_id);
+        self.memvid.put_bytes_with_options(
+            memory.raw_text.as_bytes(),
+            PutOptions {
+                timestamp: Some(memory.stored_at.timestamp()),
+                track: Some(TRACK_MEMORY.to_string()),
+                kind: Some(format!("agent_memory_{:?}", memory.memory_type).to_lowercase()),
+                uri: Some(uri.clone()),
+                title: Some(format!("{}:{}", memory.entity, memory.slot)),
+                metadata: None,
+                search_text: Some(memory.raw_text.clone()),
+                tags: memory.tags.clone(),
+                labels: vec![format!("agent-memory-{:?}", memory.memory_type).to_lowercase()],
+                extra_metadata: memory_metadata(memory),
+                ..PutOptions::default()
+            },
+        )?;
+        self.memvid.commit()?;
+        let frame_id = self.frame_id_for_uri(&uri)?;
+
+        let mut builder = MemoryCardBuilder::new()
+            .kind(type_to_memory_kind(memory.memory_type))
+            .entity(memory.entity.clone())
+            .slot(memory.slot.clone())
+            .value(memory.value.clone())
+            .source(frame_id, Some(uri))
+            .engine("agent_memory", "1");
+        if let Some(event_at) = memory.event_at {
+            builder = builder.event_date(event_at.timestamp());
+        }
+        if let Some(valid_from) = memory.valid_from {
+            builder = builder.document_date(valid_from.timestamp());
+        } else {
+            builder = builder.document_date(memory.stored_at.timestamp());
+        }
+        builder = builder.confidence(memory.confidence);
+        builder = if memory.is_retraction {
+            builder.retracts()
+        } else if self
+            .memvid
+            .get_current_memory(&memory.entity, &memory.slot)
+            .is_some()
+        {
+            builder.updates()
+        } else {
+            builder
+        };
+
+        let card = builder.build(0).map_err(|err| AgentMemoryError::Store {
+            reason: err.to_string(),
+        })?;
+        self.memvid.put_memory_card(card)?;
+        self.memvid.commit()?;
+        Ok(memory.memory_id.clone())
+    }
+
+    fn update_belief(&mut self, belief: &BeliefRecord) -> Result<()> {
+        let belief_json = serde_json::to_string(belief)?;
+        let uri = format!("mv2://agent-memory/belief/{}", belief.belief_id);
+        self.memvid.put_bytes_with_options(
+            belief_json.as_bytes(),
+            PutOptions {
+                timestamp: Some(belief.last_reviewed_at.timestamp()),
+                track: Some(TRACK_BELIEF.to_string()),
+                kind: Some("agent_memory_belief".to_string()),
+                uri: Some(uri.clone()),
+                title: Some(format!("belief:{}:{}", belief.entity, belief.slot)),
+                search_text: Some(belief.current_value.clone()),
+                extra_metadata: BTreeMap::from([
+                    ("belief_id".to_string(), belief.belief_id.clone()),
+                    (
+                        "belief_status".to_string(),
+                        format!("{:?}", belief.status).to_lowercase(),
+                    ),
+                ]),
+                ..PutOptions::default()
+            },
+        )?;
+        self.memvid.commit()?;
+        let frame_id = self.frame_id_for_uri(&uri)?;
+        let builder = MemoryCardBuilder::new()
+            .profile()
+            .entity(belief_entity(&belief.entity))
+            .slot(belief.slot.clone())
+            .value(belief_json)
+            .source(frame_id, Some(uri))
+            .engine("agent_memory", "1")
+            .document_date(belief.last_reviewed_at.timestamp())
+            .confidence(belief.confidence);
+        let builder = if belief.status == BeliefStatus::Retracted {
+            builder.retracts()
+        } else if self
+            .memvid
+            .get_current_memory(&belief_entity(&belief.entity), &belief.slot)
+            .is_some()
+        {
+            builder.updates()
+        } else {
+            builder
+        };
+        let card = builder.build(0).map_err(|err| AgentMemoryError::Store {
+            reason: err.to_string(),
+        })?;
+        self.memvid.put_memory_card(card)?;
+        self.memvid.commit()?;
+        Ok(())
+    }
+
+    fn get_active_belief(&mut self, entity: &str, slot: &str) -> Result<Option<BeliefRecord>> {
+        let mut beliefs: Vec<_> = self
+            .memvid
+            .memories()
+            .get_cards(&belief_entity(entity), slot)
+            .into_iter()
+            .filter(|card| !card.is_retracted())
+            .collect();
+        beliefs.sort_by_key(|card| card.effective_timestamp());
+        beliefs.reverse();
+        for card in beliefs {
+            let belief: BeliefRecord = serde_json::from_str(&card.value)?;
+            if belief.status == BeliefStatus::Active {
+                return Ok(Some(belief));
+            }
+        }
+        Ok(None)
+    }
+
+    fn search(&mut self, query: &RetrievalQuery) -> Result<Vec<RetrievalHit>> {
+        let mut hits = self.search_memory_cards(query)?;
+        let response = self.memvid.search(SearchRequest {
+            query: query.query_text.clone(),
+            top_k: query.top_k.saturating_mul(4).max(10),
+            snippet_chars: 200,
+            uri: None,
+            scope: None,
+            cursor: None,
+            as_of_frame: None,
+            as_of_ts: query.as_of.map(|timestamp| timestamp.timestamp()),
+            no_sketch: false,
+            acl_context: None,
+            acl_enforcement_mode: AclEnforcementMode::default(),
+        })?;
+        for hit in response.hits {
+            let Some(metadata) = hit.metadata else {
+                continue;
+            };
+            if metadata.track.as_deref() != Some(TRACK_MEMORY)
+                && metadata.track.as_deref() != Some(TRACK_TRACE)
+            {
+                continue;
+            }
+            let extra = metadata.extra_metadata;
+            if metadata.track.as_deref() == Some(TRACK_MEMORY)
+                && extra.contains_key("agent_memory_id")
+            {
+                let memory_id = extra.get("agent_memory_id").cloned();
+                let expired = memory_id.as_deref().is_some_and(|id| self.is_expired(id));
+                hits.push(RetrievalHit {
+                    memory_id,
+                    belief_id: None,
+                    entity: extra.get("agent_entity").cloned(),
+                    slot: extra.get("agent_slot").cloned(),
+                    value: extra.get("agent_value").cloned(),
+                    text: hit.chunk_text.unwrap_or(hit.text),
+                    memory_type: Some(parse_memory_type(extra.get("agent_memory_type"))),
+                    score: hit.score.unwrap_or(0.1),
+                    timestamp: query.as_of.unwrap_or_else(Utc::now),
+                    scope: Some(parse_scope(extra.get("agent_scope"))),
+                    source: Some(parse_source_type(extra.get("agent_source_type"))),
+                    from_belief: false,
+                    expired,
+                    metadata: {
+                        let mut metadata: BTreeMap<String, String> = extra
+                            .iter()
+                            .filter_map(|(key, value)| {
+                                key.strip_prefix("agent_meta_")
+                                    .map(|short| (short.to_string(), value.clone()))
+                            })
+                            .collect();
+                        if let Some(layer) = extra.get("agent_memory_layer") {
+                            metadata.insert("memory_layer".to_string(), layer.clone());
+                        }
+                        metadata
+                    },
+                });
+            } else if metadata.track.as_deref() == Some(TRACK_TRACE) {
+                let mut trace_metadata = extra;
+                if let Some(layer) = trace_metadata.get("memory_layer").cloned() {
+                    trace_metadata.insert("memory_layer".to_string(), layer);
+                }
+                hits.push(RetrievalHit {
+                    memory_id: trace_metadata.get("agent_trace_id").cloned(),
+                    belief_id: None,
+                    entity: trace_metadata.get("entity").cloned(),
+                    slot: trace_metadata.get("slot").cloned(),
+                    value: None,
+                    text: hit.chunk_text.unwrap_or(hit.text),
+                    memory_type: Some(MemoryType::Trace),
+                    score: hit.score.unwrap_or(0.05),
+                    timestamp: query.as_of.unwrap_or_else(Utc::now),
+                    scope: query.scope,
+                    source: None,
+                    from_belief: false,
+                    expired: false,
+                    metadata: trace_metadata,
+                });
+            }
+        }
+        Ok(hits)
+    }
+
+    fn list_memories_for_belief(&mut self, entity: &str, slot: &str) -> Result<Vec<DurableMemory>> {
+        let cards: Vec<_> = self
+            .memvid
+            .memories()
+            .get_cards(entity, slot)
+            .into_iter()
+            .cloned()
+            .collect();
+        let mut memories = Vec::new();
+        for card in &cards {
+            let frame = self.memvid.frame_by_id(card.source_frame_id)?;
+            if !frame.extra_metadata.contains_key("agent_memory_id") {
+                continue;
+            }
+            memories
+                .push(self.build_durable_from_frame(card.source_frame_id, &frame.extra_metadata)?);
+        }
+        Ok(memories)
+    }
+
+    fn expire_memory(&mut self, memory_id: &str) -> Result<()> {
+        let uri = format!("mv2://agent-memory/expiry/{memory_id}");
+        self.memvid.put_bytes_with_options(
+            format!("expired {memory_id}").as_bytes(),
+            PutOptions {
+                timestamp: Some(Utc::now().timestamp()),
+                track: Some(TRACK_SYSTEM.to_string()),
+                kind: Some("agent_memory_expiry".to_string()),
+                uri: Some(uri.clone()),
+                search_text: Some(format!("expired {memory_id}")),
+                ..PutOptions::default()
+            },
+        )?;
+        self.memvid.commit()?;
+        let frame_id = self.frame_id_for_uri(&uri)?;
+        let card = MemoryCardBuilder::new()
+            .kind(MemoryKind::Other)
+            .entity(expiry_entity())
+            .slot(memory_id.to_string())
+            .value("expired".to_string())
+            .source(frame_id, Some(uri))
+            .engine("agent_memory", "1")
+            .document_date(Utc::now().timestamp())
+            .build(0)
+            .map_err(|err| AgentMemoryError::Store {
+                reason: err.to_string(),
+            })?;
+        self.memvid.put_memory_card(card)?;
+        self.memvid.commit()?;
+        Ok(())
+    }
+}
