@@ -66,11 +66,10 @@ impl MemoryPromoter {
                 confidence: candidate.confidence,
                 salience: candidate.salience,
                 scope: candidate.scope,
-                ttl: candidate.ttl.or(
-                    self.policy
-                        .retention_rule(candidate.memory_layer(), candidate.memory_type)
-                        .default_ttl,
-                ),
+                ttl: candidate.ttl.or(self
+                    .policy
+                    .retention_rule(candidate.memory_layer(), candidate.memory_type)
+                    .default_ttl),
                 source: candidate.source.clone(),
                 event_at: candidate.event_at,
                 valid_from: candidate.valid_from,

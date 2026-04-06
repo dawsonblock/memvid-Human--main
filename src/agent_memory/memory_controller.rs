@@ -8,8 +8,8 @@ use super::belief_updater::BeliefUpdater;
 use super::clock::Clock;
 use super::consolidation_engine::ConsolidationEngine;
 use super::enums::{MemoryLayer, MemoryType, PromotionDecision};
-use super::errors::Result;
 use super::episode_store::EpisodeStore;
+use super::errors::Result;
 use super::goal_state_store::GoalStateStore;
 use super::memory_classifier::MemoryClassifier;
 use super::memory_promoter::MemoryPromoter;
@@ -209,9 +209,9 @@ impl<S: MemoryStore> MemoryController<S> {
 
                         let mut belief_store = BeliefStore::new(&mut self.store);
                         let existing = belief_store.get(&memory.entity, &memory.slot)?;
-                        let outcome = self
-                            .belief_updater
-                            .apply(existing, &memory, self.clock.as_ref());
+                        let outcome =
+                            self.belief_updater
+                                .apply(existing, &memory, self.clock.as_ref());
                         if let Some(prior) = outcome.prior_belief.as_ref() {
                             belief_store.save(prior)?;
                         }
@@ -244,7 +244,9 @@ impl<S: MemoryStore> MemoryController<S> {
                             let mut goal_store = GoalStateStore::new(&mut self.store);
                             goal_store.save_memory(
                                 &memory,
-                                episode_memory.as_ref().map(|episode| episode.memory_id.as_str()),
+                                episode_memory
+                                    .as_ref()
+                                    .map(|episode| episode.memory_id.as_str()),
                             )?
                         };
                         self.audit.emit(AuditEvent {
@@ -267,7 +269,9 @@ impl<S: MemoryStore> MemoryController<S> {
                             let mut self_model_store = SelfModelStore::new(&mut self.store);
                             self_model_store.save_memory(
                                 &memory,
-                                episode_memory.as_ref().map(|episode| episode.memory_id.as_str()),
+                                episode_memory
+                                    .as_ref()
+                                    .map(|episode| episode.memory_id.as_str()),
                             )?
                         };
                         self.audit.emit(AuditEvent {
@@ -318,14 +322,20 @@ impl<S: MemoryStore> MemoryController<S> {
                     )?,
                 };
 
+                let episode_for_consolidation = if memory_layer == MemoryLayer::Episode {
+                    Some(&memory)
+                } else {
+                    episode_memory.as_ref()
+                };
+                let primary_for_consolidation = if memory_layer == MemoryLayer::Episode {
+                    None
+                } else {
+                    Some(&memory)
+                };
                 let consolidation_outcomes = self.consolidation_engine.consolidate(
                     &mut self.store,
-                    episode_memory.as_ref().or(Some(&memory)).filter(|_| memory_layer == MemoryLayer::Episode || episode_memory.is_some()),
-                    if memory_layer == MemoryLayer::Episode {
-                        None
-                    } else {
-                        Some(&memory)
-                    },
+                    episode_for_consolidation,
+                    primary_for_consolidation,
                     self.clock.as_ref(),
                 )?;
                 for outcome in consolidation_outcomes {

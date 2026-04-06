@@ -1,7 +1,7 @@
 mod common;
 
 use memvid_core::agent_memory::enums::{
-    BeliefStatus, GoalStatus, MemoryLayer, MemoryType, SelfModelKind, SourceType,
+    BeliefStatus, GoalStatus, MemoryLayer, MemoryType, ProcedureStatus, SelfModelKind, SourceType,
 };
 
 use common::{candidate, durable, ts};
@@ -120,4 +120,43 @@ fn episode_projection_preserves_time_source_and_outcome() {
     assert_eq!(episode.event_at, ts(1_700_000_010));
     assert_eq!(episode.outcome.as_deref(), Some("pending"));
     assert_eq!(episode.source.source_type, SourceType::Tool);
+}
+
+#[test]
+fn procedure_projection_preserves_workflow_metadata() {
+    let mut procedure_memory = durable(
+        "procedure",
+        "repo_review",
+        "repo_review",
+        "Start with blockers, then validate runtime surface, then check tests.",
+        MemoryType::Trace,
+        SourceType::System,
+        1.0,
+        ts(1_700_000_000),
+    );
+    procedure_memory.internal_layer = Some(MemoryLayer::Procedure);
+    procedure_memory
+        .metadata
+        .insert("procedure_name".to_string(), "repo_review".to_string());
+    procedure_memory
+        .metadata
+        .insert("workflow_key".to_string(), "repo_review".to_string());
+    procedure_memory
+        .metadata
+        .insert("success_count".to_string(), "2".to_string());
+    procedure_memory
+        .metadata
+        .insert("failure_count".to_string(), "0".to_string());
+    procedure_memory.metadata.insert(
+        "procedure_status".to_string(),
+        ProcedureStatus::Active.as_str().to_string(),
+    );
+
+    let procedure = procedure_memory
+        .to_procedure_record()
+        .expect("procedure record");
+
+    assert_eq!(procedure.name, "repo_review");
+    assert_eq!(procedure.success_count, 2);
+    assert_eq!(procedure.status, ProcedureStatus::Active);
 }

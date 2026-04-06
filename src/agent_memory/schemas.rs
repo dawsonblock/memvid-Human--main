@@ -184,7 +184,11 @@ impl DurableMemory {
             slot: self.slot.clone(),
             value: self.value.clone(),
             summary: self.raw_text.clone(),
-            status: GoalStatus::from_text(&self.value, &self.raw_text),
+            status: self
+                .metadata
+                .get("goal_status")
+                .and_then(|value| GoalStatus::from_str(value))
+                .unwrap_or_else(|| GoalStatus::from_text(&self.value, &self.raw_text)),
             created_at: self.event_timestamp(),
             updated_at: self.stored_at,
             expires_at: self
@@ -223,7 +227,11 @@ impl DurableMemory {
             slot: self.slot.clone(),
             value: self.value.clone(),
             summary: self.raw_text.clone(),
-            kind: SelfModelKind::from_slot(&self.slot),
+            kind: self
+                .metadata
+                .get("self_model_kind")
+                .and_then(|value| SelfModelKind::from_str(value))
+                .unwrap_or_else(|| SelfModelKind::from_slot(&self.slot)),
             status: if self.is_retraction {
                 BeliefStatus::Retracted
             } else {

@@ -39,10 +39,12 @@ impl<'a, S: MemoryStore> ProcedureStore<'a, S> {
     }
 
     pub fn get_by_workflow_key(&mut self, workflow_key: &str) -> Result<Option<ProcedureRecord>> {
-        Ok(self
-            .list_all()?
-            .into_iter()
-            .find(|record| record.metadata.get("workflow_key").is_some_and(|value| value == workflow_key)))
+        Ok(self.list_all()?.into_iter().find(|record| {
+            record
+                .metadata
+                .get("workflow_key")
+                .is_some_and(|value| value == workflow_key)
+        }))
     }
 
     pub fn upsert_success(
@@ -58,12 +60,19 @@ impl<'a, S: MemoryStore> ProcedureStore<'a, S> {
             .map(|record| record.learned_from_memory_ids.clone())
             .unwrap_or_default();
         for memory_id in learned_from_memory_ids {
-            if !merged_memory_ids.iter().any(|existing_id| existing_id == memory_id) {
+            if !merged_memory_ids
+                .iter()
+                .any(|existing_id| existing_id == memory_id)
+            {
                 merged_memory_ids.push(memory_id.clone());
             }
         }
 
-        let success_count = existing.as_ref().map_or(1, |record| record.success_count + 1);
+        let success_count = existing
+            .as_ref()
+            .map_or(learned_from_memory_ids.len() as u32, |record| {
+                record.success_count + 1
+            });
         let failure_count = existing.as_ref().map_or(0, |record| record.failure_count);
         let confidence = (0.55 + (success_count as f32 * 0.1)).clamp(0.0, 0.98);
         let mut metadata = existing
@@ -99,8 +108,14 @@ impl<'a, S: MemoryStore> ProcedureStore<'a, S> {
         let mut metadata: BTreeMap<String, String> = record.metadata.clone();
         metadata.insert("procedure_name".to_string(), record.name.clone());
         metadata.insert("context_tags".to_string(), record.context_tags.join(","));
-        metadata.insert("success_count".to_string(), record.success_count.to_string());
-        metadata.insert("failure_count".to_string(), record.failure_count.to_string());
+        metadata.insert(
+            "success_count".to_string(),
+            record.success_count.to_string(),
+        );
+        metadata.insert(
+            "failure_count".to_string(),
+            record.failure_count.to_string(),
+        );
         metadata.insert(
             "procedure_status".to_string(),
             record.status.as_str().to_string(),

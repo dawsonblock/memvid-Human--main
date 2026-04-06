@@ -50,7 +50,11 @@ impl PolicySet {
     }
 
     #[must_use]
-    pub fn retention_rule(&self, memory_layer: MemoryLayer, memory_type: MemoryType) -> RetentionRule {
+    pub fn retention_rule(
+        &self,
+        memory_layer: MemoryLayer,
+        memory_type: MemoryType,
+    ) -> RetentionRule {
         match memory_layer {
             MemoryLayer::Trace => RetentionRule {
                 memory_layer,

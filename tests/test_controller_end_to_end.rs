@@ -32,7 +32,7 @@ fn ingest_promote_update_belief_and_audit_sequence() {
         })
         .expect("retrieval succeeds");
 
-    assert_eq!(controller.store().memories().len(), 1);
+    assert_eq!(controller.store().memories().len(), 2);
     assert_eq!(controller.store().beliefs().len(), 1);
     assert_eq!(
         hits.first().and_then(|hit| hit.value.as_deref()),
@@ -51,6 +51,7 @@ fn ingest_promote_update_belief_and_audit_sequence() {
         vec![
             "classification".to_string(),
             "promotion".to_string(),
+            "episode_stored".to_string(),
             "memory_stored".to_string(),
             "belief_updated".to_string(),
             "retrieval".to_string(),

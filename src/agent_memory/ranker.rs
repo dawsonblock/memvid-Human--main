@@ -17,7 +17,9 @@ impl Ranker {
     ) -> Vec<RetrievalHit> {
         for hit in &mut hits {
             let mut score = hit.score;
-            let memory_layer = hit.memory_layer.or_else(|| hit.memory_type.map(MemoryType::memory_layer));
+            let memory_layer = hit
+                .memory_layer
+                .or_else(|| hit.memory_type.map(MemoryType::memory_layer));
             if let Some(layer) = memory_layer {
                 score += Self::type_bonus(intent, layer);
                 score += Self::recency_bonus(intent, hit.timestamp, now);

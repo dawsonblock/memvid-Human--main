@@ -758,7 +758,8 @@ impl MemoryStore for MemvidStore {
             if !frame.extra_metadata.contains_key("agent_memory_id") {
                 continue;
             }
-            let memory = self.build_durable_from_frame(card.source_frame_id, &frame.extra_metadata)?;
+            let memory =
+                self.build_durable_from_frame(card.source_frame_id, &frame.extra_metadata)?;
             if memory.memory_layer() == layer {
                 memories.push(memory);
             }

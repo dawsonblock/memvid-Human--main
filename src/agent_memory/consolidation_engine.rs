@@ -48,7 +48,9 @@ impl ConsolidationEngine {
                             .into_iter()
                             .map(|record| record.memory_id)
                             .collect(),
-                        reason: "repeated self-model observations stabilized into durable preference".to_string(),
+                        reason:
+                            "repeated self-model observations stabilized into durable preference"
+                                .to_string(),
                         confidence: memory.confidence,
                         created_at: clock.now(),
                         metadata: BTreeMap::new(),
@@ -109,10 +111,7 @@ impl ConsolidationEngine {
                     ),
                     confidence: procedure.confidence,
                     created_at: clock.now(),
-                    metadata: BTreeMap::from([(
-                        "workflow_key".to_string(),
-                        workflow_key.clone(),
-                    )]),
+                    metadata: BTreeMap::from([("workflow_key".to_string(), workflow_key.clone())]),
                 };
                 let trace_id = self.persist_record(store, &record)?;
                 outcomes.push(ConsolidationOutcome {

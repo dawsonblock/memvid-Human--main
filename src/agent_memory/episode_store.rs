@@ -51,7 +51,10 @@ impl<'a, S: MemoryStore> EpisodeStore<'a, S> {
             .list_memories_by_layer(MemoryLayer::Episode)?
             .into_iter()
             .filter(|memory| {
-                memory.metadata.get("workflow_key").is_some_and(|value| value == workflow_key)
+                memory
+                    .metadata
+                    .get("workflow_key")
+                    .is_some_and(|value| value == workflow_key)
             })
             .map(|memory| memory.to_episode_record())
             .collect();
