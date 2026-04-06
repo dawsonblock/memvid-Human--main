@@ -18,6 +18,11 @@ impl MemoryPromoter {
     }
 
     #[must_use]
+    pub fn policy(&self) -> &PolicySet {
+        &self.policy
+    }
+
+    #[must_use]
     pub fn promote(&self, candidate: &CandidateMemory, clock: &dyn Clock) -> PromotionResult {
         let score = PolicySet::promotion_score(candidate.confidence, candidate.salience);
 

@@ -49,7 +49,7 @@ impl<S: MemoryStore> MemoryController<S> {
             promoter,
             belief_updater,
             retriever,
-            consolidation_engine: ConsolidationEngine,
+            consolidation_engine: ConsolidationEngine::new(promoter.policy().clone()),
         }
     }
 

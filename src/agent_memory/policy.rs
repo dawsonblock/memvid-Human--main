@@ -9,6 +9,19 @@ pub struct PolicySet {
     reject: f32,
     trace_only: f32,
     promote: f32,
+    belief_promote: f32,
+    self_model_promote: f32,
+    goal_state_promote: f32,
+    procedure_promote: f32,
+    self_model_repetitions: usize,
+    procedure_success_repetitions: usize,
+    blocker_repetitions: usize,
+    belief_stabilization_repetitions: usize,
+    consolidation_window_days: i64,
+    belief_stability_min_days: i64,
+    trusted_belief_source_weight: f32,
+    trusted_self_model_source_weight: f32,
+    trusted_procedure_source_weight: f32,
 }
 
 impl Default for PolicySet {
@@ -17,6 +30,19 @@ impl Default for PolicySet {
             reject: 0.25,
             trace_only: 0.35,
             promote: 0.65,
+            belief_promote: 0.75,
+            self_model_promote: 0.70,
+            goal_state_promote: 0.65,
+            procedure_promote: 0.72,
+            self_model_repetitions: 2,
+            procedure_success_repetitions: 2,
+            blocker_repetitions: 3,
+            belief_stabilization_repetitions: 2,
+            consolidation_window_days: 30,
+            belief_stability_min_days: 3,
+            trusted_belief_source_weight: 0.8,
+            trusted_self_model_source_weight: 0.9,
+            trusted_procedure_source_weight: 0.55,
         }
     }
 }
@@ -40,13 +66,58 @@ impl PolicySet {
     #[must_use]
     pub fn promote_threshold(&self, memory_layer: MemoryLayer) -> f32 {
         match memory_layer {
-            MemoryLayer::Belief => 0.75,
-            MemoryLayer::SelfModel => 0.70,
-            MemoryLayer::GoalState => 0.65,
+            MemoryLayer::Belief => self.belief_promote,
+            MemoryLayer::SelfModel => self.self_model_promote,
+            MemoryLayer::GoalState => self.goal_state_promote,
             MemoryLayer::Episode => self.promote,
-            MemoryLayer::Procedure => 0.72,
+            MemoryLayer::Procedure => self.procedure_promote,
             MemoryLayer::Trace => 1.1,
         }
+    }
+
+    #[must_use]
+    pub fn minimum_self_model_repetitions(&self) -> usize {
+        self.self_model_repetitions
+    }
+
+    #[must_use]
+    pub fn minimum_procedure_success_repetitions(&self) -> usize {
+        self.procedure_success_repetitions
+    }
+
+    #[must_use]
+    pub fn minimum_blocker_repetitions(&self) -> usize {
+        self.blocker_repetitions
+    }
+
+    #[must_use]
+    pub fn minimum_belief_stabilization_repetitions(&self) -> usize {
+        self.belief_stabilization_repetitions
+    }
+
+    #[must_use]
+    pub fn consolidation_window_days(&self) -> i64 {
+        self.consolidation_window_days
+    }
+
+    #[must_use]
+    pub fn belief_stability_min_days(&self) -> i64 {
+        self.belief_stability_min_days
+    }
+
+    #[must_use]
+    pub fn trusted_belief_source_weight(&self) -> f32 {
+        self.trusted_belief_source_weight
+    }
+
+    #[must_use]
+    pub fn trusted_self_model_source_weight(&self) -> f32 {
+        self.trusted_self_model_source_weight
+    }
+
+    #[must_use]
+    pub fn trusted_procedure_source_weight(&self) -> f32 {
+        self.trusted_procedure_source_weight
     }
 
     #[must_use]

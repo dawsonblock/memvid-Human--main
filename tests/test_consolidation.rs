@@ -43,7 +43,7 @@ fn consolidation_records_repeated_self_model_preferences() {
             .expect("second self-model stored");
     }
 
-    let outcomes = ConsolidationEngine
+    let outcomes = ConsolidationEngine::default()
         .consolidate(
             &mut store,
             None,
@@ -88,7 +88,7 @@ fn consolidation_records_stable_belief_windows() {
     second.event_at = Some(ts(1_700_000_000 + 5 * 86_400));
     store.put_memory(&second).expect("second belief stored");
 
-    let outcomes = ConsolidationEngine
+    let outcomes = ConsolidationEngine::default()
         .consolidate(
             &mut store,
             None,
@@ -162,7 +162,7 @@ fn consolidation_records_recurring_blockers() {
             .expect("third goal stored");
     }
 
-    let outcomes = ConsolidationEngine
+    let outcomes = ConsolidationEngine::default()
         .consolidate(
             &mut store,
             None,

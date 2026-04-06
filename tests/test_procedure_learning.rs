@@ -65,7 +65,7 @@ fn repeated_successful_workflows_promote_into_procedure_memory() {
             .save_memory(&first)
             .expect("first episode stored");
     }
-    let first_outcomes = ConsolidationEngine
+    let first_outcomes = ConsolidationEngine::default()
         .consolidate(
             &mut store,
             Some(&first),
@@ -81,7 +81,7 @@ fn repeated_successful_workflows_promote_into_procedure_memory() {
             .save_memory(&second)
             .expect("second episode stored");
     }
-    let second_outcomes = ConsolidationEngine
+    let second_outcomes = ConsolidationEngine::default()
         .consolidate(
             &mut store,
             Some(&second),
@@ -229,7 +229,7 @@ fn successful_workflow_promotion_persists_status_transition_metadata() {
             .expect("second episode stored");
     }
 
-    let outcomes = ConsolidationEngine
+    let outcomes = ConsolidationEngine::default()
         .consolidate(
             &mut store,
             Some(&second),
@@ -299,7 +299,7 @@ fn failed_workflow_updates_existing_procedure_lifecycle() {
             .expect("failed episode stored");
     }
 
-    let outcomes = ConsolidationEngine
+    let outcomes = ConsolidationEngine::default()
         .consolidate(
             &mut store,
             Some(&failed_episode),
