@@ -7,9 +7,12 @@ use super::belief_store::BeliefStore;
 use super::belief_updater::BeliefUpdater;
 use super::clock::Clock;
 use super::consolidation_engine::ConsolidationEngine;
-use super::enums::{MemoryLayer, MemoryType, PromotionDecision, SourceType};
+use super::enums::{
+    MemoryLayer, MemoryType, PromotionDecision, SelfModelStabilityClass, SelfModelKind,
+    SourceType,
+};
 use super::episode_store::EpisodeStore;
-use super::errors::Result;
+use super::errors::{AgentMemoryError, Result};
 use super::goal_state_store::GoalStateStore;
 use super::memory_classifier::MemoryClassifier;
 use super::memory_promoter::MemoryPromoter;
@@ -31,6 +34,11 @@ pub struct MemoryController<S: MemoryStore> {
     belief_updater: BeliefUpdater,
     retriever: MemoryRetriever,
     consolidation_engine: ConsolidationEngine,
+}
+
+enum SelfModelGovernanceDecision {
+    Persist(DurableMemory),
+    Downgrade { reason: String, reason_code: ReasonCode },
 }
 
 impl<S: MemoryStore> MemoryController<S> {
@@ -232,6 +240,33 @@ impl<S: MemoryStore> MemoryController<S> {
                     Some(episode_memory)
                 };
 
+                if memory_layer == MemoryLayer::SelfModel {
+                    match self.govern_self_model_memory(memory.clone())? {
+                        SelfModelGovernanceDecision::Persist(governed) => {
+                            memory = governed;
+                        }
+                        SelfModelGovernanceDecision::Downgrade { reason, reason_code } => {
+                            self.emit_policy_rejection_event(
+                                Some(classified.candidate_id.clone()),
+                                MemoryLayer::SelfModel,
+                                PromotionDecision::StoreTrace,
+                                reason,
+                                reason_code,
+                                BTreeMap::from([
+                                    ("route_basis".to_string(), "stable_directive_protection".to_string()),
+                                    ("fallback_layer".to_string(), "episode".to_string()),
+                                    (
+                                        "policy_version".to_string(),
+                                        self.promoter.policy_profile().version().to_string(),
+                                    ),
+                                ]),
+                            );
+                            self.reconcile_procedure_statuses(Some(classified.candidate_id.clone()))?;
+                            return Ok(episode_memory.map(|episode| episode.memory_id));
+                        }
+                    }
+                }
+
                 let memory_id = self.persist_durable_memory(
                     Some(classified.candidate_id.clone()),
                     memory.clone(),
@@ -319,9 +354,31 @@ impl<S: MemoryStore> MemoryController<S> {
 
     pub fn apply_durable_memory(
         &mut self,
-        memory: DurableMemory,
+        mut memory: DurableMemory,
         supporting_episode_id: Option<&str>,
     ) -> Result<String> {
+        if memory.memory_layer() == MemoryLayer::SelfModel {
+            let candidate_id = memory.candidate_id.clone();
+            match self.govern_self_model_memory(memory)? {
+                SelfModelGovernanceDecision::Persist(governed) => {
+                    memory = governed;
+                }
+                SelfModelGovernanceDecision::Downgrade { reason, reason_code } => {
+                    self.emit_policy_rejection_event(
+                        Some(candidate_id),
+                        MemoryLayer::SelfModel,
+                        PromotionDecision::Reject,
+                        reason.clone(),
+                        reason_code,
+                        BTreeMap::from([(
+                            "route_basis".to_string(),
+                            "stable_directive_protection".to_string(),
+                        )]),
+                    );
+                    return Err(AgentMemoryError::InvalidCandidate { reason });
+                }
+            }
+        }
         let memory_id = self.persist_durable_memory(None, memory, supporting_episode_id)?;
         self.reconcile_procedure_statuses(None)?;
         Ok(memory_id)
@@ -525,33 +582,150 @@ impl<S: MemoryStore> MemoryController<S> {
         promotion: &super::schemas::PromotionResult,
         reason_code: ReasonCode,
     ) {
-        let mut details = BTreeMap::from([
-            (
-                "target_layer".to_string(),
-                candidate.memory_layer().as_str().to_string(),
-            ),
-            (
-                "decision".to_string(),
-                format!("{:?}", promotion.decision).to_lowercase(),
-            ),
-            ("reason".to_string(), promotion.reason.clone()),
-            ("reason_code".to_string(), reason_code.as_str().to_string()),
-        ]);
+        let mut details = BTreeMap::new();
         for key in ["route_basis", "fallback_layer", "policy_version", "score_threshold"] {
             if let Some(value) = promotion.details.get(key) {
                 details.insert(key.to_string(), value.clone());
             }
         }
+        self.emit_policy_rejection_event(
+            Some(candidate.candidate_id.clone()),
+            candidate.memory_layer(),
+            promotion.decision,
+            promotion.reason.clone(),
+            reason_code,
+            details,
+        );
+    }
+
+    fn emit_policy_rejection_event(
+        &self,
+        candidate_id: Option<String>,
+        target_layer: MemoryLayer,
+        decision: PromotionDecision,
+        reason: String,
+        reason_code: ReasonCode,
+        mut details: BTreeMap<String, String>,
+    ) {
+        details.insert("target_layer".to_string(), target_layer.as_str().to_string());
+        details.insert(
+            "decision".to_string(),
+            format!("{:?}", decision).to_lowercase(),
+        );
+        details.insert("reason".to_string(), reason);
+        details.insert("reason_code".to_string(), reason_code.as_str().to_string());
         self.audit.emit(AuditEvent {
             event_id: String::new(),
             occurred_at: self.clock.now(),
             action: "policy_rejected".to_string(),
-            candidate_id: Some(candidate.candidate_id.clone()),
+            candidate_id,
             memory_id: None,
             belief_id: None,
             query_text: None,
             details,
         });
+    }
+
+    fn govern_self_model_memory(
+        &mut self,
+        mut memory: DurableMemory,
+    ) -> Result<SelfModelGovernanceDecision> {
+        let Some(entity) = memory.entity_non_empty().map(ToString::to_string) else {
+            return Ok(SelfModelGovernanceDecision::Persist(memory));
+        };
+        let Some(slot) = memory.slot_non_empty().map(ToString::to_string) else {
+            return Ok(SelfModelGovernanceDecision::Persist(memory));
+        };
+        let Some(value) = memory.value_non_empty().map(ToString::to_string) else {
+            return Ok(SelfModelGovernanceDecision::Persist(memory));
+        };
+
+        let kind = SelfModelKind::from_slot(&slot);
+        let stability_class = kind.stability_class();
+        let update_requirement = kind.update_requirement();
+        memory.internal_layer = Some(MemoryLayer::SelfModel);
+        memory.entity = entity.clone();
+        memory.slot = slot.clone();
+        memory.value = value.clone();
+        memory.metadata.insert("self_model_kind".to_string(), kind.as_str().to_string());
+        memory.metadata.insert(
+            "self_model_stability_class".to_string(),
+            stability_class.as_str().to_string(),
+        );
+        memory.metadata.insert(
+            "self_model_update_requirement".to_string(),
+            update_requirement.as_str().to_string(),
+        );
+
+        let existing = {
+            let mut self_model_store = SelfModelStore::new(&mut self.store);
+            self_model_store.get_latest_for_entity_slot(&entity, &slot)?
+        };
+        let corroborating_count = {
+            let mut self_model_store = SelfModelStore::new(&mut self.store);
+            self_model_store.matching_values(&entity, &slot, &value)?.len()
+        };
+
+        if let Some(existing_record) = existing {
+            if existing_record.stability_class == SelfModelStabilityClass::StableDirective
+                && existing_record.value != value
+            {
+                let trusted_update = self
+                    .promoter
+                    .policy_profile()
+                    .allows_singleton_self_model_from_trusted_source(
+                        memory.source.source_type,
+                        memory.source.trust_weight,
+                    );
+                let corroborated_update = corroborating_count
+                    >= self
+                        .promoter
+                        .policy_profile()
+                        .minimum_stable_directive_update_evidence();
+                if self
+                    .promoter
+                    .policy_profile()
+                    .stable_directive_requires_trusted_update_path()
+                    && !(trusted_update || corroborated_update)
+                {
+                    return Ok(SelfModelGovernanceDecision::Downgrade {
+                        reason: "stable directives require a trusted update path or corroborated evidence"
+                            .to_string(),
+                        reason_code: ReasonCode::StableDirectiveUpdateRejected,
+                    });
+                }
+                memory.metadata.insert(
+                    "stable_directive_update_path".to_string(),
+                    if trusted_update {
+                        "trusted_source".to_string()
+                    } else {
+                        "corroborated_evidence".to_string()
+                    },
+                );
+            }
+        } else if stability_class == SelfModelStabilityClass::StableDirective {
+            let trusted_seed = self
+                .promoter
+                .policy_profile()
+                .allows_singleton_self_model_from_trusted_source(
+                    memory.source.source_type,
+                    memory.source.trust_weight,
+                );
+            let corroborated_seed = corroborating_count + 1
+                >= self
+                    .promoter
+                    .policy_profile()
+                    .minimum_stable_directive_update_evidence();
+            if !(trusted_seed || corroborated_seed) {
+                return Ok(SelfModelGovernanceDecision::Downgrade {
+                    reason: "stable directives require a trusted source or corroborated evidence"
+                        .to_string(),
+                    reason_code: ReasonCode::StableDirectiveUpdateRejected,
+                });
+            }
+        }
+
+        Ok(SelfModelGovernanceDecision::Persist(memory))
     }
 
     fn build_promotion_context(&mut self, candidate: &CandidateMemory) -> Result<PromotionContext> {

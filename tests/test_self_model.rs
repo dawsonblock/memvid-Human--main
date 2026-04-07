@@ -4,7 +4,11 @@ use memvid_core::agent_memory::adapters::memvid_store::MemoryStore;
 use memvid_core::agent_memory::clock::FixedClock;
 use memvid_core::agent_memory::consolidation_engine::ConsolidationEngine;
 use memvid_core::agent_memory::enums::MemoryLayer;
-use memvid_core::agent_memory::enums::{BeliefStatus, MemoryType, SelfModelKind, SourceType};
+use memvid_core::agent_memory::enums::{
+    BeliefStatus, MemoryType, SelfModelKind, SelfModelStabilityClass,
+    SelfModelUpdateRequirement, SourceType,
+};
+use memvid_core::agent_memory::policy::ReasonCode;
 use memvid_core::agent_memory::self_model_store::SelfModelStore;
 
 use common::{apply_durable, candidate, controller, durable, ts};
@@ -51,6 +55,14 @@ fn repeated_stable_preference_reinforces_one_logical_self_model_entry() {
     };
 
     assert_eq!(latest.kind, SelfModelKind::ResponseStyle);
+    assert_eq!(
+        latest.stability_class,
+        SelfModelStabilityClass::FlexiblePreference
+    );
+    assert_eq!(
+        latest.update_requirement,
+        SelfModelUpdateRequirement::ReinforcementAllowed
+    );
     assert_eq!(latest.status, BeliefStatus::Active);
     assert_eq!(latest.value, "concise");
     assert_eq!(latest.memory_id, first.memory_id);
@@ -420,4 +432,114 @@ fn self_model_store_rejects_blank_structure_and_latest_valid_trait_survives_bypa
 
     assert_eq!(latest.memory_id, valid.memory_id);
     assert_eq!(latest.value, "concise");
+}
+
+#[test]
+fn stable_directive_resists_weak_overwrite_and_records_policy_rejection() {
+    let (mut controller, sink) = controller(ts(1_700_000_100));
+    let stable = durable(
+        "agent",
+        "memory_constraint",
+        "preserve_traceability",
+        "Preserve traceability for durable memory changes.",
+        MemoryType::Preference,
+        SourceType::System,
+        1.0,
+        ts(1_700_000_000),
+    );
+    controller
+        .apply_durable_memory(stable.clone(), None)
+        .expect("stable directive stored");
+
+    let weak_conflict = durable(
+        "agent",
+        "memory_constraint",
+        "relax_traceability",
+        "Maybe provenance can be skipped when it is inconvenient.",
+        MemoryType::Preference,
+        SourceType::Chat,
+        0.55,
+        ts(1_700_000_100),
+    );
+
+    let error = controller
+        .apply_durable_memory(weak_conflict, None)
+        .expect_err("weak stable overwrite rejected");
+    assert!(error
+        .to_string()
+        .contains("stable directives require a trusted update path or corroborated evidence"));
+
+    let latest = {
+        let mut self_model_store = SelfModelStore::new(controller.store_mut());
+        self_model_store
+            .get_latest_for_entity_slot("agent", "memory_constraint")
+            .expect("latest self-model loaded")
+            .expect("stable directive exists")
+    };
+    assert_eq!(latest.value, "preserve_traceability");
+    assert_eq!(latest.kind, SelfModelKind::Constraint);
+    assert_eq!(
+        latest.stability_class,
+        SelfModelStabilityClass::StableDirective
+    );
+
+    let rejection_event = sink
+        .events()
+        .into_iter()
+        .find(|event| event.action == "policy_rejected")
+        .expect("policy rejection event present");
+    assert_eq!(
+        rejection_event.details.get("reason_code").map(String::as_str),
+        Some(ReasonCode::StableDirectiveUpdateRejected.as_str())
+    );
+}
+
+#[test]
+fn stable_directive_can_update_through_trusted_path() {
+    let (mut controller, _) = controller(ts(1_700_000_100));
+    let stable = durable(
+        "agent",
+        "memory_constraint",
+        "preserve_traceability",
+        "Preserve traceability for durable memory changes.",
+        MemoryType::Preference,
+        SourceType::System,
+        1.0,
+        ts(1_700_000_000),
+    );
+    controller
+        .apply_durable_memory(stable, None)
+        .expect("stable directive stored");
+
+    let trusted_update = durable(
+        "agent",
+        "memory_constraint",
+        "preserve_evidence_integrity",
+        "Preserve evidence integrity before accepting reinterpretation.",
+        MemoryType::Preference,
+        SourceType::Tool,
+        0.95,
+        ts(1_700_000_100),
+    );
+    controller
+        .apply_durable_memory(trusted_update, None)
+        .expect("trusted directive update stored");
+
+    let latest = {
+        let mut self_model_store = SelfModelStore::new(controller.store_mut());
+        self_model_store
+            .get_latest_for_entity_slot("agent", "memory_constraint")
+            .expect("latest self-model loaded")
+            .expect("stable directive exists")
+    };
+    assert_eq!(latest.value, "preserve_evidence_integrity");
+    assert_eq!(latest.kind, SelfModelKind::Constraint);
+    assert_eq!(
+        latest.stability_class,
+        SelfModelStabilityClass::StableDirective
+    );
+    assert_eq!(
+        latest.metadata.get("stable_directive_update_path").map(String::as_str),
+        Some("trusted_source")
+    );
 }

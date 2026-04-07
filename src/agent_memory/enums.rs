@@ -113,6 +113,22 @@ pub enum SelfModelKind {
     CapabilityLimit,
 }
 
+/// Stability class for durable self-model records.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SelfModelStabilityClass {
+    StableDirective,
+    FlexiblePreference,
+}
+
+/// Required update path for changing a durable self-model record.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SelfModelUpdateRequirement {
+    TrustedOrCorroborated,
+    ReinforcementAllowed,
+}
+
 /// Lifecycle state for learned procedures.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -305,6 +321,71 @@ impl SelfModelKind {
             "value" => Some(Self::Value),
             "work_pattern" => Some(Self::WorkPattern),
             "capability_limit" => Some(Self::CapabilityLimit),
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    pub const fn stability_class(self) -> SelfModelStabilityClass {
+        match self {
+            Self::Constraint | Self::Value | Self::CapabilityLimit => {
+                SelfModelStabilityClass::StableDirective
+            }
+            Self::Preference
+            | Self::ResponseStyle
+            | Self::RiskTolerance
+            | Self::ToolPreference
+            | Self::ProjectNorm
+            | Self::WorkPattern => SelfModelStabilityClass::FlexiblePreference,
+        }
+    }
+
+    #[must_use]
+    pub const fn update_requirement(self) -> SelfModelUpdateRequirement {
+        match self.stability_class() {
+            SelfModelStabilityClass::StableDirective => {
+                SelfModelUpdateRequirement::TrustedOrCorroborated
+            }
+            SelfModelStabilityClass::FlexiblePreference => {
+                SelfModelUpdateRequirement::ReinforcementAllowed
+            }
+        }
+    }
+}
+
+impl SelfModelStabilityClass {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::StableDirective => "stable_directive",
+            Self::FlexiblePreference => "flexible_preference",
+        }
+    }
+
+    #[must_use]
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "stable_directive" => Some(Self::StableDirective),
+            "flexible_preference" => Some(Self::FlexiblePreference),
+            _ => None,
+        }
+    }
+}
+
+impl SelfModelUpdateRequirement {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::TrustedOrCorroborated => "trusted_or_corroborated",
+            Self::ReinforcementAllowed => "reinforcement_allowed",
+        }
+    }
+
+    #[must_use]
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "trusted_or_corroborated" => Some(Self::TrustedOrCorroborated),
+            "reinforcement_allowed" => Some(Self::ReinforcementAllowed),
             _ => None,
         }
     }

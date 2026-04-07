@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 
 use super::enums::{
     BeliefStatus, GoalStatus, MemoryLayer, MemoryType, ProcedureStatus, PromotionDecision,
-    QueryIntent, Scope, SelfModelKind, SourceType,
+    QueryIntent, Scope, SelfModelKind, SelfModelStabilityClass,
+    SelfModelUpdateRequirement, SourceType,
 };
 use super::policy::ReasonCode;
 
@@ -348,6 +349,28 @@ impl DurableMemory {
                 .get("self_model_kind")
                 .and_then(|value| SelfModelKind::from_str(value))
                 .unwrap_or_else(|| SelfModelKind::from_slot(&slot)),
+            stability_class: self
+                .metadata
+                .get("self_model_stability_class")
+                .and_then(|value| SelfModelStabilityClass::from_str(value))
+                .unwrap_or_else(|| {
+                    self.metadata
+                        .get("self_model_kind")
+                        .and_then(|value| SelfModelKind::from_str(value))
+                        .unwrap_or_else(|| SelfModelKind::from_slot(&slot))
+                        .stability_class()
+                }),
+            update_requirement: self
+                .metadata
+                .get("self_model_update_requirement")
+                .and_then(|value| SelfModelUpdateRequirement::from_str(value))
+                .unwrap_or_else(|| {
+                    self.metadata
+                        .get("self_model_kind")
+                        .and_then(|value| SelfModelKind::from_str(value))
+                        .unwrap_or_else(|| SelfModelKind::from_slot(&slot))
+                        .update_requirement()
+                }),
             status: self
                 .metadata
                 .get("self_model_status")
@@ -513,6 +536,8 @@ pub struct SelfModelRecord {
     pub value: String,
     pub summary: String,
     pub kind: SelfModelKind,
+    pub stability_class: SelfModelStabilityClass,
+    pub update_requirement: SelfModelUpdateRequirement,
     pub status: BeliefStatus,
     pub confidence: f32,
     pub observed_at: DateTime<Utc>,

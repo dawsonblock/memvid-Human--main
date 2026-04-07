@@ -10,6 +10,7 @@ pub enum ReasonCode {
     GoalStateSemanticsRequired,
     EvidenceThresholdNotMet,
     ProtectedSelfModelRejected,
+    StableDirectiveUpdateRejected,
     ProcedureEvidenceRestricted,
     PromotionThresholdNotMet,
 }
@@ -25,6 +26,7 @@ impl ReasonCode {
             Self::GoalStateSemanticsRequired => "goal_state_semantics_required",
             Self::EvidenceThresholdNotMet => "evidence_threshold_not_met",
             Self::ProtectedSelfModelRejected => "protected_self_model_rejected",
+            Self::StableDirectiveUpdateRejected => "stable_directive_update_rejected",
             Self::ProcedureEvidenceRestricted => "procedure_evidence_restricted",
             Self::PromotionThresholdNotMet => "promotion_threshold_not_met",
         }

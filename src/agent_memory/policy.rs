@@ -133,6 +133,8 @@ impl PolicySet {
                 | SelfModelKind::ToolPreference
                 | SelfModelKind::ProjectNorm
                 | SelfModelKind::Constraint
+                | SelfModelKind::Value
+                | SelfModelKind::CapabilityLimit
                 | SelfModelKind::WorkPattern
         )
     }

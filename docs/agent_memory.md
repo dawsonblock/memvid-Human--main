@@ -169,11 +169,32 @@ and newer malformed rows do not hide older valid active state.
 
 `SelfModelStore` gives self-model memories logical identity by `(entity, slot)`.
 
+Self-model records now carry two additive governance fields:
+
+- `stability_class`: `stable_directive` or `flexible_preference`
+- `update_requirement`: `trusted_or_corroborated` or `reinforcement_allowed`
+
+The current default mapping is intentionally narrow:
+
+- `Constraint`, `Value`, and `CapabilityLimit` are treated as `stable_directive`
+- `Preference`, `ResponseStyle`, `RiskTolerance`, `ToolPreference`, `ProjectNorm`, and `WorkPattern`
+  are treated as `flexible_preference`
+
 - Repeated same-value evidence reinforces one logical entry.
 - Reinforcement increments `reinforcement_count` and records `last_reinforced_at`.
 - Supporting evidence ids are merged instead of duplicating the logical trait.
 - Stronger contradictions can update the current trait on the same logical id.
 - Weaker contradictions are stored as `disputed` and do not replace the stable active trait.
+
+Stable directives are controller-protected before persistence:
+
+- a stable directive cannot be created or overwritten from a weak one-off self-model write
+- stable directive updates require either a trusted source path or corroborated evidence
+- weak attempts are downgraded to episode evidence on ingest and rejected on direct durable
+  controller writes
+
+Flexible preferences keep the earlier behavior: they can still reinforce or adapt under repeated or
+trusted evidence while preserving provenance and contradiction history.
 
 This keeps self-model memory narrow and durable instead of becoming a scrapbook of user remarks.
 Malformed rows with blank structured fields are rejected by the dedicated store and ignored by

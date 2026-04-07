@@ -2,7 +2,8 @@ mod common;
 
 use memvid_core::agent_memory::adapters::memvid_store::{InMemoryMemoryStore, MemoryStore};
 use memvid_core::agent_memory::enums::{
-    BeliefStatus, GoalStatus, MemoryLayer, MemoryType, ProcedureStatus, SelfModelKind, SourceType,
+    BeliefStatus, GoalStatus, MemoryLayer, MemoryType, ProcedureStatus, SelfModelKind,
+    SelfModelStabilityClass, SelfModelUpdateRequirement, SourceType,
 };
 use memvid_core::agent_memory::goal_state_store::GoalStateStore;
 use memvid_core::agent_memory::policy::{PolicyProfile, PolicySet};
@@ -123,8 +124,44 @@ fn durable_memory_projects_goal_and_self_model_records() {
         .expect("self model record");
 
     assert_eq!(self_model.kind, SelfModelKind::ResponseStyle);
+    assert_eq!(
+        self_model.stability_class,
+        SelfModelStabilityClass::FlexiblePreference
+    );
+    assert_eq!(
+        self_model.update_requirement,
+        SelfModelUpdateRequirement::ReinforcementAllowed
+    );
     assert_eq!(self_model.status, BeliefStatus::Active);
     assert_eq!(self_model.value, "concise");
+}
+
+#[test]
+fn stable_directive_projection_defaults_from_self_model_kind() {
+    let directive_memory = durable(
+        "agent",
+        "memory_constraint",
+        "preserve_traceability",
+        "Preserve traceability for durable memory changes.",
+        MemoryType::Preference,
+        SourceType::System,
+        1.0,
+        ts(1_700_000_000),
+    );
+
+    let directive = directive_memory
+        .to_self_model_record()
+        .expect("self-model directive record");
+
+    assert_eq!(directive.kind, SelfModelKind::Constraint);
+    assert_eq!(
+        directive.stability_class,
+        SelfModelStabilityClass::StableDirective
+    );
+    assert_eq!(
+        directive.update_requirement,
+        SelfModelUpdateRequirement::TrustedOrCorroborated
+    );
 }
 
 #[test]

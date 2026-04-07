@@ -31,6 +31,8 @@ pub struct HardConstraints {
     pub protect_self_model_identity: bool,
     pub require_supported_singleton_self_model_kind: bool,
     pub require_explicit_self_model_statement: bool,
+    pub stable_directive_requires_trusted_update_path: bool,
+    pub minimum_stable_directive_update_evidence: usize,
     pub require_system_seed_or_repeated_procedure_evidence: bool,
     pub trusted_belief_source_weight: f32,
     pub trusted_self_model_source_weight: f32,
@@ -74,6 +76,8 @@ impl PolicyProfile {
                 protect_self_model_identity: true,
                 require_supported_singleton_self_model_kind: true,
                 require_explicit_self_model_statement: true,
+                stable_directive_requires_trusted_update_path: true,
+                minimum_stable_directive_update_evidence: policy.minimum_self_model_repetitions(),
                 require_system_seed_or_repeated_procedure_evidence: true,
                 trusted_belief_source_weight: policy.trusted_belief_source_weight(),
                 trusted_self_model_source_weight: policy.trusted_self_model_source_weight(),
@@ -144,6 +148,16 @@ impl PolicyProfile {
     #[must_use]
     pub const fn minimum_self_model_evidence(&self) -> usize {
         self.constraints.minimum_self_model_evidence
+    }
+
+    #[must_use]
+    pub const fn stable_directive_requires_trusted_update_path(&self) -> bool {
+        self.constraints.stable_directive_requires_trusted_update_path
+    }
+
+    #[must_use]
+    pub const fn minimum_stable_directive_update_evidence(&self) -> usize {
+        self.constraints.minimum_stable_directive_update_evidence
     }
 
     #[must_use]

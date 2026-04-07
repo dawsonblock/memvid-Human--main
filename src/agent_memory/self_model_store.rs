@@ -3,7 +3,9 @@ use std::collections::HashSet;
 use chrono::{DateTime, Utc};
 
 use super::adapters::memvid_store::MemoryStore;
-use super::enums::{BeliefStatus, MemoryLayer, SelfModelKind};
+use super::enums::{
+    BeliefStatus, MemoryLayer, SelfModelKind, SelfModelStabilityClass,
+};
 use super::errors::{AgentMemoryError, Result};
 use super::schemas::{DurableMemory, SelfModelRecord};
 
@@ -60,11 +62,18 @@ impl<'a, S: MemoryStore> SelfModelStore<'a, S> {
         self_model_memory.entity = entity.to_string();
         self_model_memory.slot = slot.to_string();
         self_model_memory.value = value.to_string();
+        let kind = SelfModelKind::from_slot(&self_model_memory.slot);
         self_model_memory.metadata.insert(
             "self_model_kind".to_string(),
-            SelfModelKind::from_slot(&self_model_memory.slot)
-                .as_str()
-                .to_string(),
+            kind.as_str().to_string(),
+        );
+        self_model_memory.metadata.insert(
+            "self_model_stability_class".to_string(),
+            kind.stability_class().as_str().to_string(),
+        );
+        self_model_memory.metadata.insert(
+            "self_model_update_requirement".to_string(),
+            kind.update_requirement().as_str().to_string(),
         );
         self_model_memory
             .metadata
@@ -104,9 +113,16 @@ impl<'a, S: MemoryStore> SelfModelStore<'a, S> {
                     "supporting_memory_ids".to_string(),
                     supporting_ids.join(","),
                 );
+                self_model_memory.metadata.insert(
+                    "self_model_stability_class".to_string(),
+                    kind.stability_class().as_str().to_string(),
+                );
             } else {
                 let new_strength = self_model_memory.confidence + self_model_memory.source.trust_weight;
                 let existing_strength = existing_memory.confidence + existing_memory.source.trust_weight;
+                let forced_update = self_model_memory
+                    .metadata
+                    .contains_key("stable_directive_update_path");
                 self_model_memory.metadata.insert(
                     "prior_value".to_string(),
                     existing_memory.value.clone(),
@@ -119,7 +135,7 @@ impl<'a, S: MemoryStore> SelfModelStore<'a, S> {
                     "supporting_memory_ids".to_string(),
                     supporting_ids.join(","),
                 );
-                if new_strength + 0.05 >= existing_strength {
+                if forced_update || new_strength + 0.05 >= existing_strength {
                     self_model_memory.memory_id = existing_memory.memory_id.clone();
                     self_model_memory.metadata.insert(
                         "contradiction_resolution".to_string(),
@@ -257,7 +273,15 @@ impl<'a, S: MemoryStore> SelfModelStore<'a, S> {
             .and_then(|value| BeliefStatus::from_str(value))
             .unwrap_or(BeliefStatus::Active)
         {
-            BeliefStatus::Active => 3,
+            BeliefStatus::Active => match memory
+                .metadata
+                .get("self_model_stability_class")
+                .and_then(|value| SelfModelStabilityClass::from_str(value))
+                .unwrap_or(SelfModelStabilityClass::FlexiblePreference)
+            {
+                SelfModelStabilityClass::StableDirective => 4,
+                SelfModelStabilityClass::FlexiblePreference => 3,
+            },
             BeliefStatus::Stale => 2,
             BeliefStatus::Disputed => 1,
             BeliefStatus::Retracted => 0,
