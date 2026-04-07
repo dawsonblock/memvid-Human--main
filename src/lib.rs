@@ -71,6 +71,14 @@
 #![allow(clippy::unnecessary_wraps)]
 #![allow(clippy::unused_self)] // Some trait impls or future extensibility
 
+//! `memvid-core` exposes two supported public surfaces: the storage kernel centered on `Memvid`,
+//! and the always-on `agent_memory` subsystem centered on `agent_memory::MemoryController`.
+//!
+//! The crate root also exposes lower-level modules for advanced integrations, direct testing, and
+//! format tooling. Those namespaces are intentionally broader than the blocking compatibility
+//! matrix. Treat `README.md` as the authoritative support contract for feature profiles and public
+//! guarantees.
+
 /// The memvid-core crate version (matches `Cargo.toml`).
 pub const MEMVID_CORE_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -141,7 +149,7 @@ pub mod api_embed;
 
 pub mod agent_memory;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "lex"))]
 mod tests_lex_flag;
 
 #[cfg(feature = "temporal_track")]
@@ -626,8 +634,8 @@ mod tests {
 
             let wal_stats = reopened.wal.stats();
             assert_eq!(wal_stats.pending_bytes, 0);
-            // Sequence is 2: one from create() writing manifests, one from put()
-            assert_eq!(wal_stats.sequence, 2);
+            let expected_sequence = if cfg!(feature = "lex") { 2 } else { 1 };
+            assert_eq!(wal_stats.sequence, expected_sequence);
         });
     }
 
@@ -672,6 +680,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "lex")]
     #[test]
     fn lex_search_roundtrip() {
         run_serial_test(|| {
@@ -726,6 +735,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "vec")]
     #[test]
     fn vec_search_roundtrip() {
         run_serial_test(|| {
@@ -761,6 +771,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "lex")]
     #[test]
     fn search_snippet_ranges_match_bytes() {
         run_serial_test(|| {
@@ -819,6 +830,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "lex")]
     #[test]
     fn search_chunk_range_reflects_chunk_offset() {
         run_serial_test(|| {
@@ -895,6 +907,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "lex")]
     #[test]
     fn search_filters_by_uri_and_scope() {
         run_serial_test(|| {
@@ -979,6 +992,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "lex")]
     #[test]
     fn search_pagination_and_params() {
         run_serial_test(|| {
@@ -1098,6 +1112,7 @@ mod tests {
         });
     }
 
+    #[cfg(all(feature = "lex", feature = "vec"))]
     #[test]
     fn verify_reports_success() {
         run_serial_test(|| {

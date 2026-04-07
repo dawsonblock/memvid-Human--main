@@ -1,4 +1,4 @@
-.PHONY: help build build-release test test-verbose clean fmt fmt-check clippy clippy-fix doc doc-open check install run-example docker-build docker-test docker-push pre-commit tree outdated bloat test-doc test-release package publish-dry-run coverage watch
+.PHONY: help build build-release build-minimal build-default-profile test test-minimal test-default-profile test-verbose clean fmt fmt-check clippy clippy-fix doc doc-open check install run-example docker-build docker-test docker-push pre-commit tree outdated bloat test-doc test-release package publish-dry-run coverage watch
 
 # Default target
 .DEFAULT_GOAL := help
@@ -6,7 +6,9 @@
 # Variables
 CARGO := cargo
 RUST_VERSION := 1.85.0
-FEATURES := lex,pdf_extract
+PROFILE_MINIMAL :=
+PROFILE_DEFAULT := lex,pdf_extract,simd
+FEATURES := $(PROFILE_DEFAULT)
 
 # Colors for output
 CYAN := \033[0;36m
@@ -38,9 +40,21 @@ check: ## Check code without building
 	@echo "$(CYAN)Checking code...$(NC)"
 	@$(CARGO) check --features $(FEATURES)
 
+check-minimal: ## Check the minimal storage-kernel profile
+	@echo "$(CYAN)Checking minimal storage-kernel profile...$(NC)"
+	@$(CARGO) check --no-default-features
+
 build: ## Build in debug mode
 	@echo "$(CYAN)Building in debug mode...$(NC)"
 	@$(CARGO) build --features $(FEATURES)
+
+build-minimal: ## Build the minimal storage-kernel profile
+	@echo "$(CYAN)Building minimal storage-kernel profile...$(NC)"
+	@$(CARGO) build --no-default-features
+
+build-default-profile: ## Build the documented default crate profile
+	@echo "$(CYAN)Building default crate profile...$(NC)"
+	@$(CARGO) build --features $(PROFILE_DEFAULT)
 
 build-release: ## Build in release mode (optimized)
 	@echo "$(CYAN)Building in release mode...$(NC)"
@@ -61,6 +75,14 @@ build-all-features: ## Build with all features enabled
 test: ## Run tests
 	@echo "$(CYAN)Running tests...$(NC)"
 	@$(CARGO) test --features $(FEATURES)
+
+test-minimal: ## Run tests for the minimal storage-kernel profile
+	@echo "$(CYAN)Running minimal storage-kernel profile tests...$(NC)"
+	@$(CARGO) test --no-default-features
+
+test-default-profile: ## Run tests for the documented default crate profile
+	@echo "$(CYAN)Running default crate profile tests...$(NC)"
+	@$(CARGO) test --features $(PROFILE_DEFAULT)
 
 test-verbose: ## Run tests with output
 	@echo "$(CYAN)Running tests with output...$(NC)"

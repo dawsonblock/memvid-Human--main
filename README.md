@@ -1,7 +1,8 @@
 # memvid-core
 
-A Rust library for single-file AI agent memory. `memvid-core` packages documents, full-text and
-vector search indices, and metadata into a portable `.mv2` file — no database, no sidecar files.
+A Rust crate for crash-safe single-file `.mv2` storage with a governed `agent_memory` subsystem.
+`memvid-core` packages frames, indices, and metadata into one portable file — no database and no
+sidecar files.
 
 [![Crates.io](https://img.shields.io/crates/v/memvid-core)](https://crates.io/crates/memvid-core)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
@@ -11,8 +12,16 @@ vector search indices, and metadata into a portable `.mv2` file — no database,
 
 ## What it is
 
-`memvid-core` is a Rust library (not a CLI or server) that provides a read/write handle to a
-single `.mv2` binary file. The file contains:
+`memvid-core` is a Rust crate, not a CLI contract or hosted service contract. It exposes two
+supported public surfaces:
+
+- The storage kernel centered on `Memvid`, which owns a single `.mv2` file and its indices.
+- The always-on `agent_memory` subsystem centered on `MemoryController`, which adds bounded,
+  policy-governed agent memory semantics on top of that storage kernel.
+
+Adjacent CLI and Docker assets live in this repository, but the crate contract is defined here.
+
+The `.mv2` storage kernel contains:
 
 - **Document frames** — arbitrary bytes (text, PDF text, markdown, audio transcripts, image embeddings)
 - **Full-text index** — BM25 search via [Tantivy](https://github.com/quickwit-oss/tantivy) (feature `lex`, on by default)
@@ -22,6 +31,23 @@ single `.mv2` binary file. The file contains:
 - **Table of contents footer** — self-describing format; no external metadata files
 
 The format is defined in [MV2_SPEC.md](MV2_SPEC.md).
+
+## Supported Public Surfaces
+
+| Surface | Entry points | Status | Notes |
+|---|---|---|---|
+| Storage kernel | `Memvid`, `PutOptions`, `SearchRequest`, `TimelineQuery`, verification/report types | Blocking-tested | `--no-default-features` keeps the single-file kernel available; the default profile adds the standard search and extraction stack. |
+| Governed agent memory | `agent_memory::MemoryController`, `CandidateMemory`, `DurableMemory`, `RetrievalQuery`, `PolicySet` | Supported public subsystem | Always compiled. `MemoryController` is the canonical ingest/retrieval path; lower-level stores remain public for advanced integrations and test coverage. |
+
+## Supported Profiles
+
+| Profile | Features | Status | Notes |
+|---|---|---|---|
+| Minimal storage kernel | `--no-default-features` | Blocking-tested | Single-file storage, commit/reopen, manifests, and direct frame access without the default search or extraction stack. |
+| Default crate profile | `lex,pdf_extract,simd` | Blocking-tested | Recommended cross-platform baseline and the profile used for the main docs, examples, and CI. |
+| Search + local vectors | `lex,pdf_extract,simd,vec` | Best effort | Requires local ONNX model files and adds HNSW search plus local text embeddings. |
+| Encryption | `lex,pdf_extract,simd,encryption` | Best effort | Password-protected `.mv2e` capsules layered around the storage kernel. |
+| Media, platform, and specialist integrations | `clip`, `whisper`, `pdfium`, `extractous`, `pdf_oxide`, `logic_mesh`, `api_embed`, `temporal_*`, `parallel_segments`, `symspell_cleanup`, `replay` | Best effort or platform-sensitive | Available opt-ins, but not part of the blocking compatibility matrix in this pass. |
 
 ---
 
@@ -124,22 +150,28 @@ let req = SearchRequest {
 
 ## Features
 
-| Feature | Default | Description |
-|---|---|---|
-| `lex` | ✅ | BM25 full-text search (Tantivy). Required for `search` and `ask`. |
-| `pdf_extract` | ✅ | PDF text extraction (pdfium-based). |
-| `simd` | ✅ | SIMD-accelerated vector distance computation. |
-| `vec` | ❌ | HNSW vector search with local ONNX embeddings. Requires manually downloaded model files. |
-| `api_embed` | ❌ | OpenAI-compatible API embeddings (`OPENAI_API_KEY` must be set). |
-| `clip` | ❌ | CLIP visual embeddings for image search. |
-| `whisper` | ❌ | On-device audio transcription via Candle. |
-| `encryption` | ❌ | AES-256-GCM encrypted `.mv2e` capsules (Argon2 key derivation). |
-| `temporal_track` | ❌ | Natural-language date parsing and temporal filtering. |
-| `temporal_enrich` | ❌ | Async enrichment of temporal metadata after ingest. |
-| `parallel_segments` | ❌ | Multi-threaded segment ingestion. |
-| `symspell_cleanup` | ❌ | Spell-correction pass for noisy PDF text. |
-| `logic_mesh` | ❌ | Entity-relationship NER graph for hybrid retrieval. |
-| `replay` | ❌ | Time-travel session replay. |
+| Feature | Default | Support | Description |
+|---|---|---|---|
+| `lex` | ✅ | Blocking-tested | BM25 full-text search via Tantivy. Required for `search` and `ask`. |
+| `pdf_extract` | ✅ | Blocking-tested | Pure-Rust PDF text extraction used by the default profile. |
+| `simd` | ✅ | Blocking-tested | SIMD-accelerated distance computation for search and embedding utilities. |
+| `vec` | ❌ | Best effort | HNSW vector search with local ONNX embeddings. Requires manually downloaded model files. |
+| `encryption` | ❌ | Best effort | AES-256-GCM `.mv2e` capsules with Argon2 key derivation. |
+| `api_embed` | ❌ | Best effort | OpenAI-compatible API embeddings. Requires network access and provider credentials. |
+| `temporal_track` | ❌ | Best effort | Natural-language date parsing and temporal filtering. |
+| `temporal_enrich` | ❌ | Best effort | Post-ingest temporal enrichment of relative time references. |
+| `parallel_segments` | ❌ | Best effort | Multi-threaded segment ingestion. |
+| `symspell_cleanup` | ❌ | Best effort | Spell-correction pass for noisy PDF text. |
+| `replay` | ❌ | Best effort | Time-travel replay of agent sessions and state changes. |
+| `logic_mesh` | ❌ | Experimental | Entity-relationship graph extraction and hybrid retrieval helpers. |
+| `clip` | ❌ | Platform-sensitive | CLIP visual embeddings for image search. Pulls in ONNX and image-runtime dependencies. |
+| `whisper` | ❌ | Platform-sensitive | On-device audio transcription via Candle. Heavy dependency stack and optional GPU backends. |
+| `pdf_oxide` | ❌ | Experimental | Alternate high-accuracy PDF extraction path with different tradeoffs than the default extractor. |
+| `pdfium` | ❌ | Platform-sensitive | PDFium-backed PDF processing path. Useful for some rendering-heavy workflows, but not part of the blocking matrix. |
+| `extractous` | ❌ | Platform-sensitive | GraalVM-backed rich document extraction for PDFs and office-style formats. |
+
+Platform/backend and developer-only feature flags remain available but are not part of the main
+support contract in this pass: `mmap`, `metal`, `cuda`, `accelerate`, and `hnsw_bench`.
 
 Build with specific features:
 
@@ -154,8 +186,9 @@ cargo build --features "lex,vec,temporal_track"
 `memvid-core` can ingest several document types beyond raw bytes:
 
 - **Plain text and Markdown** — always available
-- **PDF** — enabled by `pdf_extract`, `pdf_oxide`, `extractous`, or `pdfium` features
+- **PDF** — the default profile uses `pdf_extract` (pure Rust); `pdf_oxide`, `pdfium`, and `extractous` are alternate opt-in paths with different compatibility and platform tradeoffs
 - **XLSX / spreadsheets** — structured extraction into rows
+- **DOCX and broader rich document formats** — best effort via `extractous`
 - **Audio transcripts** — via `whisper` feature (model downloaded on first use)
 - **Images** — via `clip` feature (visual embedding, CLIP model)
 
@@ -221,8 +254,26 @@ Argon2 key derivation and AES-256-GCM authenticated encryption.
 
 ## Agent memory subsystem
 
-`agent_memory` is a higher-level module built on top of the core `Memvid` kernel. It provides
-a **six-layer bounded memory architecture** governed by a single `MemoryController`:
+`agent_memory` is the governed memory subsystem built on top of the `Memvid` kernel. It is always
+compiled and treated as a supported public subsystem in this crate. The canonical path is
+`MemoryController`, which classifies, routes, promotes, consolidates, retrieves, and audits memory
+records while keeping storage in the same `.mv2` kernel.
+
+By "human memory" this repository means bounded operational memory for agents: evidence,
+current facts, task state, self-model, and procedures. It does not claim to model human cognition
+or consciousness.
+
+Key public entry points live under `memvid_core::agent_memory`:
+
+| Entry point | Role |
+|---|---|
+| `memory_controller::MemoryController` | Canonical ingest and retrieval authority |
+| `schemas::CandidateMemory` | Ingest payload before routing and promotion |
+| `schemas::DurableMemory` | Persisted memory representation used by stores and adapters |
+| `schemas::RetrievalQuery` | Query contract for agent-memory retrieval |
+| `policy::PolicySet` | Thresholds and semantic governance knobs |
+
+The subsystem provides a **six-layer bounded memory architecture**:
 
 | Layer | Purpose |
 |---|---|
@@ -240,6 +291,9 @@ for details.
 ---
 
 ## File format
+
+This section and [MV2_SPEC.md](MV2_SPEC.md) describe the storage-kernel contract only. They do not
+define the `agent_memory` policy surface, CLI behavior, or Docker image semantics.
 
 ```
 ┌────────────────────────────┐
@@ -270,12 +324,11 @@ Architecture overview: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 ## Build and test
 
 ```bash
-# Build
-cargo build
-cargo build --release
-cargo build --release --features "lex,vec,temporal_track"
+# Blocking support matrix
+cargo test --no-default-features
+cargo test --features "lex,pdf_extract,simd"
 
-# Test
+# Full default-path verification
 cargo test
 cargo test -- --nocapture
 cargo test --test lifecycle
@@ -283,6 +336,9 @@ cargo test --test lifecycle
 # Lint and format
 cargo clippy
 cargo fmt
+
+# Example opt-in builds
+cargo build --release --features "lex,vec,temporal_track"
 ```
 
 **Minimum supported Rust version:** 1.85.0  

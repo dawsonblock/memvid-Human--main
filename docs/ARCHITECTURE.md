@@ -1,11 +1,20 @@
 # Architecture
 
-`memvid-core` is a Rust library structured around a single central type (`Memvid`) that owns an
-open `.mv2` file handle and its in-memory index state. This document describes the internal design.
+`memvid-core` has two supported public surfaces: the storage kernel centered on `Memvid`, and the
+always-on `agent_memory` subsystem centered on `MemoryController`. This document describes the
+internal design behind those surfaces.
+
+The authoritative crate contract and supported-profile matrix live in [README.md](../README.md).
+This document is intentionally narrower: it explains composition, internal module boundaries, and
+file-format responsibilities. Optional integrations that appear in the module graph are not, by
+themselves, a support guarantee.
 
 ---
 
 ## High-level module layout
+
+The crate root exposes a broader set of low-level modules than the blocking support matrix. Treat
+the README as the support contract, and this document as an explanation of how the crate is built.
 
 ```
 src/
@@ -39,7 +48,7 @@ src/
 ├── clip.rs                 # ClipIndex — CLIP visual embeddings (feature `clip`)
 ├── whisper.rs              # WhisperTranscriber — audio transcription (feature `whisper`)
 ├── reader/                 # DocumentReader trait and format-specific backends
-├── agent_memory/           # Six-layer bounded agent memory (see docs/agent_memory.md)
+├── agent_memory/           # Governed agent-memory subsystem (see docs/agent_memory.md)
 ├── pii.rs                  # PII detection utilities
 ├── signature.rs            # Ed25519 file signing
 ├── simd.rs                 # SIMD distance kernels (feature `simd`)
@@ -50,6 +59,9 @@ src/
 ---
 
 ## The `.mv2` file format
+
+`MV2_SPEC.md` is the normative format document for this section. It covers storage-kernel
+invariants only, not the higher-level `agent_memory` policy model or adjacent CLI/Docker tooling.
 
 Version 2.1. Magic bytes: `4D 56 32 00` (`MV2\0`). All multi-byte integers are little-endian.
 

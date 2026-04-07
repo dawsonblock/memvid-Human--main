@@ -1,12 +1,15 @@
 # Docker Images for Memvid
 
-This directory contains Docker configurations for Memvid components.
+This directory contains adjacent Docker tooling for the `memvid-core` crate. The crate contract and
+supported profile matrix live in [README.md](../README.md); these images inherit that contract and
+do not redefine it.
 
 ## Available Images
 
 ### Memvid Core (`core/`)
 
-The Memvid Core Docker images provide containerized Rust development, testing, and build environments for the `memvid-core` library.
+The Memvid Core Docker assets provide containerized development, test, and release-build
+environments around the Rust crate. They are primarily for contributor workflows and CI parity.
 
 **Quick Start:**
 ```bash
@@ -26,7 +29,9 @@ For detailed usage, see [core/README.md](core/README.md).
 
 ### Memvid CLI (`cli/`)
 
-The Memvid CLI Docker image provides a containerized version of the `memvid-cli` tool, allowing you to run Memvid commands without installing Node.js or dealing with platform-specific binaries.
+The Memvid CLI image provides an adjacent command-line workflow around the crate. It is useful when
+you want a containerized CLI without installing Node.js or platform-specific binaries, but it is
+not the definition of the crate support contract.
 
 **Quick Start:**
 
@@ -61,7 +66,7 @@ Docker images are automatically built and published to Docker Hub via GitHub Act
 
 **Image Registry:**
 - Docker Hub: `memvid/cli`
-- Tags: `latest`, `2.0.129`, and version-specific tags
+- Tags: `latest` and version-specific tags
 
 ## Architecture Support
 

@@ -1,6 +1,9 @@
 # Docker Setup for Memvid Core
 
-This document describes how to use Docker with the Memvid Core Rust library.
+This document describes the Docker-based contributor workflow for the `memvid-core` crate. The
+crate contract and supported feature profiles live in [../../README.md](../../README.md); the Docker
+environment mirrors that contract and defaults to the documented crate profile
+`lex,pdf_extract,simd`.
 
 ## Quick Start
 
@@ -76,9 +79,9 @@ docker run --rm memvid-test
 - Test dependencies
 - Runs tests automatically
 
-### 3. Production Build (`Dockerfile`)
+### 3. Release Build (`Dockerfile`)
 
-Multi-stage build for optimized production image:
+Multi-stage build for optimized release artifacts:
 
 ```bash
 # From project root
@@ -87,8 +90,8 @@ docker build -f docker/core/Dockerfile -t memvid-core:latest .
 
 **Features:**
 - Multi-stage build (smaller final image)
-- Only runtime dependencies
-- Optimized release build
+- Release build for crate artifacts and examples
+- Not a standalone product/runtime contract
 
 ## Docker Compose
 
@@ -123,7 +126,7 @@ docker-compose down
 docker-compose exec dev cargo run --example basic_usage
 
 # With features
-docker-compose exec dev cargo run --example pdf_ingestion --features lex,pdf_extract
+docker-compose exec dev cargo run --example pdf_ingestion --features lex,pdf_extract,simd
 ```
 
 ### Memory-Constrained Testing
@@ -204,7 +207,7 @@ docker run --memory=2g --memory-swap=2g ...
 1. **Use docker-compose** for development
 2. **Cache volumes** for faster builds
 3. **Multi-stage builds** for production
-4. **Test in containers** to match CI/CD environment
+4. **Test the documented profiles in containers** to match CI/CD environment
 5. **Use .dockerignore** to exclude unnecessary files
 
 ## Related

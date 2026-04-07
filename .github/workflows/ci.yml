@@ -11,8 +11,8 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
-  test:
-    name: Test
+  test-default-profile:
+    name: Test default profile
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -36,13 +36,67 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
+          key: ${{ runner.os }}-${{ matrix.rust }}-default-profile-${{ hashFiles('**/Cargo.toml') }}
 
-      - name: Build
-        run: cargo build --verbose
+      - name: Build default profile
+        run: cargo build --verbose --features "lex,pdf_extract,simd"
 
-      - name: Run tests
-        run: cargo test --verbose ${{ runner.os == 'Windows' && '-- --test-threads=1' || '' }}
+      - name: Run default profile tests
+        run: cargo test --verbose --features "lex,pdf_extract,simd" ${{ runner.os == 'Windows' && '-- --test-threads=1' || '' }}
+
+  test-minimal-kernel:
+    name: Test minimal kernel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ubuntu-minimal-kernel-${{ hashFiles('**/Cargo.toml') }}
+
+      - name: Build minimal kernel
+        run: cargo build --verbose --no-default-features
+
+      - name: Run minimal kernel tests
+        run: cargo test --verbose --no-default-features
+
+  test-msrv:
+    name: Test MSRV
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.85.0
+
+      - name: Cache cargo
+        uses: actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ubuntu-msrv-default-profile-${{ hashFiles('**/Cargo.toml') }}
+
+      - name: Build default profile on MSRV
+        run: cargo build --verbose --features "lex,pdf_extract,simd"
+
+      - name: Run default profile tests on MSRV
+        run: cargo test --verbose --features "lex,pdf_extract,simd"
 
   lint:
     name: Lint

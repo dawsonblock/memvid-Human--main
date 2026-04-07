@@ -18,7 +18,7 @@ COPY rust-toolchain.toml ./
 # Create a dummy src/lib.rs to build dependencies
 RUN mkdir -p src && \
     echo "// Dummy file for dependency building" > src/lib.rs && \
-    cargo build --release --features lex,pdf_extract && \
+    cargo build --release --features lex,pdf_extract,simd && \
     rm -rf src
 
 # Copy source code
@@ -27,7 +27,7 @@ COPY examples ./examples
 COPY tests ./tests
 
 # Build the library with default features
-RUN cargo build --release --features lex,pdf_extract
+RUN cargo build --release --features lex,pdf_extract,simd
 
 # Runtime stage - minimal image for running examples/tests
 FROM debian:trixie-slim AS runtime

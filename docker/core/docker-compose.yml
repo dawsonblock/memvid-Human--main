@@ -27,7 +27,7 @@ services:
     environment:
       - RUST_BACKTRACE=1
       - RUST_LOG=info
-    command: cargo test --features lex,pdf_extract -- --nocapture
+    command: cargo test --features lex,pdf_extract,simd -- --nocapture
 
   # Build release
   build:
@@ -39,7 +39,7 @@ services:
       - ../../:/app
       - cargo-cache:/usr/local/cargo/registry
       - target-cache:/app/target
-    command: cargo build --release --features lex,pdf_extract
+    command: cargo build --release --features lex,pdf_extract,simd
 
 volumes:
   cargo-cache:

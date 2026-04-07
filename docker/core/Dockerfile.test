@@ -20,4 +20,4 @@ ENV RUST_LOG=info
 ENV CARGO_TARGET_DIR=/app/target
 
 # Run tests with default features
-CMD ["cargo", "test", "--features", "lex,pdf_extract", "--", "--nocapture"]
+CMD ["cargo", "test", "--features", "lex,pdf_extract,simd", "--", "--nocapture"]

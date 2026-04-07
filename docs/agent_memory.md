@@ -4,6 +4,26 @@
 new storage backends or widen the architecture. It adds deterministic routing, promotion,
 consolidation, retrieval, retention, and audit behavior around six internal layers.
 
+This subsystem is always compiled and is part of the supported public surface of `memvid-core`.
+The canonical entry point is `MemoryController`; lower-level stores and helpers remain public for
+advanced integrations and for the integration tests that prove the policy model.
+
+Throughout this repository, "human memory" means a bounded operational memory analogue for agents:
+evidence, current facts, task state, self-model, and procedures. It does not imply a claim of
+human cognition fidelity.
+
+## Public Boundary
+
+For most callers, the intended public path is:
+
+- build a `CandidateMemory`
+- ingest through `MemoryController`
+- retrieve through `RetrievalQuery`
+- tune thresholds through `PolicySet`
+
+Dedicated stores remain public because the crate tests and some advanced integrations need direct
+logical-state access, but controller-governed ingest is the canonical write path.
+
 ## Layer Model
 
 Public memory types map to internal storage layers as follows:

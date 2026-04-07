@@ -1,6 +1,9 @@
 # Memvid CLI Docker Image
 
-AI memory CLI with crash-safe, single-file storage and semantic search.
+Containerized CLI workflow built alongside the `memvid-core` crate.
+
+The CLI image is adjacent tooling: it uses the crate's storage kernel, but it does not redefine the
+crate's supported feature matrix. For crate guarantees, see [../../README.md](../../README.md).
 
 ## Quick Start
 
@@ -90,9 +93,8 @@ services:
 ## Features
 
 - Single-file `.mv2` storage
-- Semantic + lexical search
-- RAG question answering
-- PDF, DOCX, images, audio support
+- CLI workflows around storage and retrieval
+- Optional rich-format and media capabilities depending on the image build and enabled features
 
 ## Links
 

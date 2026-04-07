@@ -6,6 +6,10 @@ Version 2.1
 
 MV2 is a single-file format for AI memory storage. Everything lives in one file: header, write-ahead log, data segments, search indices, and metadata. No sidecar files.
 
+This specification covers the storage-kernel contract only. It does not define the supported
+feature matrix for the crate, the `agent_memory` policy surface, CLI semantics, or Docker image
+behavior.
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                        .mv2 FILE                            │
