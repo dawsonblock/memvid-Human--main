@@ -2,7 +2,10 @@ use std::collections::HashSet;
 
 use super::adapters::memvid_store::MemoryStore;
 use super::clock::Clock;
-use super::enums::{BeliefStatus, BeliefViewStatus, MemoryLayer, MemoryType, ProcedureStatus, QueryIntent};
+use super::enums::{
+    BeliefStatus, BeliefViewStatus, MemoryLayer, MemoryType, ProcedureStatus, QueryIntent,
+    Scope, SourceType,
+};
 use super::episode_store::EpisodeStore;
 use super::errors::Result;
 use super::goal_state_store::GoalStateStore;
@@ -69,7 +72,7 @@ impl MemoryRetriever {
                 } else {
                     let mut hits = self.episodic_hits(store, query, now)?;
                     if hits.len() < query.top_k {
-                        hits.extend(self.search_hits(store, query, "archive_fallback")?);
+                        hits.extend(self.search_hits(store, query, "archive_fallback", now)?);
                     }
                     hits
                 }
@@ -80,7 +83,7 @@ impl MemoryRetriever {
                 } else if Self::is_procedural_help_query(query) {
                     self.procedural_help_hits(store, query, now)?
                 } else {
-                    self.search_hits(store, query, "archive_fallback")?
+                    self.search_hits(store, query, "archive_fallback", now)?
                 }
             }
         };
@@ -123,7 +126,7 @@ impl MemoryRetriever {
         }
 
         if hits.len() < query.top_k {
-            hits.extend(self.search_hits(store, query, "archive_fallback")?);
+            hits.extend(self.search_hits(store, query, "archive_fallback", now)?);
         }
         Ok(hits)
     }
@@ -232,7 +235,7 @@ impl MemoryRetriever {
         }
 
         if hits.len() < query.top_k {
-            hits.extend(self.search_hits(store, query, "archive_fallback")?);
+            hits.extend(self.search_hits(store, query, "archive_fallback", now)?);
         }
         Ok(hits)
     }
@@ -252,7 +255,7 @@ impl MemoryRetriever {
         hits.extend(self.preference_support_hits(store, query, now, &direct_ids)?);
 
         if hits.len() < query.top_k {
-            hits.extend(self.search_hits(store, query, "archive_fallback")?);
+            hits.extend(self.search_hits(store, query, "archive_fallback", now)?);
         }
         Ok(hits)
     }
@@ -365,7 +368,7 @@ impl MemoryRetriever {
         hits.extend(self.task_state_procedure_hits(store, query, now, &task_context)?);
 
         if hits.len() < query.top_k {
-            hits.extend(self.search_hits(store, query, "archive_fallback")?);
+            hits.extend(self.search_hits(store, query, "archive_fallback", now)?);
         }
         Ok(hits)
     }
@@ -508,7 +511,7 @@ impl MemoryRetriever {
         }
 
         if hits.len() < query.top_k {
-            hits.extend(self.search_hits(store, query, "archive_fallback")?);
+            hits.extend(self.search_hits(store, query, "archive_fallback", now)?);
         }
         Ok(hits)
     }
@@ -561,12 +564,13 @@ impl MemoryRetriever {
         store: &mut S,
         query: &RetrievalQuery,
         role: &str,
+        now: chrono::DateTime<chrono::Utc>,
     ) -> Result<Vec<RetrievalHit>> {
         let mut hits = store.search(query)?;
         for hit in &mut hits {
             hit.metadata
                 .insert(RETRIEVAL_ROLE_KEY.to_string(), role.to_string());
-            self.annotate_search_hit_signals(hit, query, role);
+            self.annotate_search_hit_signals(hit, query, role, now);
         }
         hits.truncate(FALLBACK_SEARCH_LIMIT);
         Ok(hits)
@@ -928,6 +932,7 @@ impl MemoryRetriever {
         hit: &mut RetrievalHit,
         query: &RetrievalQuery,
         role: &str,
+        now: chrono::DateTime<chrono::Utc>,
     ) {
         let content_signal = Self::query_alignment_score_from_hit(hit, query).max(hit.score);
         let memory_layer = hit
@@ -938,11 +943,7 @@ impl MemoryRetriever {
             .get("confidence")
             .and_then(|value| value.parse::<f32>().ok())
             .unwrap_or(0.0);
-        let salience = hit
-            .metadata
-            .get("salience")
-            .and_then(|value| value.parse::<f32>().ok())
-            .unwrap_or(0.0);
+        let salience = self.search_hit_salience(hit, now);
         let goal_relevance = memory_layer.map_or(0.0, |layer| {
             Self::goal_relevance_signal(layer, &hit.metadata, query.intent)
         });
@@ -957,6 +958,8 @@ impl MemoryRetriever {
             _ => 0.0,
         };
 
+        hit.metadata
+            .insert("salience".to_string(), salience.to_string());
         Self::set_score_signal(&mut hit.metadata, SCORE_SIGNAL_CONTENT_MATCH_KEY, content_signal);
         Self::set_score_signal(&mut hit.metadata, SCORE_SIGNAL_EVIDENCE_STRENGTH_KEY, confidence);
         Self::set_score_signal(&mut hit.metadata, SCORE_SIGNAL_SALIENCE_KEY, salience);
@@ -972,6 +975,95 @@ impl MemoryRetriever {
             SCORE_SIGNAL_CONTRADICTION_KEY,
             contradiction_signal,
         );
+    }
+
+    fn search_hit_salience(
+        &self,
+        hit: &RetrievalHit,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> f32 {
+        let base_salience = hit
+            .metadata
+            .get("salience")
+            .and_then(|value| value.parse::<f32>().ok())
+            .unwrap_or(0.0);
+        let Some(memory_type) = hit.memory_type else {
+            return base_salience;
+        };
+        let Some(memory_layer) = hit
+            .memory_layer
+            .or_else(|| hit.memory_type.map(MemoryType::memory_layer))
+        else {
+            return base_salience;
+        };
+
+        let synthetic = DurableMemory {
+            memory_id: hit.memory_id.clone().unwrap_or_default(),
+            candidate_id: String::new(),
+            stored_at: Self::parse_hit_timestamp(hit.metadata.get("stored_at")).unwrap_or(hit.timestamp),
+            entity: hit.entity.clone().unwrap_or_default(),
+            slot: hit.slot.clone().unwrap_or_default(),
+            value: hit.value.clone().unwrap_or_default(),
+            raw_text: hit.text.clone(),
+            memory_type,
+            confidence: hit
+                .metadata
+                .get("confidence")
+                .and_then(|value| value.parse::<f32>().ok())
+                .unwrap_or(0.0),
+            salience: base_salience,
+            scope: hit.scope.unwrap_or(Scope::Private),
+            ttl: hit
+                .metadata
+                .get("ttl")
+                .and_then(|value| value.parse::<i64>().ok()),
+            source: super::schemas::Provenance {
+                source_type: hit.source.unwrap_or_else(|| {
+                    hit.metadata
+                        .get("source_type")
+                        .map(String::as_str)
+                        .map(Self::parse_source_type)
+                        .unwrap_or(SourceType::Chat)
+                }),
+                source_id: hit
+                    .metadata
+                    .get("source_id")
+                    .cloned()
+                    .unwrap_or_default(),
+                source_label: None,
+                observed_by: None,
+                trust_weight: hit
+                    .metadata
+                    .get("source_weight")
+                    .and_then(|value| value.parse::<f32>().ok())
+                    .unwrap_or(0.5),
+            },
+            event_at: Self::parse_hit_timestamp(hit.metadata.get("event_at")),
+            valid_from: Self::parse_hit_timestamp(hit.metadata.get("valid_from")),
+            valid_to: Self::parse_hit_timestamp(hit.metadata.get("valid_to")),
+            internal_layer: Some(memory_layer),
+            tags: Vec::new(),
+            metadata: hit.metadata.clone(),
+            is_retraction: false,
+        };
+
+        self.retention.evaluate(&synthetic, now).decayed_salience
+    }
+
+    fn parse_hit_timestamp(value: Option<&String>) -> Option<chrono::DateTime<chrono::Utc>> {
+        value
+            .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+            .map(|value| value.with_timezone(&chrono::Utc))
+    }
+
+    fn parse_source_type(value: &str) -> SourceType {
+        match value {
+            "file" => SourceType::File,
+            "tool" => SourceType::Tool,
+            "system" => SourceType::System,
+            "external" => SourceType::External,
+            _ => SourceType::Chat,
+        }
     }
 
     fn query_alignment_score_from_hit(hit: &RetrievalHit, query: &RetrievalQuery) -> f32 {
