@@ -79,10 +79,10 @@ impl<S: MemoryStore> MemoryController<S> {
                 ]);
                 // Only include entity/slot in audit when they were actually asserted —
                 // omitting them is the honest representation of absent structure.
-                if let Some(entity) = classified.entity.as_deref() {
+                if let Some(entity) = classified.entity_non_empty() {
                     details.insert("entity".to_string(), entity.to_string());
                 }
-                if let Some(slot) = classified.slot.as_deref() {
+                if let Some(slot) = classified.slot_non_empty() {
                     details.insert("slot".to_string(), slot.to_string());
                 }
                 details
@@ -171,10 +171,10 @@ impl<S: MemoryStore> MemoryController<S> {
                     ("memory_layer".to_string(), "trace".to_string()),
                 ]);
                 // Only record entity/slot when they were actually asserted.
-                if let Some(entity) = classified.entity.as_deref() {
+                if let Some(entity) = classified.entity_non_empty() {
                     trace_meta.insert("entity".to_string(), entity.to_string());
                 }
-                if let Some(slot) = classified.slot.as_deref() {
+                if let Some(slot) = classified.slot_non_empty() {
                     trace_meta.insert("slot".to_string(), slot.to_string());
                 }
                 let trace_id = self.store.put_trace(&classified.raw_text, trace_meta)?;
@@ -503,9 +503,9 @@ impl<S: MemoryStore> MemoryController<S> {
         };
 
         if let (Some(entity), Some(slot), Some(value)) = (
-            candidate.entity.as_deref(),
-            candidate.slot.as_deref(),
-            candidate.value.as_deref(),
+            candidate.entity_non_empty(),
+            candidate.slot_non_empty(),
+            candidate.value_non_empty(),
         ) {
             context.belief_evidence_count = self
                 .store
@@ -536,7 +536,7 @@ impl<S: MemoryStore> MemoryController<S> {
             };
         }
 
-        if let Some(workflow_key) = candidate.metadata.get("workflow_key") {
+        if let Some(workflow_key) = candidate.workflow_key_non_empty() {
             let workflow_episodes = {
                 let mut episode_store = EpisodeStore::new(&mut self.store);
                 episode_store.list_by_workflow_key(workflow_key)?

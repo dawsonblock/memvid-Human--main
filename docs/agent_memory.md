@@ -82,15 +82,19 @@ Promotion is destination-aware rather than score-only.
 
 - `Trace`: archival only. Trace candidates can be retained as trace but are never promoted directly into durable higher-order layers.
 - `Episode`: singleton promotion is allowed only for event-like observations.
-- `GoalState`: singleton promotion is allowed for structured task-state or blocker observations with explicit goal-state semantics.
-- `Belief`: requires `entity`, `slot`, and `value`, then one of: verified source, repeated evidence at or above threshold, or an explicitly trusted singleton source class. The current policy restricts trusted singleton belief promotion to `System` and `Tool` sources that meet the belief trust floor; high-trust `Chat` evidence still requires repetition unless it is verified.
-- `SelfModel`: requires `entity`, `slot`, and `value`, then either repeated stable evidence or an explicit durable preference or constraint statement from a verified source or a trusted `System` or `Tool` source.
-- `Procedure`: requires a `workflow_key` and either repeated successful workflow evidence or explicit system seeding.
+- `GoalState`: requires non-empty `entity`, `slot`, and `value` after trimming, then singleton promotion is allowed for structured task-state or blocker observations with explicit goal-state semantics.
+- `Belief`: requires non-empty `entity`, `slot`, and `value` after trimming, then one of: verified source, repeated evidence at or above threshold, or an explicitly trusted singleton source class. The current policy restricts trusted singleton belief promotion to `System` and `Tool` sources that meet the belief trust floor; high-trust `Chat` evidence still requires repetition unless it is verified.
+- `SelfModel`: requires non-empty `entity`, `slot`, and `value` after trimming, then either repeated stable evidence or an explicit durable preference or constraint statement from a verified source or a trusted `System` or `Tool` source.
+- `Procedure`: requires non-empty `entity`, `slot`, `value`, and a `workflow_key` after trimming, plus either repeated successful workflow evidence or explicit system seeding.
 
 When durable promotion is denied but the observation still has useful structure or event semantics,
 the controller stores it as `Episode` evidence instead of treating it as current truth. This is the
 normal fallback for denied belief, self-model, and procedure promotion. Only low-scoring or
 unstructured leftovers fall all the way back to `Trace`.
+
+Whitespace-only structured fields are treated as absent rather than as valid structure. Dangerous
+durable layers fail closed on those inputs instead of silently persisting empty-string entity, slot,
+value, or workflow identity fields.
 
 When a non-episode observation does promote durably, the controller records a supporting episode
 first and attaches that episode id to the durable memory. This keeps history and truth separated
@@ -117,7 +121,8 @@ the latest record per key whose status is one of:
 - `waiting_on_system`
 
 `completed`, `inactive`, and `stale` goal states stay in storage but are filtered out of active
-task-state recall.
+task-state recall. Malformed rows with blank structured fields are ignored during typed projection,
+and newer malformed rows do not hide older valid active state.
 
 ### SelfModel
 
@@ -130,6 +135,8 @@ task-state recall.
 - Weaker contradictions are stored as `disputed` and do not replace the stable active trait.
 
 This keeps self-model memory narrow and durable instead of becoming a scrapbook of user remarks.
+Malformed rows with blank structured fields are rejected by the dedicated store and ignored by
+typed reads if they arrive through older data or bypass paths.
 
 ### Procedure
 
@@ -140,6 +147,7 @@ This keeps self-model memory narrow and durable instead of becoming a scrapbook 
 - Failures increment `failure_count` immediately.
 - Effective lifecycle is derived from observed outcomes and can be `active`, `cooling_down`, or `retired`.
 - Retired procedures are filtered from task-state retrieval; cooling-down procedures are still retrievable but ranked lower.
+- Malformed rows with blank workflow identity or other required structure fail closed and are skipped before latest-effective dedup.
 
 ## Consolidation
 

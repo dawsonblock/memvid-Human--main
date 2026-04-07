@@ -27,17 +27,31 @@ impl<'a, S: MemoryStore> SelfModelStore<'a, S> {
                 reason: "self-model store can only persist self-model memory".to_string(),
             });
         }
+        if !memory.has_required_structure_for(MemoryLayer::SelfModel) {
+            return Err(AgentMemoryError::InvalidCandidate {
+                reason: "self-model store requires non-empty entity, slot, and value"
+                    .to_string(),
+            });
+        }
+
+        let entity = memory.entity_non_empty().expect("validated entity");
+        let slot = memory.slot_non_empty().expect("validated slot");
+        let value = memory.value_non_empty().expect("validated value");
 
         let existing = self
             .store
             .list_memories_by_layer(MemoryLayer::SelfModel)?
             .into_iter()
-            .filter(|candidate| candidate.entity == memory.entity)
-            .filter(|candidate| candidate.slot == memory.slot)
+            .filter(|candidate| candidate.has_required_structure_for(MemoryLayer::SelfModel))
+            .filter(|candidate| candidate.entity_non_empty() == Some(entity))
+            .filter(|candidate| candidate.slot_non_empty() == Some(slot))
             .max_by(|left, right| left.stored_at.cmp(&right.stored_at));
 
         let mut self_model_memory = memory.clone();
         self_model_memory.internal_layer = Some(MemoryLayer::SelfModel);
+        self_model_memory.entity = entity.to_string();
+        self_model_memory.slot = slot.to_string();
+        self_model_memory.value = value.to_string();
         self_model_memory.metadata.insert(
             "self_model_kind".to_string(),
             SelfModelKind::from_slot(&self_model_memory.slot)
@@ -133,11 +147,17 @@ impl<'a, S: MemoryStore> SelfModelStore<'a, S> {
     }
 
     pub fn list_for_entity_memories(&mut self, entity: &str) -> Result<Vec<DurableMemory>> {
+        let entity = entity.trim();
+        if entity.is_empty() {
+            return Ok(Vec::new());
+        }
+
         let mut memories: Vec<_> = self
             .store
             .list_memories_by_layer(MemoryLayer::SelfModel)?
             .into_iter()
-            .filter(|memory| memory.entity == entity)
+            .filter(|memory| memory.has_required_structure_for(MemoryLayer::SelfModel))
+            .filter(|memory| memory.entity_non_empty() == Some(entity))
             .collect();
         memories.sort_by(|left, right| {
             Self::status_priority(right)
@@ -152,6 +172,11 @@ impl<'a, S: MemoryStore> SelfModelStore<'a, S> {
         entity: &str,
         slot: &str,
     ) -> Result<Option<SelfModelRecord>> {
+        let slot = slot.trim();
+        if slot.is_empty() {
+            return Ok(None);
+        }
+
         Ok(self
             .list_for_entity(entity)?
             .into_iter()
@@ -175,6 +200,12 @@ impl<'a, S: MemoryStore> SelfModelStore<'a, S> {
         slot: &str,
         value: &str,
     ) -> Result<Vec<SelfModelRecord>> {
+        let slot = slot.trim();
+        let value = value.trim();
+        if slot.is_empty() || value.is_empty() {
+            return Ok(Vec::new());
+        }
+
         Ok(self
             .list_for_entity(entity)?
             .into_iter()

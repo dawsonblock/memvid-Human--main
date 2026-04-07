@@ -40,19 +40,15 @@ impl MemoryClassifier {
     #[must_use]
     pub fn classify(&self, mut candidate: CandidateMemory) -> CandidateMemory {
         // Use the slot string only if one was actually asserted.
-        let slot = candidate
-            .slot
-            .as_deref()
-            .unwrap_or("")
-            .to_lowercase();
+        let slot = candidate.slot_non_empty().unwrap_or("").to_lowercase();
         let text = candidate.raw_text.to_lowercase();
 
         // Only classify as structured fact/preference/goal when all three fields are present.
         // Absent entity, slot, or value means the input lacks enough structure for promotion
         // to those layers; prefer under-classification over fabricating certainty.
-        candidate.memory_type = if candidate.entity.is_some()
-            && candidate.slot.is_some()
-            && candidate.value.is_some()
+        candidate.memory_type = if candidate.entity_non_empty().is_some()
+            && candidate.slot_non_empty().is_some()
+            && candidate.value_non_empty().is_some()
         {
             if PREFERENCE_HINTS.iter().any(|hint| slot.contains(hint)) {
                 MemoryType::Preference

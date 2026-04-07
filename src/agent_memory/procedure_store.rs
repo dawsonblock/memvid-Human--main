@@ -45,8 +45,11 @@ fn workflow_key_for(record: &ProcedureRecord) -> String {
     record
         .metadata
         .get("workflow_key")
-        .cloned()
-        .unwrap_or_else(|| record.name.clone())
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| record.name.trim())
+        .to_string()
 }
 
 fn procedure_confidence(success_count: u32, failure_count: u32) -> f32 {
@@ -75,13 +78,36 @@ impl<'a, S: MemoryStore> ProcedureStore<'a, S> {
                 reason: "procedure store can only persist procedure-layer memory".to_string(),
             });
         }
+        if !memory.has_required_structure_for(MemoryLayer::Procedure) {
+            return Err(AgentMemoryError::InvalidCandidate {
+                reason: "procedure store requires non-empty entity, slot, value, and workflow key"
+                    .to_string(),
+            });
+        }
 
         let workflow_key = memory
-            .metadata
-            .get("workflow_key")
-            .cloned()
-            .unwrap_or_else(|| memory.slot.clone());
+            .workflow_key_non_empty()
+            .expect("validated workflow key")
+            .to_string();
         let mut procedure_memory = memory.clone();
+        procedure_memory.internal_layer = Some(MemoryLayer::Procedure);
+        procedure_memory.entity = memory.entity_non_empty().expect("validated entity").to_string();
+        procedure_memory.slot = memory.slot_non_empty().expect("validated slot").to_string();
+        procedure_memory.value = memory.value_non_empty().expect("validated value").to_string();
+        procedure_memory
+            .metadata
+            .insert("workflow_key".to_string(), workflow_key.clone());
+        let procedure_name = procedure_memory
+            .metadata
+            .get("procedure_name")
+            .map(String::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| procedure_memory.value.as_str())
+            .to_string();
+        procedure_memory
+            .metadata
+            .insert("procedure_name".to_string(), procedure_name);
         if let Some(existing) = self.get_by_workflow_key(&workflow_key)? {
             procedure_memory.memory_id = existing.procedure_id;
         }
@@ -101,17 +127,17 @@ impl<'a, S: MemoryStore> ProcedureStore<'a, S> {
         let mut memories = self.store.list_memories_by_layer(MemoryLayer::Procedure)?;
         memories.sort_by(|left, right| right.stored_at.cmp(&left.stored_at));
         let mut seen_workflows = HashSet::new();
-        Ok(memories
-            .into_iter()
-            .filter(|memory| {
-                let workflow_key = memory
-                    .metadata
-                    .get("workflow_key")
-                    .cloned()
-                    .unwrap_or_else(|| memory.slot.clone());
-                seen_workflows.insert(workflow_key)
-            })
-            .collect())
+        let mut latest = Vec::new();
+        for memory in memories {
+            let Some(record) = memory.to_procedure_record() else {
+                continue;
+            };
+            let workflow_key = workflow_key_for(&record);
+            if seen_workflows.insert(workflow_key) {
+                latest.push(memory);
+            }
+        }
+        Ok(latest)
     }
 
     pub fn list_active(&mut self) -> Result<Vec<ProcedureRecord>> {
@@ -137,11 +163,13 @@ impl<'a, S: MemoryStore> ProcedureStore<'a, S> {
     }
 
     pub fn get_by_workflow_key(&mut self, workflow_key: &str) -> Result<Option<ProcedureRecord>> {
+        let workflow_key = workflow_key.trim();
+        if workflow_key.is_empty() {
+            return Ok(None);
+        }
+
         Ok(self.list_all()?.into_iter().find(|record| {
-            record
-                .metadata
-                .get("workflow_key")
-                .is_some_and(|value| value == workflow_key)
+            workflow_key_for(record) == workflow_key
         }))
     }
 
@@ -152,6 +180,13 @@ impl<'a, S: MemoryStore> ProcedureStore<'a, S> {
         learned_from_memory_ids: &[String],
         now: DateTime<Utc>,
     ) -> Result<ProcedureUpsertOutcome> {
+        let workflow_key = workflow_key.trim();
+        if workflow_key.is_empty() {
+            return Err(AgentMemoryError::InvalidCandidate {
+                reason: "procedure workflow key cannot be blank".to_string(),
+            });
+        }
+
         let existing = self.get_by_workflow_key(workflow_key)?;
         let success_count = existing
             .as_ref()
@@ -179,6 +214,11 @@ impl<'a, S: MemoryStore> ProcedureStore<'a, S> {
         learned_from_memory_ids: &[String],
         now: DateTime<Utc>,
     ) -> Result<Option<ProcedureUpsertOutcome>> {
+        let workflow_key = workflow_key.trim();
+        if workflow_key.is_empty() {
+            return Ok(None);
+        }
+
         let existing = self.get_by_workflow_key(workflow_key)?;
         let Some(existing_record) = existing.as_ref() else {
             return Ok(None);

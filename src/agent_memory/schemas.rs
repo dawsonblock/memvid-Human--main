@@ -8,6 +8,11 @@ use super::enums::{
     QueryIntent, Scope, SelfModelKind, SourceType,
 };
 
+fn trimmed_non_empty(value: &str) -> Option<&str> {
+    let trimmed = value.trim();
+    (!trimmed.is_empty()).then_some(trimmed)
+}
+
 /// Provenance metadata attached to a memory candidate.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Provenance {
@@ -60,6 +65,55 @@ impl CandidateMemory {
         self.event_at
             .or(self.valid_from)
             .unwrap_or(self.observed_at)
+    }
+
+    #[must_use]
+    pub fn entity_non_empty(&self) -> Option<&str> {
+        self.entity.as_deref().and_then(trimmed_non_empty)
+    }
+
+    #[must_use]
+    pub fn slot_non_empty(&self) -> Option<&str> {
+        self.slot.as_deref().and_then(trimmed_non_empty)
+    }
+
+    #[must_use]
+    pub fn value_non_empty(&self) -> Option<&str> {
+        self.value.as_deref().and_then(trimmed_non_empty)
+    }
+
+    #[must_use]
+    pub fn workflow_key_non_empty(&self) -> Option<&str> {
+        self.metadata
+            .get("workflow_key")
+            .and_then(|value| trimmed_non_empty(value))
+            .or_else(|| self.slot_non_empty())
+    }
+
+    #[must_use]
+    pub fn has_non_empty_structure(&self) -> bool {
+        self.entity_non_empty().is_some()
+            || self.slot_non_empty().is_some()
+            || self.value_non_empty().is_some()
+            || self.workflow_key_non_empty().is_some()
+    }
+
+    #[must_use]
+    pub fn has_required_structure_for(&self, layer: MemoryLayer) -> bool {
+        match layer {
+            MemoryLayer::Belief | MemoryLayer::GoalState | MemoryLayer::SelfModel => {
+                self.entity_non_empty().is_some()
+                    && self.slot_non_empty().is_some()
+                    && self.value_non_empty().is_some()
+            }
+            MemoryLayer::Procedure => {
+                self.entity_non_empty().is_some()
+                    && self.slot_non_empty().is_some()
+                    && self.value_non_empty().is_some()
+                    && self.workflow_key_non_empty().is_some()
+            }
+            MemoryLayer::Episode | MemoryLayer::Trace => true,
+        }
     }
 
     #[must_use]
@@ -135,6 +189,47 @@ impl DurableMemory {
     }
 
     #[must_use]
+    pub fn entity_non_empty(&self) -> Option<&str> {
+        trimmed_non_empty(&self.entity)
+    }
+
+    #[must_use]
+    pub fn slot_non_empty(&self) -> Option<&str> {
+        trimmed_non_empty(&self.slot)
+    }
+
+    #[must_use]
+    pub fn value_non_empty(&self) -> Option<&str> {
+        trimmed_non_empty(&self.value)
+    }
+
+    #[must_use]
+    pub fn workflow_key_non_empty(&self) -> Option<&str> {
+        self.metadata
+            .get("workflow_key")
+            .and_then(|value| trimmed_non_empty(value))
+            .or_else(|| self.slot_non_empty())
+    }
+
+    #[must_use]
+    pub fn has_required_structure_for(&self, layer: MemoryLayer) -> bool {
+        match layer {
+            MemoryLayer::Belief | MemoryLayer::GoalState | MemoryLayer::SelfModel => {
+                self.entity_non_empty().is_some()
+                    && self.slot_non_empty().is_some()
+                    && self.value_non_empty().is_some()
+            }
+            MemoryLayer::Procedure => {
+                self.entity_non_empty().is_some()
+                    && self.slot_non_empty().is_some()
+                    && self.value_non_empty().is_some()
+                    && self.workflow_key_non_empty().is_some()
+            }
+            MemoryLayer::Episode | MemoryLayer::Trace => true,
+        }
+    }
+
+    #[must_use]
     pub fn with_supporting_episode(mut self, episode_id: &str) -> Self {
         let mut supporting_ids: Vec<String> = self
             .metadata
@@ -181,22 +276,28 @@ impl DurableMemory {
 
     #[must_use]
     pub fn to_goal_record(&self) -> Option<GoalRecord> {
-        if self.memory_layer() != MemoryLayer::GoalState {
+        if self.memory_layer() != MemoryLayer::GoalState
+            || !self.has_required_structure_for(MemoryLayer::GoalState)
+        {
             return None;
         }
+
+        let entity = self.entity_non_empty()?.to_string();
+        let slot = self.slot_non_empty()?.to_string();
+        let value = self.value_non_empty()?.to_string();
 
         Some(GoalRecord {
             goal_id: self.memory_id.clone(),
             memory_id: self.memory_id.clone(),
-            entity: self.entity.clone(),
-            slot: self.slot.clone(),
-            value: self.value.clone(),
+            entity,
+            slot,
+            value: value.clone(),
             summary: self.raw_text.clone(),
             status: self
                 .metadata
                 .get("goal_status")
                 .and_then(|value| GoalStatus::from_str(value))
-                .unwrap_or_else(|| GoalStatus::from_text(&self.value, &self.raw_text)),
+                .unwrap_or_else(|| GoalStatus::from_text(&value, &self.raw_text)),
             created_at: self.event_timestamp(),
             updated_at: self.stored_at,
             expires_at: self
@@ -224,22 +325,28 @@ impl DurableMemory {
 
     #[must_use]
     pub fn to_self_model_record(&self) -> Option<SelfModelRecord> {
-        if self.memory_layer() != MemoryLayer::SelfModel {
+        if self.memory_layer() != MemoryLayer::SelfModel
+            || !self.has_required_structure_for(MemoryLayer::SelfModel)
+        {
             return None;
         }
+
+        let entity = self.entity_non_empty()?.to_string();
+        let slot = self.slot_non_empty()?.to_string();
+        let value = self.value_non_empty()?.to_string();
 
         Some(SelfModelRecord {
             record_id: self.memory_id.clone(),
             memory_id: self.memory_id.clone(),
-            entity: self.entity.clone(),
-            slot: self.slot.clone(),
-            value: self.value.clone(),
+            entity,
+            slot: slot.clone(),
+            value,
             summary: self.raw_text.clone(),
             kind: self
                 .metadata
                 .get("self_model_kind")
                 .and_then(|value| SelfModelKind::from_str(value))
-                .unwrap_or_else(|| SelfModelKind::from_slot(&self.slot)),
+                .unwrap_or_else(|| SelfModelKind::from_slot(&slot)),
             status: self
                 .metadata
                 .get("self_model_status")
@@ -275,17 +382,23 @@ impl DurableMemory {
 
     #[must_use]
     pub fn to_procedure_record(&self) -> Option<ProcedureRecord> {
-        if self.memory_layer() != MemoryLayer::Procedure {
+        if self.memory_layer() != MemoryLayer::Procedure
+            || !self.has_required_structure_for(MemoryLayer::Procedure)
+        {
             return None;
         }
 
+        let workflow_key = self.workflow_key_non_empty()?;
+        let name = self
+            .metadata
+            .get("procedure_name")
+            .and_then(|value| trimmed_non_empty(value))
+            .unwrap_or(workflow_key)
+            .to_string();
+
         Some(ProcedureRecord {
             procedure_id: self.memory_id.clone(),
-            name: self
-                .metadata
-                .get("procedure_name")
-                .cloned()
-                .unwrap_or_else(|| self.slot.clone()),
+            name,
             description: self.raw_text.clone(),
             context_tags: self
                 .metadata
@@ -293,7 +406,7 @@ impl DurableMemory {
                 .map(|value| {
                     value
                         .split(',')
-                        .filter(|entry| !entry.is_empty())
+                        .filter_map(trimmed_non_empty)
                         .map(ToString::to_string)
                         .collect()
                 })
@@ -320,7 +433,7 @@ impl DurableMemory {
                 .map(|value| {
                     value
                         .split(',')
-                        .filter(|entry| !entry.is_empty())
+                        .filter_map(trimmed_non_empty)
                         .map(ToString::to_string)
                         .collect()
                 })

@@ -1,8 +1,10 @@
 mod common;
 
+use memvid_core::agent_memory::adapters::memvid_store::{InMemoryMemoryStore, MemoryStore};
 use memvid_core::agent_memory::enums::{
     BeliefStatus, GoalStatus, MemoryLayer, MemoryType, ProcedureStatus, SelfModelKind, SourceType,
 };
+use memvid_core::agent_memory::goal_state_store::GoalStateStore;
 use memvid_core::agent_memory::schemas::{CandidateMemory, Provenance};
 
 use common::{candidate, controller, durable, ts};
@@ -97,6 +99,52 @@ fn durable_memory_projects_goal_and_self_model_records() {
     assert_eq!(self_model.kind, SelfModelKind::ResponseStyle);
     assert_eq!(self_model.status, BeliefStatus::Active);
     assert_eq!(self_model.value, "concise");
+}
+
+#[test]
+fn dangerous_layer_projections_fail_closed_on_blank_structure() {
+    let mut goal_memory = durable(
+        "project",
+        "task_status",
+        "blocked",
+        "The current task is blocked waiting on review",
+        MemoryType::GoalState,
+        SourceType::Chat,
+        0.75,
+        ts(1_700_000_000),
+    );
+    goal_memory.entity = "   ".to_string();
+    assert!(goal_memory.to_goal_record().is_none());
+
+    let mut preference_memory = durable(
+        "user",
+        "response_style",
+        "concise",
+        "The user prefers concise responses",
+        MemoryType::Preference,
+        SourceType::Chat,
+        0.75,
+        ts(1_700_000_000),
+    );
+    preference_memory.value = "   ".to_string();
+    assert!(preference_memory.to_self_model_record().is_none());
+
+    let mut procedure_memory = durable(
+        "procedure",
+        "repo_review",
+        "repo_review",
+        "Start with blockers, then validate runtime surface, then check tests.",
+        MemoryType::Trace,
+        SourceType::System,
+        1.0,
+        ts(1_700_000_000),
+    );
+    procedure_memory.internal_layer = Some(MemoryLayer::Procedure);
+    procedure_memory
+        .metadata
+        .insert("workflow_key".to_string(), "repo_review".to_string());
+    procedure_memory.value = "   ".to_string();
+    assert!(procedure_memory.to_procedure_record().is_none());
 }
 
 #[test]
@@ -249,6 +297,37 @@ fn clear_goal_state_promotes_more_easily_than_self_model_or_belief() {
         .memories()
         .iter()
         .any(|memory| memory.memory_layer() == MemoryLayer::SelfModel));
+}
+
+#[test]
+fn newer_invalid_goal_state_row_does_not_hide_older_valid_active_goal() {
+    let mut store = InMemoryMemoryStore::default();
+    let valid_goal = durable(
+        "project",
+        "task_status",
+        "blocked",
+        "The current task is blocked waiting on review",
+        MemoryType::GoalState,
+        SourceType::Chat,
+        0.75,
+        ts(1_700_000_000),
+    );
+    store.put_memory(&valid_goal).expect("valid goal stored");
+
+    let mut invalid_goal = valid_goal.clone();
+    invalid_goal.memory_id = "goal-invalid".to_string();
+    invalid_goal.stored_at = ts(1_700_000_100);
+    invalid_goal.value = "   ".to_string();
+    store.put_memory(&invalid_goal).expect("invalid goal stored");
+
+    let active_goals = {
+        let mut goal_store = GoalStateStore::new(&mut store);
+        goal_store.list_active().expect("active goals listed")
+    };
+
+    assert_eq!(active_goals.len(), 1);
+    assert_eq!(active_goals[0].memory_id, valid_goal.memory_id);
+    assert_eq!(active_goals[0].value, "blocked");
 }
 
 #[test]

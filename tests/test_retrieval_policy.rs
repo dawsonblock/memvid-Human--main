@@ -90,6 +90,73 @@ fn current_fact_query_checks_belief_state_first() {
 }
 
 #[test]
+fn noisy_support_evidence_does_not_displace_direct_belief_answer() {
+    let mut store = InMemoryMemoryStore::default();
+    store
+        .update_belief(&BeliefRecord {
+            belief_id: "belief-support-heavy".to_string(),
+            entity: "user".to_string(),
+            slot: "location".to_string(),
+            current_value: "Berlin".to_string(),
+            status: BeliefStatus::Active,
+            confidence: 0.95,
+            valid_from: ts(1_700_000_000),
+            valid_to: None,
+            last_reviewed_at: ts(1_700_000_090),
+            supporting_memory_ids: vec!["support-0".to_string()],
+            opposing_memory_ids: Vec::new(),
+            source_weights: std::collections::BTreeMap::from([(SourceType::Tool, 0.95)]),
+        })
+        .expect("belief stored");
+
+    for index in 0..8 {
+        let mut support = durable(
+            "user",
+            "location",
+            "Berlin",
+            &format!("Support evidence {index} still points to Berlin"),
+            if index % 2 == 0 {
+                MemoryType::Episode
+            } else {
+                MemoryType::Fact
+            },
+            SourceType::Tool,
+            0.95,
+            ts(1_700_000_001 + index),
+        );
+        support.memory_id = format!("support-{index}");
+        store.put_memory(&support).expect("support stored");
+    }
+
+    let retriever = MemoryRetriever::new(Ranker, RetentionManager::new(PolicySet::default()));
+    let hits = retriever
+        .retrieve(
+            &mut store,
+            &RetrievalQuery {
+                query_text: "what is the user's current location".to_string(),
+                intent: QueryIntent::CurrentFact,
+                entity: Some("user".to_string()),
+                slot: Some("location".to_string()),
+                scope: None,
+                top_k: 8,
+                as_of: None,
+                include_expired: false,
+            },
+            &FixedClock::new(ts(1_700_000_200)),
+        )
+        .expect("retrieval works");
+
+    assert!(hits.first().expect("hit").from_belief);
+    assert_eq!(
+        hits.first()
+            .and_then(|hit| hit.metadata.get("retrieval_role"))
+            .map(String::as_str),
+        Some("direct_answer")
+    );
+    assert!(hits.iter().skip(1).all(|hit| !hit.from_belief));
+}
+
+#[test]
 fn historical_fact_queries_prefer_episodes_and_prior_state_evidence() {
     let mut store = InMemoryMemoryStore::default();
     let mut old_memory = durable(
@@ -193,6 +260,43 @@ fn preference_query_ranks_preference_memory_above_generic_semantic_hits() {
         hits.first().and_then(|hit| hit.memory_type),
         Some(MemoryType::Preference)
     );
+}
+
+#[test]
+fn blank_semantic_query_returns_no_hits_without_error() {
+    let mut store = InMemoryMemoryStore::default();
+    store
+        .put_memory(&durable(
+            "user",
+            "location",
+            "Berlin",
+            "The user currently lives in Berlin",
+            MemoryType::Fact,
+            SourceType::Chat,
+            0.75,
+            ts(1_700_000_000),
+        ))
+        .expect("memory stored");
+
+    let retriever = MemoryRetriever::new(Ranker, RetentionManager::new(PolicySet::default()));
+    let hits = retriever
+        .retrieve(
+            &mut store,
+            &RetrievalQuery {
+                query_text: "   ".to_string(),
+                intent: QueryIntent::SemanticBackground,
+                entity: None,
+                slot: None,
+                scope: None,
+                top_k: 3,
+                as_of: None,
+                include_expired: false,
+            },
+            &FixedClock::new(ts(1_700_000_100)),
+        )
+        .expect("retrieval succeeds");
+
+    assert!(hits.is_empty());
 }
 
 #[test]

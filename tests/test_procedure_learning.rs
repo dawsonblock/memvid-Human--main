@@ -610,6 +610,43 @@ fn controller_surfaces_failure_transition_reason_and_history_query() {
     );
 }
 
+#[test]
+fn newer_invalid_procedure_row_does_not_hide_valid_existing_workflow() {
+    let mut store = InMemoryMemoryStore::default();
+    let valid = procedure_memory(
+        "procedure-valid-existing",
+        ProcedureStatus::Active,
+        3,
+        0,
+        ts(1_700_000_000),
+    );
+    store.put_memory(&valid).expect("valid procedure stored");
+
+    let mut invalid = valid.clone();
+    invalid.memory_id = "procedure-invalid-newer".to_string();
+    invalid.stored_at = ts(1_700_000_100);
+    invalid.slot = "   ".to_string();
+    invalid.value = "   ".to_string();
+    invalid
+        .metadata
+        .insert("workflow_key".to_string(), "   ".to_string());
+    invalid
+        .metadata
+        .insert("procedure_name".to_string(), "   ".to_string());
+    store.put_memory(&invalid).expect("invalid procedure stored");
+
+    let procedure = {
+        let mut procedure_store = ProcedureStore::new(&mut store);
+        procedure_store
+            .get_by_workflow_key("repo_review")
+            .expect("procedure lookup succeeds")
+            .expect("procedure still exists")
+    };
+
+    assert_eq!(procedure.procedure_id, valid.memory_id);
+    assert_eq!(procedure.status, ProcedureStatus::Active);
+}
+
 fn procedure_memory(
     memory_id: &str,
     status: ProcedureStatus,

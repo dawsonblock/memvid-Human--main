@@ -3,7 +3,7 @@ mod common;
 use memvid_core::agent_memory::clock::FixedClock;
 use memvid_core::agent_memory::consolidation_engine::ConsolidationEngine;
 use memvid_core::agent_memory::enums::MemoryLayer;
-use memvid_core::agent_memory::adapters::memvid_store::InMemoryMemoryStore;
+use memvid_core::agent_memory::adapters::memvid_store::{InMemoryMemoryStore, MemoryStore};
 use memvid_core::agent_memory::enums::{BeliefStatus, MemoryType, SelfModelKind, SourceType};
 use memvid_core::agent_memory::self_model_store::SelfModelStore;
 
@@ -324,4 +324,54 @@ fn weaker_contradictory_preference_is_disputed_without_replacing_active_trait() 
     assert!(all_records.iter().any(|record| {
         record.value == "verbose" && record.status == BeliefStatus::Disputed
     }));
+}
+
+#[test]
+fn self_model_store_rejects_blank_structure_and_latest_valid_trait_survives_bypass_row() {
+    let mut store = InMemoryMemoryStore::default();
+    let invalid = durable(
+        "user",
+        "response_style",
+        "   ",
+        "The user prefers concise responses",
+        MemoryType::Preference,
+        SourceType::Chat,
+        0.75,
+        ts(1_700_000_000),
+    );
+    {
+        let mut self_model_store = SelfModelStore::new(&mut store);
+        assert!(self_model_store.save_memory(&invalid, None).is_err());
+    }
+
+    let valid = durable(
+        "user",
+        "response_style",
+        "concise",
+        "The user prefers concise responses",
+        MemoryType::Preference,
+        SourceType::Chat,
+        0.75,
+        ts(1_700_000_010),
+    );
+    store.put_memory(&valid).expect("valid self-model stored");
+
+    let mut bypass_invalid = valid.clone();
+    bypass_invalid.memory_id = "memory-user-response_style-invalid".to_string();
+    bypass_invalid.stored_at = ts(1_700_000_020);
+    bypass_invalid.value = "   ".to_string();
+    store
+        .put_memory(&bypass_invalid)
+        .expect("invalid bypass row stored");
+
+    let latest = {
+        let mut self_model_store = SelfModelStore::new(&mut store);
+        self_model_store
+            .get_latest_for_entity_slot("user", "response_style")
+            .expect("latest self-model loaded")
+            .expect("latest self-model exists")
+    };
+
+    assert_eq!(latest.memory_id, valid.memory_id);
+    assert_eq!(latest.value, "concise");
 }

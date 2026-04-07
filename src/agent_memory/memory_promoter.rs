@@ -127,9 +127,9 @@ impl MemoryPromoter {
                 memory_id: Uuid::new_v4().to_string(),
                 candidate_id: candidate.candidate_id.clone(),
                 stored_at: clock.now(),
-                entity: candidate.entity.clone().unwrap_or_default(),
-                slot: candidate.slot.clone().unwrap_or_default(),
-                value: candidate.value.clone().unwrap_or_default(),
+                entity: candidate.entity_non_empty().unwrap_or("").to_string(),
+                slot: candidate.slot_non_empty().unwrap_or("").to_string(),
+                value: candidate.value_non_empty().unwrap_or("").to_string(),
                 raw_text: candidate.raw_text.clone(),
                 memory_type: candidate.memory_type,
                 confidence: candidate.confidence,
@@ -228,10 +228,11 @@ impl MemoryPromoter {
     }
 
     fn can_promote_to_goal_state(&self, candidate: &CandidateMemory) -> DestinationEligibility {
-        if candidate.slot.is_none() || candidate.value.is_none() {
+        if !candidate.has_required_structure_for(MemoryLayer::GoalState) {
             return DestinationEligibility {
                 allowed: false,
-                reason: "goal-state promotion requires structured slot and value".to_string(),
+                reason: "goal-state promotion requires non-empty entity, slot, and value"
+                    .to_string(),
                 route_basis: "insufficient_structure",
                 fallback_layer: if Self::is_event_like(candidate) {
                     "episode"
@@ -267,10 +268,11 @@ impl MemoryPromoter {
         candidate: &CandidateMemory,
         context: &PromotionContext,
     ) -> DestinationEligibility {
-        if candidate.entity.is_none() || candidate.slot.is_none() || candidate.value.is_none() {
+        if !candidate.has_required_structure_for(MemoryLayer::Belief) {
             return DestinationEligibility {
                 allowed: false,
-                reason: "belief promotion requires entity, slot, and value".to_string(),
+                reason: "belief promotion requires non-empty entity, slot, and value"
+                    .to_string(),
                 route_basis: "insufficient_structure",
                 fallback_layer: if Self::should_preserve_as_episode(candidate) {
                     "episode"
@@ -321,10 +323,11 @@ impl MemoryPromoter {
         candidate: &CandidateMemory,
         context: &PromotionContext,
     ) -> DestinationEligibility {
-        if candidate.entity.is_none() || candidate.slot.is_none() || candidate.value.is_none() {
+        if !candidate.has_required_structure_for(MemoryLayer::SelfModel) {
             return DestinationEligibility {
                 allowed: false,
-                reason: "self-model promotion requires entity, slot, and value".to_string(),
+                reason: "self-model promotion requires non-empty entity, slot, and value"
+                    .to_string(),
                 route_basis: "insufficient_structure",
                 fallback_layer: if Self::should_preserve_as_episode(candidate) {
                     "episode"
@@ -378,10 +381,11 @@ impl MemoryPromoter {
         candidate: &CandidateMemory,
         context: &PromotionContext,
     ) -> DestinationEligibility {
-        if Self::workflow_key(candidate).is_none() {
+        if !candidate.has_required_structure_for(MemoryLayer::Procedure) {
             return DestinationEligibility {
                 allowed: false,
-                reason: "procedure promotion requires a workflow key".to_string(),
+                reason: "procedure promotion requires non-empty entity, slot, value, and workflow key"
+                    .to_string(),
                 route_basis: "insufficient_structure",
                 fallback_layer: if Self::is_event_like(candidate) {
                     "episode"
@@ -435,9 +439,7 @@ impl MemoryPromoter {
 
     fn should_preserve_as_episode(candidate: &CandidateMemory) -> bool {
         candidate.memory_layer() != MemoryLayer::Trace
-            && (candidate.entity.is_some()
-                || candidate.slot.is_some()
-                || candidate.value.is_some()
+            && (candidate.has_non_empty_structure()
                 || Self::is_event_like(candidate)
                 || Self::workflow_key(candidate).is_some())
     }
@@ -462,12 +464,18 @@ impl MemoryPromoter {
         .count()
             >= 2
             || candidate.metadata.contains_key("outcome")
-            || candidate.metadata.contains_key("workflow_key")
+            || candidate.workflow_key_non_empty().is_some()
     }
 
     fn has_goal_state_semantics(candidate: &CandidateMemory) -> bool {
-        let slot = candidate.slot.as_deref().unwrap_or("").to_lowercase();
-        let value = candidate.value.as_deref().unwrap_or("").to_lowercase();
+        let Some(slot) = candidate.slot_non_empty() else {
+            return false;
+        };
+        let Some(value) = candidate.value_non_empty() else {
+            return false;
+        };
+        let slot = slot.to_lowercase();
+        let value = value.to_lowercase();
         let raw = candidate.raw_text.to_lowercase();
         let goal_terms = [
             "task",
@@ -489,10 +497,10 @@ impl MemoryPromoter {
     }
 
     fn is_explicit_durable_self_model_statement(candidate: &CandidateMemory) -> bool {
-        let slot = candidate.slot.as_deref().unwrap_or("");
+        let slot = candidate.slot_non_empty().unwrap_or("");
         let lower = format!(
             "{} {}",
-            candidate.value.as_deref().unwrap_or(""),
+            candidate.value_non_empty().unwrap_or(""),
             candidate.raw_text
         )
         .to_lowercase();
@@ -518,10 +526,6 @@ impl MemoryPromoter {
     }
 
     fn workflow_key(candidate: &CandidateMemory) -> Option<&str> {
-        candidate
-            .metadata
-            .get("workflow_key")
-            .map(String::as_str)
-            .or(candidate.slot.as_deref())
+        candidate.workflow_key_non_empty()
     }
 }

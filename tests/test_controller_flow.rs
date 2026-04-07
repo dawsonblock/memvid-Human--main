@@ -213,3 +213,46 @@ fn unseeded_procedure_routes_to_episode_evidence_and_audits_why() {
         Some("episode")
     );
 }
+
+#[test]
+fn whitespace_only_belief_structure_falls_back_to_trace_and_never_persists_truth() {
+    let (mut controller, sink) = controller(ts(1_700_000_000));
+    let mut malformed = candidate(
+        "user",
+        "location",
+        "Berlin",
+        "The user currently lives in Berlin.",
+    );
+    malformed.entity = Some("   ".to_string());
+    malformed.slot = Some("   ".to_string());
+    malformed.value = Some("   ".to_string());
+    malformed.internal_layer = Some(MemoryLayer::Belief);
+
+    let trace_id = controller
+        .ingest(malformed)
+        .expect("ingest succeeds")
+        .expect("trace stored");
+
+    assert!(!trace_id.is_empty());
+    assert!(controller.store().beliefs().is_empty());
+    assert!(controller.store().memories().is_empty());
+    assert_eq!(controller.store().traces().len(), 1);
+
+    let promotion_event = sink
+        .events()
+        .into_iter()
+        .find(|event| event.action == "promotion")
+        .expect("promotion event present");
+    assert_eq!(
+        promotion_event.details.get("target_layer").map(String::as_str),
+        Some("belief")
+    );
+    assert_eq!(
+        promotion_event.details.get("route_basis").map(String::as_str),
+        Some("insufficient_structure")
+    );
+    assert_eq!(
+        promotion_event.details.get("fallback_layer").map(String::as_str),
+        Some("trace")
+    );
+}

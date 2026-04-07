@@ -23,17 +23,31 @@ impl<'a, S: MemoryStore> GoalStateStore<'a, S> {
                 reason: "goal-state store can only persist goal-state memory".to_string(),
             });
         }
+        if !memory.has_required_structure_for(MemoryLayer::GoalState) {
+            return Err(AgentMemoryError::InvalidCandidate {
+                reason: "goal-state store requires non-empty entity, slot, and value"
+                    .to_string(),
+            });
+        }
+
+        let entity = memory.entity_non_empty().expect("validated entity");
+        let slot = memory.slot_non_empty().expect("validated slot");
+        let value = memory.value_non_empty().expect("validated value");
 
         let existing = self
             .store
             .list_memories_by_layer(MemoryLayer::GoalState)?
             .into_iter()
-            .filter(|candidate| candidate.entity == memory.entity)
-            .filter(|candidate| candidate.slot == memory.slot)
+            .filter(|candidate| candidate.has_required_structure_for(MemoryLayer::GoalState))
+            .filter(|candidate| candidate.entity_non_empty() == Some(entity))
+            .filter(|candidate| candidate.slot_non_empty() == Some(slot))
             .max_by(|left, right| left.stored_at.cmp(&right.stored_at));
 
         let mut goal_memory = memory.clone();
         goal_memory.internal_layer = Some(MemoryLayer::GoalState);
+        goal_memory.entity = entity.to_string();
+        goal_memory.slot = slot.to_string();
+        goal_memory.value = value.to_string();
         let goal_status = goal_memory
             .metadata
             .get("goal_status")
@@ -63,6 +77,7 @@ impl<'a, S: MemoryStore> GoalStateStore<'a, S> {
 
     pub fn list_all_memories(&mut self) -> Result<Vec<DurableMemory>> {
         let mut memories = self.store.list_memories_by_layer(MemoryLayer::GoalState)?;
+        memories.retain(|memory| memory.has_required_structure_for(MemoryLayer::GoalState));
         memories.sort_by(|left, right| right.stored_at.cmp(&left.stored_at));
         Ok(memories)
     }
@@ -80,14 +95,12 @@ impl<'a, S: MemoryStore> GoalStateStore<'a, S> {
         Ok(self
             .list_all_memories()?
             .into_iter()
-            .filter(|memory| {
-                latest_keys.insert(format!("{}::{}", memory.entity, memory.slot))
+            .filter_map(|memory| {
+                let record = memory.to_goal_record()?;
+                Self::is_active_status(record.status).then_some((memory, record))
             })
-            .filter(|memory| {
-                memory
-                    .to_goal_record()
-                    .is_some_and(|record| Self::is_active_status(record.status))
-            })
+            .filter(|(_, record)| latest_keys.insert(format!("{}::{}", record.entity, record.slot)))
+            .map(|(memory, _)| memory)
             .collect())
     }
 
