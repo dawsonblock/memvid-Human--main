@@ -159,6 +159,7 @@ impl<S: MemoryStore> MemoryController<S> {
                             ),
                         ]),
                     });
+                    self.reconcile_procedure_statuses(Some(classified.candidate_id.clone()))?;
                     return Ok(Some(episode_memory.memory_id));
                 }
 
@@ -187,6 +188,7 @@ impl<S: MemoryStore> MemoryController<S> {
                     query_text: None,
                     details: BTreeMap::new(),
                 });
+                self.reconcile_procedure_statuses(Some(classified.candidate_id.clone()))?;
                 Ok(Some(trace_id))
             }
             PromotionDecision::Promote => {
@@ -453,18 +455,7 @@ impl<S: MemoryStore> MemoryController<S> {
                     }
                 }
 
-                let lifecycle_transitions = {
-                    let mut procedure_store = ProcedureStore::new(&mut self.store);
-                    procedure_store.sync_all_effective_statuses(self.clock.now())?
-                };
-                for transition in lifecycle_transitions {
-                    self.emit_procedure_status_transition(
-                        Some(classified.candidate_id.clone()),
-                        transition,
-                        "reconciliation",
-                        "reconciliation",
-                    )?;
-                }
+                self.reconcile_procedure_statuses(Some(classified.candidate_id.clone()))?;
 
                 Ok(Some(memory_id))
             }
@@ -646,6 +637,22 @@ impl<S: MemoryStore> MemoryController<S> {
             Some("success") => "success",
             _ => "consolidation",
         }
+    }
+
+    fn reconcile_procedure_statuses(&mut self, candidate_id: Option<String>) -> Result<()> {
+        let lifecycle_transitions = {
+            let mut procedure_store = ProcedureStore::new(&mut self.store);
+            procedure_store.sync_all_effective_statuses(self.clock.now())?
+        };
+        for transition in lifecycle_transitions {
+            self.emit_procedure_status_transition(
+                candidate_id.clone(),
+                transition,
+                "reconciliation",
+                "reconciliation",
+            )?;
+        }
+        Ok(())
     }
 
     fn is_verified_source(candidate: &CandidateMemory) -> bool {

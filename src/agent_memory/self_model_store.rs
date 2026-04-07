@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use chrono::{DateTime, Utc};
 
 use super::adapters::memvid_store::MemoryStore;
-use super::enums::{MemoryLayer, SelfModelKind};
+use super::enums::{BeliefStatus, MemoryLayer, SelfModelKind};
 use super::errors::{AgentMemoryError, Result};
 use super::schemas::{DurableMemory, SelfModelRecord};
 
@@ -28,6 +28,14 @@ impl<'a, S: MemoryStore> SelfModelStore<'a, S> {
             });
         }
 
+        let existing = self
+            .store
+            .list_memories_by_layer(MemoryLayer::SelfModel)?
+            .into_iter()
+            .filter(|candidate| candidate.entity == memory.entity)
+            .filter(|candidate| candidate.slot == memory.slot)
+            .max_by(|left, right| left.stored_at.cmp(&right.stored_at));
+
         let mut self_model_memory = memory.clone();
         self_model_memory.internal_layer = Some(MemoryLayer::SelfModel);
         self_model_memory.metadata.insert(
@@ -36,6 +44,78 @@ impl<'a, S: MemoryStore> SelfModelStore<'a, S> {
                 .as_str()
                 .to_string(),
         );
+        self_model_memory
+            .metadata
+            .entry("reinforcement_count".to_string())
+            .or_insert_with(|| "1".to_string());
+        self_model_memory.metadata.insert(
+            "self_model_status".to_string(),
+            BeliefStatus::Active.as_str().to_string(),
+        );
+
+        if let Some(existing_memory) = existing {
+            let mut supporting_ids = Self::supporting_ids(&existing_memory);
+            if let Some(episode_id) = supporting_episode_id
+                && !supporting_ids.iter().any(|existing_id| existing_id == episode_id)
+            {
+                supporting_ids.push(episode_id.to_string());
+            }
+
+            if existing_memory.value == self_model_memory.value {
+                let reinforcement_count = existing_memory
+                    .metadata
+                    .get("reinforcement_count")
+                    .and_then(|value| value.parse::<u32>().ok())
+                    .unwrap_or(1)
+                    + 1;
+                self_model_memory.memory_id = existing_memory.memory_id.clone();
+                self_model_memory.confidence = self_model_memory.confidence.max(existing_memory.confidence);
+                self_model_memory.metadata.insert(
+                    "reinforcement_count".to_string(),
+                    reinforcement_count.to_string(),
+                );
+                self_model_memory.metadata.insert(
+                    "last_reinforced_at".to_string(),
+                    self_model_memory.stored_at.to_rfc3339(),
+                );
+                self_model_memory.metadata.insert(
+                    "supporting_memory_ids".to_string(),
+                    supporting_ids.join(","),
+                );
+            } else {
+                let new_strength = self_model_memory.confidence + self_model_memory.source.trust_weight;
+                let existing_strength = existing_memory.confidence + existing_memory.source.trust_weight;
+                self_model_memory.metadata.insert(
+                    "prior_value".to_string(),
+                    existing_memory.value.clone(),
+                );
+                self_model_memory.metadata.insert(
+                    "conflict_observed_at".to_string(),
+                    self_model_memory.stored_at.to_rfc3339(),
+                );
+                self_model_memory.metadata.insert(
+                    "supporting_memory_ids".to_string(),
+                    supporting_ids.join(","),
+                );
+                if new_strength + 0.05 >= existing_strength {
+                    self_model_memory.memory_id = existing_memory.memory_id.clone();
+                    self_model_memory.metadata.insert(
+                        "contradiction_resolution".to_string(),
+                        "updated".to_string(),
+                    );
+                } else {
+                    self_model_memory.metadata.insert(
+                        "self_model_status".to_string(),
+                        BeliefStatus::Disputed.as_str().to_string(),
+                    );
+                    self_model_memory.metadata.insert(
+                        "contradiction_resolution".to_string(),
+                        "disputed".to_string(),
+                    );
+                }
+            }
+        }
+
         if let Some(episode_id) = supporting_episode_id {
             self_model_memory = self_model_memory.with_supporting_episode(episode_id);
         }
@@ -59,7 +139,11 @@ impl<'a, S: MemoryStore> SelfModelStore<'a, S> {
             .into_iter()
             .filter(|memory| memory.entity == entity)
             .collect();
-        memories.sort_by(|left, right| right.stored_at.cmp(&left.stored_at));
+        memories.sort_by(|left, right| {
+            Self::status_priority(right)
+                .cmp(&Self::status_priority(left))
+                .then_with(|| right.stored_at.cmp(&left.stored_at))
+        });
         Ok(memories)
     }
 
@@ -110,5 +194,34 @@ impl<'a, S: MemoryStore> SelfModelStore<'a, S> {
             .into_iter()
             .filter(|record| record.observed_at >= since)
             .collect())
+    }
+
+    fn supporting_ids(memory: &DurableMemory) -> Vec<String> {
+        memory
+            .metadata
+            .get("supporting_memory_ids")
+            .or_else(|| memory.metadata.get("supporting_episode_ids"))
+            .map(|value| {
+                value
+                    .split(',')
+                    .filter(|entry| !entry.is_empty())
+                    .map(ToString::to_string)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn status_priority(memory: &DurableMemory) -> u8 {
+        match memory
+            .metadata
+            .get("self_model_status")
+            .and_then(|value| BeliefStatus::from_str(value))
+            .unwrap_or(BeliefStatus::Active)
+        {
+            BeliefStatus::Active => 3,
+            BeliefStatus::Stale => 2,
+            BeliefStatus::Disputed => 1,
+            BeliefStatus::Retracted => 0,
+        }
     }
 }

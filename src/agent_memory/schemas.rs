@@ -240,16 +240,33 @@ impl DurableMemory {
                 .get("self_model_kind")
                 .and_then(|value| SelfModelKind::from_str(value))
                 .unwrap_or_else(|| SelfModelKind::from_slot(&self.slot)),
-            status: if self.is_retraction {
-                BeliefStatus::Retracted
-            } else {
-                BeliefStatus::Active
-            },
+            status: self
+                .metadata
+                .get("self_model_status")
+                .and_then(|value| BeliefStatus::from_str(value))
+                .unwrap_or_else(|| {
+                    if self.is_retraction {
+                        BeliefStatus::Retracted
+                    } else {
+                        BeliefStatus::Active
+                    }
+                }),
             confidence: self.confidence,
             observed_at: self.event_timestamp(),
             updated_at: self.stored_at,
             source: self.source.clone(),
-            supporting_memory_ids: vec![self.memory_id.clone()],
+            supporting_memory_ids: self
+                .metadata
+                .get("supporting_memory_ids")
+                .or_else(|| self.metadata.get("supporting_episode_ids"))
+                .map(|value| {
+                    value
+                        .split(',')
+                        .filter(|entry| !entry.is_empty())
+                        .map(ToString::to_string)
+                        .collect()
+                })
+                .unwrap_or_else(|| vec![self.memory_id.clone()]),
             scope: self.scope,
             tags: self.tags.clone(),
             metadata: self.metadata.clone(),
@@ -316,6 +333,11 @@ impl DurableMemory {
             last_succeeded_at: self
                 .metadata
                 .get("last_succeeded_at")
+                .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+                .map(|value| value.with_timezone(&Utc)),
+            last_failed_at: self
+                .metadata
+                .get("last_failed_at")
                 .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
                 .map(|value| value.with_timezone(&Utc)),
             updated_at: self.stored_at,
@@ -402,6 +424,7 @@ pub struct ProcedureRecord {
     pub learned_from_memory_ids: Vec<String>,
     pub last_used_at: Option<DateTime<Utc>>,
     pub last_succeeded_at: Option<DateTime<Utc>>,
+    pub last_failed_at: Option<DateTime<Utc>>,
     pub updated_at: DateTime<Utc>,
     pub metadata: BTreeMap<String, String>,
 }

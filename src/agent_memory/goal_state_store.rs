@@ -24,14 +24,27 @@ impl<'a, S: MemoryStore> GoalStateStore<'a, S> {
             });
         }
 
+        let existing = self
+            .store
+            .list_memories_by_layer(MemoryLayer::GoalState)?
+            .into_iter()
+            .filter(|candidate| candidate.entity == memory.entity)
+            .filter(|candidate| candidate.slot == memory.slot)
+            .max_by(|left, right| left.stored_at.cmp(&right.stored_at));
+
         let mut goal_memory = memory.clone();
         goal_memory.internal_layer = Some(MemoryLayer::GoalState);
-        goal_memory.metadata.insert(
-            "goal_status".to_string(),
-            GoalStatus::from_text(&goal_memory.value, &goal_memory.raw_text)
-                .as_str()
-                .to_string(),
-        );
+        let goal_status = goal_memory
+            .metadata
+            .get("goal_status")
+            .and_then(|value| GoalStatus::from_str(value))
+            .unwrap_or_else(|| GoalStatus::from_text(&goal_memory.value, &goal_memory.raw_text));
+        goal_memory
+            .metadata
+            .insert("goal_status".to_string(), goal_status.as_str().to_string());
+        if let Some(existing_memory) = existing {
+            goal_memory.memory_id = existing_memory.memory_id;
+        }
         if let Some(episode_id) = supporting_episode_id {
             goal_memory = goal_memory.with_supporting_episode(episode_id);
         }
@@ -56,16 +69,20 @@ impl<'a, S: MemoryStore> GoalStateStore<'a, S> {
 
     pub fn list_active(&mut self) -> Result<Vec<GoalRecord>> {
         Ok(self
-            .list_all()?
+            .list_active_memories()?
             .into_iter()
-            .filter(|record| Self::is_active_status(record.status))
+            .filter_map(|memory| memory.to_goal_record())
             .collect())
     }
 
     pub fn list_active_memories(&mut self) -> Result<Vec<DurableMemory>> {
+        let mut latest_keys = std::collections::HashSet::new();
         Ok(self
             .list_all_memories()?
             .into_iter()
+            .filter(|memory| {
+                latest_keys.insert(format!("{}::{}", memory.entity, memory.slot))
+            })
             .filter(|memory| {
                 memory
                     .to_goal_record()

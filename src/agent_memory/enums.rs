@@ -94,6 +94,7 @@ pub enum GoalStatus {
     Blocked,
     WaitingOnUser,
     WaitingOnSystem,
+    Stale,
     Completed,
 }
 
@@ -170,6 +171,7 @@ impl GoalStatus {
             Self::Blocked => "blocked",
             Self::WaitingOnUser => "waiting_on_user",
             Self::WaitingOnSystem => "waiting_on_system",
+            Self::Stale => "stale",
             Self::Completed => "completed",
         }
     }
@@ -186,6 +188,8 @@ impl GoalStatus {
             Self::WaitingOnSystem
         } else if lower.contains("blocked") {
             Self::Blocked
+        } else if lower.contains("stale") || lower.contains("outdated") {
+            Self::Stale
         } else if lower.contains("complete") || lower.contains("done") {
             Self::Completed
         } else if lower.contains("inactive") || lower.contains("paused") {
@@ -203,7 +207,31 @@ impl GoalStatus {
             "blocked" => Some(Self::Blocked),
             "waiting_on_user" => Some(Self::WaitingOnUser),
             "waiting_on_system" => Some(Self::WaitingOnSystem),
+            "stale" => Some(Self::Stale),
             "completed" => Some(Self::Completed),
+            _ => None,
+        }
+    }
+}
+
+impl BeliefStatus {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::Disputed => "disputed",
+            Self::Stale => "stale",
+            Self::Retracted => "retracted",
+        }
+    }
+
+    #[must_use]
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "active" => Some(Self::Active),
+            "disputed" => Some(Self::Disputed),
+            "stale" => Some(Self::Stale),
+            "retracted" => Some(Self::Retracted),
             _ => None,
         }
     }

@@ -75,7 +75,17 @@ impl<'a, S: MemoryStore> ProcedureStore<'a, S> {
                 reason: "procedure store can only persist procedure-layer memory".to_string(),
             });
         }
-        self.store.put_memory(memory)
+
+        let workflow_key = memory
+            .metadata
+            .get("workflow_key")
+            .cloned()
+            .unwrap_or_else(|| memory.slot.clone());
+        let mut procedure_memory = memory.clone();
+        if let Some(existing) = self.get_by_workflow_key(&workflow_key)? {
+            procedure_memory.memory_id = existing.procedure_id;
+        }
+        self.store.put_memory(&procedure_memory)
     }
 
     pub fn list_all(&mut self) -> Result<Vec<ProcedureRecord>> {
@@ -90,7 +100,18 @@ impl<'a, S: MemoryStore> ProcedureStore<'a, S> {
     pub fn list_all_memories(&mut self) -> Result<Vec<DurableMemory>> {
         let mut memories = self.store.list_memories_by_layer(MemoryLayer::Procedure)?;
         memories.sort_by(|left, right| right.stored_at.cmp(&left.stored_at));
-        Ok(memories)
+        let mut seen_workflows = HashSet::new();
+        Ok(memories
+            .into_iter()
+            .filter(|memory| {
+                let workflow_key = memory
+                    .metadata
+                    .get("workflow_key")
+                    .cloned()
+                    .unwrap_or_else(|| memory.slot.clone());
+                seen_workflows.insert(workflow_key)
+            })
+            .collect())
     }
 
     pub fn list_active(&mut self) -> Result<Vec<ProcedureRecord>> {
@@ -253,7 +274,9 @@ impl<'a, S: MemoryStore> ProcedureStore<'a, S> {
         }
 
         let mut record = ProcedureRecord {
-            procedure_id: Uuid::new_v4().to_string(),
+            procedure_id: existing
+                .map(|record| record.procedure_id.clone())
+                .unwrap_or_else(|| Uuid::new_v4().to_string()),
             name: workflow_key.to_string(),
             description: description.to_string(),
             context_tags: existing
@@ -267,6 +290,8 @@ impl<'a, S: MemoryStore> ProcedureStore<'a, S> {
             last_used_at: Some(now),
             last_succeeded_at: last_succeeded_at
                 .or_else(|| existing.and_then(|record| record.last_succeeded_at)),
+            last_failed_at: last_failed_at
+                .or_else(|| existing.and_then(|record| record.last_failed_at)),
             updated_at: now,
             metadata,
         };
@@ -335,6 +360,9 @@ impl<'a, S: MemoryStore> ProcedureStore<'a, S> {
                 "last_succeeded_at".to_string(),
                 last_succeeded_at.to_rfc3339(),
             );
+        }
+        if let Some(last_failed_at) = record.last_failed_at {
+            metadata.insert("last_failed_at".to_string(), last_failed_at.to_rfc3339());
         }
 
         let memory = DurableMemory {

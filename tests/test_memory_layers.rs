@@ -3,8 +3,9 @@ mod common;
 use memvid_core::agent_memory::enums::{
     BeliefStatus, GoalStatus, MemoryLayer, MemoryType, ProcedureStatus, SelfModelKind, SourceType,
 };
+use memvid_core::agent_memory::schemas::{CandidateMemory, Provenance};
 
-use common::{candidate, durable, ts};
+use common::{candidate, controller, durable, ts};
 
 #[test]
 fn public_memory_types_map_to_internal_layers() {
@@ -159,4 +160,150 @@ fn procedure_projection_preserves_workflow_metadata() {
     assert_eq!(procedure.name, "repo_review");
     assert_eq!(procedure.success_count, 2);
     assert_eq!(procedure.status, ProcedureStatus::Active);
+}
+
+#[test]
+fn low_trust_fact_is_preserved_as_episode_not_current_truth() {
+    let (mut controller, _) = controller(ts(1_700_000_000));
+
+    controller
+        .ingest(candidate(
+            "user",
+            "location",
+            "Berlin",
+            "The user currently lives in Berlin",
+        ))
+        .expect("ingest succeeds")
+        .expect("episode stored");
+
+    assert_eq!(controller.store().beliefs().len(), 0);
+    assert_eq!(controller.store().memories().len(), 1);
+    assert_eq!(controller.store().memories()[0].memory_layer(), MemoryLayer::Episode);
+}
+
+#[test]
+fn clear_goal_state_promotes_more_easily_than_self_model_or_belief() {
+    let (mut controller, _) = controller(ts(1_700_000_000));
+
+    let goal_id = controller
+        .ingest(candidate(
+            "project",
+            "task_status",
+            "blocked",
+            "The current task is blocked waiting on review",
+        ))
+        .expect("goal ingest succeeds")
+        .expect("goal stored");
+    let self_model_id = controller
+        .ingest(candidate(
+            "user",
+            "response_style",
+            "concise",
+            "The user prefers concise responses",
+        ))
+        .expect("self-model ingest succeeds")
+        .expect("episode stored");
+
+    assert!(!goal_id.is_empty());
+    assert!(!self_model_id.is_empty());
+    assert!(controller
+        .store()
+        .memories()
+        .iter()
+        .any(|memory| memory.memory_layer() == MemoryLayer::GoalState));
+    assert!(controller
+        .store()
+        .memories()
+        .iter()
+        .any(|memory| memory.memory_layer() == MemoryLayer::Episode));
+    assert!(!controller
+        .store()
+        .memories()
+        .iter()
+        .any(|memory| memory.memory_layer() == MemoryLayer::SelfModel));
+}
+
+#[test]
+fn procedure_requires_system_seed_or_repeated_evidence() {
+    let (mut controller, _) = controller(ts(1_700_000_000));
+    let unseeded = CandidateMemory {
+        candidate_id: "unseeded-procedure".to_string(),
+        observed_at: ts(1_700_000_000),
+        entity: Some("procedure".to_string()),
+        slot: Some("repo_review".to_string()),
+        value: Some("repo_review".to_string()),
+        raw_text: "Review the repo in a consistent order".to_string(),
+        source: Provenance {
+            source_type: SourceType::Tool,
+            source_id: "tool-seed".to_string(),
+            source_label: Some("tool".to_string()),
+            observed_by: None,
+            trust_weight: 0.9,
+        },
+        memory_type: MemoryType::Trace,
+        confidence: 0.95,
+        salience: 0.9,
+        scope: memvid_core::agent_memory::enums::Scope::Project,
+        ttl: None,
+        event_at: None,
+        valid_from: None,
+        valid_to: None,
+        internal_layer: Some(MemoryLayer::Procedure),
+        tags: vec!["review".to_string()],
+        metadata: std::collections::BTreeMap::from([(
+            "workflow_key".to_string(),
+            "repo_review".to_string(),
+        )]),
+        is_retraction: false,
+    };
+    controller
+        .ingest(unseeded)
+        .expect("unseeded ingest succeeds")
+        .expect("evidence stored");
+    assert!(!controller
+        .store()
+        .memories()
+        .iter()
+        .any(|memory| memory.memory_layer() == MemoryLayer::Procedure));
+
+    let seeded = CandidateMemory {
+        candidate_id: "seeded-procedure".to_string(),
+        observed_at: ts(1_700_000_100),
+        entity: Some("procedure".to_string()),
+        slot: Some("repo_review".to_string()),
+        value: Some("repo_review".to_string()),
+        raw_text: "Review the repo in a consistent order".to_string(),
+        source: Provenance {
+            source_type: SourceType::System,
+            source_id: "system-seed".to_string(),
+            source_label: Some("system".to_string()),
+            observed_by: None,
+            trust_weight: 1.0,
+        },
+        memory_type: MemoryType::Trace,
+        confidence: 0.95,
+        salience: 0.9,
+        scope: memvid_core::agent_memory::enums::Scope::Project,
+        ttl: None,
+        event_at: None,
+        valid_from: None,
+        valid_to: None,
+        internal_layer: Some(MemoryLayer::Procedure),
+        tags: vec!["review".to_string()],
+        metadata: std::collections::BTreeMap::from([
+            ("workflow_key".to_string(), "repo_review".to_string()),
+            ("seeded_by_system".to_string(), "true".to_string()),
+        ]),
+        is_retraction: false,
+    };
+    controller
+        .ingest(seeded)
+        .expect("seeded ingest succeeds")
+        .expect("procedure stored");
+
+    assert!(controller
+        .store()
+        .memories()
+        .iter()
+        .any(|memory| memory.memory_layer() == MemoryLayer::Procedure));
 }

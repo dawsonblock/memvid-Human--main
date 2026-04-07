@@ -395,18 +395,24 @@ impl MemoryRetriever {
         task_context: &TaskContext,
     ) -> Result<Vec<RetrievalHit>> {
         let mut procedure_store = ProcedureStore::new(store);
-        let mut hits = Vec::new();
-        for memory in procedure_store
+        let mut memories: Vec<_> = procedure_store
             .list_all_memories()?
             .into_iter()
             .filter(|memory| Self::procedure_matches_task_context(memory, task_context, query))
-            .take(TASK_STATE_PROCEDURE_LIMIT)
-        {
-            if memory.to_procedure_record().is_some_and(|record| {
-                effective_procedure_status(&record) == ProcedureStatus::Retired
-            }) {
-                continue;
-            }
+            .filter(|memory| {
+                memory.to_procedure_record().is_none_or(|record| {
+                    effective_procedure_status(&record) != ProcedureStatus::Retired
+                })
+            })
+            .collect();
+        memories.sort_by(|left, right| {
+            Self::procedure_rank(right)
+                .cmp(&Self::procedure_rank(left))
+                .then_with(|| right.event_timestamp().cmp(&left.event_timestamp()))
+        });
+
+        let mut hits = Vec::new();
+        for memory in memories.into_iter().take(TASK_STATE_PROCEDURE_LIMIT) {
             hits.push(self.hit_from_memory_with_task_context(
                 &memory,
                 query,
@@ -944,6 +950,17 @@ impl MemoryRetriever {
             _ => 1,
         };
         (priority, memory.event_timestamp())
+    }
+
+    fn procedure_rank(memory: &DurableMemory) -> u8 {
+        memory
+            .to_procedure_record()
+            .map(|record| match effective_procedure_status(&record) {
+                ProcedureStatus::Active => 3,
+                ProcedureStatus::CoolingDown => 2,
+                ProcedureStatus::Retired => 0,
+            })
+            .unwrap_or(1)
     }
 
     fn is_success_outcome(value: Option<&str>) -> bool {

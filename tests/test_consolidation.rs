@@ -184,3 +184,156 @@ fn consolidation_records_recurring_blockers() {
         Some("ci_red")
     );
 }
+
+#[test]
+fn self_model_consolidation_is_threshold_based_idempotent_and_reinforcing() {
+    let mut store = InMemoryMemoryStore::default();
+    let first = durable(
+        "user",
+        "response_style",
+        "concise",
+        "The user prefers concise responses",
+        MemoryType::Preference,
+        SourceType::Chat,
+        0.75,
+        ts(1_700_000_000),
+    );
+    let second = durable(
+        "user",
+        "response_style",
+        "concise",
+        "The user still prefers concise responses",
+        MemoryType::Preference,
+        SourceType::Chat,
+        0.75,
+        ts(1_700_000_060),
+    );
+    let third = durable(
+        "user",
+        "response_style",
+        "concise",
+        "The user again prefers concise responses",
+        MemoryType::Preference,
+        SourceType::Chat,
+        0.8,
+        ts(1_700_000_120),
+    );
+
+    {
+        let mut self_model_store = SelfModelStore::new(&mut store);
+        self_model_store
+            .save_memory(&first, Some("episode-1"))
+            .expect("first self-model stored");
+        self_model_store
+            .save_memory(&second, Some("episode-2"))
+            .expect("second self-model stored");
+    }
+
+    let first_outcomes = ConsolidationEngine::default()
+        .consolidate(
+            &mut store,
+            None,
+            Some(&second),
+            &FixedClock::new(ts(1_700_000_180)),
+        )
+        .expect("consolidation succeeds");
+    assert_eq!(
+        first_outcomes[0]
+            .record
+            .metadata
+            .get("consolidation_action")
+            .map(String::as_str),
+        Some("promotion")
+    );
+
+    let rerun_outcomes = ConsolidationEngine::default()
+        .consolidate(
+            &mut store,
+            None,
+            Some(&second),
+            &FixedClock::new(ts(1_700_000_181)),
+        )
+        .expect("rerun consolidation succeeds");
+    assert!(rerun_outcomes.is_empty());
+
+    {
+        let mut self_model_store = SelfModelStore::new(&mut store);
+        self_model_store
+            .save_memory(&third, Some("episode-3"))
+            .expect("third self-model stored");
+    }
+
+    let reinforcement_outcomes = ConsolidationEngine::default()
+        .consolidate(
+            &mut store,
+            None,
+            Some(&third),
+            &FixedClock::new(ts(1_700_000_240)),
+        )
+        .expect("reinforcement consolidation succeeds");
+    let reinforcement = reinforcement_outcomes
+        .iter()
+        .find(|outcome| outcome.record.target_layer == MemoryLayer::SelfModel)
+        .expect("self-model consolidation present");
+    assert_eq!(
+        reinforcement
+            .record
+            .metadata
+            .get("consolidation_action")
+            .map(String::as_str),
+        Some("reinforcement")
+    );
+}
+
+#[test]
+fn blocker_consolidation_uses_at_least_threshold_not_exact_count() {
+    let mut store = InMemoryMemoryStore::default();
+    for offset in 0..4 {
+        let mut goal = durable(
+            "project",
+            "task_status",
+            "blocked",
+            "Blocked waiting on CI",
+            MemoryType::GoalState,
+            SourceType::Chat,
+            0.75,
+            ts(1_700_000_000 + (offset * 86_400)),
+        );
+        goal.metadata
+            .insert("blocker_reason".to_string(), "ci_red".to_string());
+        let mut goal_store = GoalStateStore::new(&mut store);
+        goal_store.save_memory(&goal, None).expect("goal stored");
+    }
+
+    let latest = store
+        .list_memories_by_layer(MemoryLayer::GoalState)
+        .expect("goals listed")
+        .into_iter()
+        .max_by(|left, right| left.stored_at.cmp(&right.stored_at))
+        .expect("latest goal exists");
+    let outcomes = ConsolidationEngine::default()
+        .consolidate(
+            &mut store,
+            None,
+            Some(&latest),
+            &FixedClock::new(ts(1_700_000_000 + (4 * 86_400))),
+        )
+        .expect("consolidation succeeds");
+
+    let blocker = outcomes
+        .iter()
+        .find(|outcome| outcome.record.target_layer == MemoryLayer::GoalState)
+        .expect("goal-state consolidation present");
+    assert_eq!(
+        blocker.record.metadata.get("threshold").map(String::as_str),
+        Some("3")
+    );
+    assert_eq!(
+        blocker
+            .record
+            .metadata
+            .get("consolidation_action")
+            .map(String::as_str),
+        Some("promotion")
+    );
+}

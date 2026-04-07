@@ -3,14 +3,16 @@ mod common;
 use memvid_core::agent_memory::adapters::memvid_store::{InMemoryMemoryStore, MemoryStore};
 use memvid_core::agent_memory::clock::FixedClock;
 use memvid_core::agent_memory::consolidation_engine::ConsolidationEngine;
-use memvid_core::agent_memory::enums::{MemoryLayer, MemoryType, ProcedureStatus, SourceType};
+use memvid_core::agent_memory::enums::{
+    MemoryLayer, MemoryType, ProcedureStatus, Scope, SourceType,
+};
 use memvid_core::agent_memory::episode_store::EpisodeStore;
 use memvid_core::agent_memory::memory_retriever::MemoryRetriever;
 use memvid_core::agent_memory::policy::PolicySet;
 use memvid_core::agent_memory::procedure_store::ProcedureStore;
 use memvid_core::agent_memory::ranker::Ranker;
 use memvid_core::agent_memory::retention::RetentionManager;
-use memvid_core::agent_memory::schemas::RetrievalQuery;
+use memvid_core::agent_memory::schemas::{CandidateMemory, Provenance, RetrievalQuery};
 
 use common::{candidate, controller, durable, ts};
 
@@ -74,6 +76,13 @@ fn repeated_successful_workflows_promote_into_procedure_memory() {
         )
         .expect("first consolidation succeeds");
     assert!(first_outcomes.is_empty());
+    {
+        let mut procedure_store = ProcedureStore::new(&mut store);
+        assert!(procedure_store
+            .get_by_workflow_key("repo_review")
+            .expect("procedure lookup succeeds")
+            .is_none());
+    }
 
     {
         let mut episode_store = EpisodeStore::new(&mut store);
@@ -105,36 +114,78 @@ fn repeated_successful_workflows_promote_into_procedure_memory() {
     );
     assert_eq!(learned_procedure.status, ProcedureStatus::Active);
     assert_eq!(learned_procedure.success_count, 2);
+
+    let rerun_outcomes = ConsolidationEngine::default()
+        .consolidate(
+            &mut store,
+            Some(&second),
+            None,
+            &FixedClock::new(ts(1_700_000_062)),
+        )
+        .expect("rerun consolidation succeeds");
+    assert!(rerun_outcomes.is_empty());
+    let rerun_procedure = {
+        let mut procedure_store = ProcedureStore::new(&mut store);
+        procedure_store
+            .get_by_workflow_key("repo_review")
+            .expect("procedure lookup succeeds")
+            .expect("procedure still exists")
+    };
+    assert_eq!(rerun_procedure.success_count, 2);
 }
 
 #[test]
 fn task_state_query_downranks_cooling_down_procedures_and_filters_retired_ones() {
     let mut store = InMemoryMemoryStore::default();
+    let active = procedure_memory(
+        "procedure-active",
+        ProcedureStatus::Active,
+        5,
+        1,
+        ts(1_700_000_000),
+    );
     store
-        .put_memory(&procedure_memory(
-            "procedure-active",
-            ProcedureStatus::Active,
-            5,
-            1,
-            ts(1_700_000_000),
-        ))
+        .put_memory(&active)
         .expect("active procedure stored");
+    let mut cooling = procedure_memory(
+        "procedure-cooling",
+        ProcedureStatus::CoolingDown,
+        2,
+        4,
+        ts(1_700_000_010),
+    );
+    cooling.slot = "review_backup".to_string();
+    cooling.value = "review_backup".to_string();
+    cooling
+        .metadata
+        .insert("workflow_key".to_string(), "review_backup".to_string());
+    cooling
+        .metadata
+        .insert("procedure_name".to_string(), "review_backup".to_string());
+    cooling
+        .metadata
+        .insert("context_tags".to_string(), "review,backup".to_string());
     store
-        .put_memory(&procedure_memory(
-            "procedure-cooling",
-            ProcedureStatus::CoolingDown,
-            2,
-            4,
-            ts(1_700_000_010),
-        ))
+        .put_memory(&cooling)
         .expect("cooling procedure stored");
-    let retired = procedure_memory(
+    let mut retired = procedure_memory(
         "procedure-retired",
         ProcedureStatus::Retired,
         1,
         6,
         ts(1_700_000_020),
     );
+    retired.slot = "retired_review".to_string();
+    retired.value = "retired_review".to_string();
+    retired
+        .metadata
+        .insert("workflow_key".to_string(), "retired_review".to_string());
+    retired
+        .metadata
+        .insert("procedure_name".to_string(), "retired_review".to_string());
+    retired
+        .metadata
+        .insert("context_tags".to_string(), "review,retired".to_string());
     let retired_id = retired.memory_id.clone();
     store
         .put_memory(&retired)
@@ -145,10 +196,10 @@ fn task_state_query_downranks_cooling_down_procedures_and_filters_retired_ones()
         .retrieve(
             &mut store,
             &RetrievalQuery {
-                query_text: "repo_review next steps".to_string(),
+                query_text: "review next steps".to_string(),
                 intent: memvid_core::agent_memory::enums::QueryIntent::TaskState,
                 entity: None,
-                slot: None,
+                slot: Some("review".to_string()),
                 scope: None,
                 top_k: 5,
                 as_of: None,
@@ -160,7 +211,7 @@ fn task_state_query_downranks_cooling_down_procedures_and_filters_retired_ones()
 
     assert_eq!(
         hits.first().and_then(|hit| hit.memory_id.as_deref()),
-        Some("procedure-active")
+        Some(active.memory_id.as_str())
     );
     assert!(
         hits.iter()
@@ -168,7 +219,72 @@ fn task_state_query_downranks_cooling_down_procedures_and_filters_retired_ones()
     );
     assert!(
         hits.iter()
-            .any(|hit| hit.memory_id.as_deref() == Some("procedure-cooling"))
+            .any(|hit| hit.memory_id.as_deref() == Some(cooling.memory_id.as_str()))
+    );
+}
+
+#[test]
+fn system_seeded_procedure_candidate_promotes_without_repetition() {
+    let (mut controller, sink) = controller(ts(1_700_000_000));
+    let seeded = CandidateMemory {
+        candidate_id: "seeded-procedure".to_string(),
+        observed_at: ts(1_700_000_000),
+        entity: Some("procedure".to_string()),
+        slot: Some("repo_review".to_string()),
+        value: Some("repo_review".to_string()),
+        raw_text: "Review the repo in a consistent order".to_string(),
+        source: Provenance {
+            source_type: SourceType::System,
+            source_id: "system-seed".to_string(),
+            source_label: Some("system".to_string()),
+            observed_by: None,
+            trust_weight: 1.0,
+        },
+        memory_type: MemoryType::Trace,
+        confidence: 0.95,
+        salience: 0.9,
+        scope: Scope::Project,
+        ttl: None,
+        event_at: None,
+        valid_from: None,
+        valid_to: None,
+        internal_layer: Some(MemoryLayer::Procedure),
+        tags: vec!["review".to_string()],
+        metadata: std::collections::BTreeMap::from([
+            ("workflow_key".to_string(), "repo_review".to_string()),
+            ("seeded_by_system".to_string(), "true".to_string()),
+            ("procedure_name".to_string(), "repo_review".to_string()),
+        ]),
+        is_retraction: false,
+    };
+
+    let stored_id = controller
+        .ingest(seeded)
+        .expect("ingest succeeds")
+        .expect("procedure stored");
+
+    let procedure = {
+        let mut procedure_store = ProcedureStore::new(controller.store_mut());
+        procedure_store
+            .get_by_workflow_key("repo_review")
+            .expect("procedure lookup succeeds")
+            .expect("procedure exists")
+    };
+    let promotion_event = sink
+        .events()
+        .into_iter()
+        .find(|event| event.action == "promotion")
+        .expect("promotion event exists");
+
+    assert_eq!(stored_id, procedure.procedure_id);
+    assert_eq!(procedure.success_count, 0);
+    assert_eq!(procedure.status, ProcedureStatus::Active);
+    assert_eq!(
+        promotion_event
+            .details
+            .get("route_basis")
+            .map(String::as_str),
+        Some("system_seeded")
     );
 }
 

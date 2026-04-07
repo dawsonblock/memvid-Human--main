@@ -2,7 +2,9 @@ mod common;
 
 use memvid_core::agent_memory::adapters::memvid_store::{InMemoryMemoryStore, MemoryStore};
 use memvid_core::agent_memory::clock::FixedClock;
-use memvid_core::agent_memory::enums::{BeliefStatus, MemoryType, QueryIntent, SourceType};
+use memvid_core::agent_memory::enums::{
+    BeliefStatus, MemoryLayer, MemoryType, QueryIntent, SourceType,
+};
 use memvid_core::agent_memory::memory_retriever::MemoryRetriever;
 use memvid_core::agent_memory::policy::PolicySet;
 use memvid_core::agent_memory::ranker::Ranker;
@@ -30,18 +32,37 @@ fn current_fact_query_checks_belief_state_first() {
             source_weights: std::collections::BTreeMap::from([(SourceType::Chat, 0.75)]),
         })
         .expect("belief stored");
+    let mut archived = durable(
+        "user",
+        "location",
+        "Berlin",
+        "Berlin appears in archive",
+        MemoryType::Fact,
+        SourceType::Chat,
+        0.75,
+        ts(1_700_000_000),
+    );
+    archived.memory_id = "m1".to_string();
+    archived
+        .metadata
+        .insert("supporting_episode_ids".to_string(), "episode-1".to_string());
     store
-        .put_memory(&durable(
-            "user",
-            "location",
-            "Berlin",
-            "Berlin appears in archive",
-            MemoryType::Fact,
-            SourceType::Chat,
-            0.75,
-            ts(1_700_000_000),
-        ))
+        .put_memory(&archived)
         .expect("memory stored");
+    let mut support_episode = durable(
+        "user",
+        "location",
+        "Berlin",
+        "The system observed Berlin during profile sync",
+        MemoryType::Episode,
+        SourceType::Tool,
+        0.9,
+        ts(1_700_000_010),
+    );
+    support_episode.memory_id = "episode-1".to_string();
+    store
+        .put_memory(&support_episode)
+        .expect("support episode stored");
 
     let retriever = MemoryRetriever::new(Ranker, RetentionManager::new(PolicySet::default()));
     let hits = retriever
@@ -62,6 +83,64 @@ fn current_fact_query_checks_belief_state_first() {
         .expect("retrieval works");
 
     assert!(hits.first().expect("hit").from_belief);
+    assert!(hits.iter().skip(1).any(|hit| {
+        hit.metadata.get("retrieval_role").map(String::as_str) == Some("support_evidence")
+    }));
+    assert!(hits.iter().any(|hit| hit.memory_layer == Some(MemoryLayer::Episode)));
+}
+
+#[test]
+fn historical_fact_queries_prefer_episodes_and_prior_state_evidence() {
+    let mut store = InMemoryMemoryStore::default();
+    let mut old_memory = durable(
+        "user",
+        "location",
+        "Berlin",
+        "Earlier records show Berlin",
+        MemoryType::Fact,
+        SourceType::Chat,
+        0.75,
+        ts(1_700_000_000),
+    );
+    old_memory.event_at = Some(ts(1_700_000_000));
+    old_memory.source.source_id = "archive-source".to_string();
+    store.put_memory(&old_memory).expect("old state stored");
+
+    let mut historical_episode = durable(
+        "user",
+        "location",
+        "Berlin",
+        "Yesterday the user said they were in Berlin",
+        MemoryType::Episode,
+        SourceType::Chat,
+        0.75,
+        ts(1_700_000_050),
+    );
+    historical_episode.event_at = Some(ts(1_700_000_050));
+    store
+        .put_memory(&historical_episode)
+        .expect("historical episode stored");
+
+    let retriever = MemoryRetriever::new(Ranker, RetentionManager::new(PolicySet::default()));
+    let hits = retriever
+        .retrieve(
+            &mut store,
+            &RetrievalQuery {
+                query_text: "where was the user before".to_string(),
+                intent: QueryIntent::HistoricalFact,
+                entity: Some("user".to_string()),
+                slot: Some("location".to_string()),
+                scope: None,
+                top_k: 4,
+                as_of: Some(ts(1_700_000_100)),
+                include_expired: false,
+            },
+            &FixedClock::new(ts(1_700_000_200)),
+        )
+        .expect("historical retrieval works");
+
+    assert_eq!(hits.first().and_then(|hit| hit.memory_layer), Some(MemoryLayer::Episode));
+    assert!(hits.iter().any(|hit| hit.memory_layer == Some(MemoryLayer::Belief)));
 }
 
 #[test]
@@ -348,6 +427,74 @@ fn preference_query_uses_direct_self_model_lookup_when_text_overlap_is_weak() {
 }
 
 #[test]
+fn preference_query_returns_self_model_with_limited_support() {
+    let mut store = InMemoryMemoryStore::default();
+    let mut first = durable(
+        "user",
+        "response_style",
+        "concise",
+        "The user prefers concise responses",
+        MemoryType::Preference,
+        SourceType::Chat,
+        0.75,
+        ts(1_700_000_000),
+    );
+    first
+        .metadata
+        .insert("supporting_episode_ids".to_string(), "episode-1".to_string());
+    store.put_memory(&first).expect("first preference stored");
+    let second = durable(
+        "user",
+        "response_style",
+        "concise",
+        "The user again prefers concise responses",
+        MemoryType::Preference,
+        SourceType::Chat,
+        0.75,
+        ts(1_700_000_050),
+    );
+    store.put_memory(&second).expect("second preference stored");
+    let mut support_episode = durable(
+        "user",
+        "event",
+        "preference_confirmed",
+        "A recent episode confirmed the concise response style",
+        MemoryType::Episode,
+        SourceType::Tool,
+        0.9,
+        ts(1_700_000_040),
+    );
+    support_episode.memory_id = "episode-1".to_string();
+    store
+        .put_memory(&support_episode)
+        .expect("support episode stored");
+
+    let retriever = MemoryRetriever::new(Ranker, RetentionManager::new(PolicySet::default()));
+    let hits = retriever
+        .retrieve(
+            &mut store,
+            &RetrievalQuery {
+                query_text: "communication guidance".to_string(),
+                intent: QueryIntent::PreferenceLookup,
+                entity: Some("user".to_string()),
+                slot: None,
+                scope: None,
+                top_k: 4,
+                as_of: None,
+                include_expired: false,
+            },
+            &FixedClock::new(ts(1_700_000_100)),
+        )
+        .expect("retrieval works");
+
+    assert_eq!(hits.first().and_then(|hit| hit.memory_type), Some(MemoryType::Preference));
+    assert!(hits.iter().skip(1).any(|hit| {
+        hit.metadata.get("retrieval_role").map(String::as_str) == Some("support_evidence")
+    }));
+    assert!(hits.len() <= 4);
+}
+
+#[test]
 fn preference_query_falls_back_to_search_when_self_model_store_is_empty() {
     let mut store = InMemoryMemoryStore::default();
     store
@@ -437,6 +584,20 @@ fn task_query_deduplicates_supporting_and_recent_episode_hits() {
         ts(1_700_000_000),
     );
     store.put_memory(&episode).expect("episode stored");
+    let mut duplicate_episode = durable(
+        "project",
+        "event",
+        "review_requested",
+        "The team requested review for the task",
+        MemoryType::Episode,
+        SourceType::Chat,
+        0.75,
+        ts(1_700_000_005),
+    );
+    duplicate_episode.memory_id = "memory-project-event-review_requested-duplicate".to_string();
+    store
+        .put_memory(&duplicate_episode)
+        .expect("duplicate episode stored");
 
     let mut goal = durable(
         "project",
@@ -472,9 +633,9 @@ fn task_query_deduplicates_supporting_and_recent_episode_hits() {
         )
         .expect("retrieval works");
 
-    let unique_ids: std::collections::HashSet<_> = hits
+    let duplicate_hits: Vec<_> = hits
         .iter()
-        .filter_map(|hit| hit.memory_id.as_deref())
+        .filter(|hit| hit.value.as_deref() == Some("review_requested"))
         .collect();
-    assert_eq!(unique_ids.len(), hits.len());
+    assert_eq!(duplicate_hits.len(), 1);
 }

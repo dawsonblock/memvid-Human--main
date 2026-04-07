@@ -40,7 +40,13 @@ impl Ranker {
 
     fn type_bonus(intent: QueryIntent, hit: &RetrievalHit, memory_layer: MemoryLayer) -> f32 {
         match (intent, memory_layer) {
-            (QueryIntent::CurrentFact, MemoryLayer::Belief) => 2.5,
+            (QueryIntent::CurrentFact, MemoryLayer::Belief) => {
+                if hit.from_belief {
+                    2.8
+                } else {
+                    1.35
+                }
+            }
             (QueryIntent::CurrentFact, MemoryLayer::Episode) => 0.45,
             (QueryIntent::CurrentFact, MemoryLayer::Trace) => -0.8,
             (QueryIntent::HistoricalFact, MemoryLayer::Episode) => 2.0,
@@ -92,7 +98,7 @@ impl Ranker {
         }
 
         match intent {
-            QueryIntent::CurrentFact => 1.1,
+            QueryIntent::CurrentFact => 1.35,
             QueryIntent::HistoricalFact => -0.35,
             _ => 0.2,
         }
@@ -117,7 +123,7 @@ impl Ranker {
             .get("procedure_status")
             .and_then(|value| ProcedureStatus::from_str(value))
         {
-            Some(ProcedureStatus::CoolingDown) => -0.75,
+            Some(ProcedureStatus::CoolingDown) => -1.5,
             Some(ProcedureStatus::Retired) => -4.0,
             _ => 0.0,
         }
