@@ -322,6 +322,11 @@ procedure workflow key, procedure feedback reuses the existing lifecycle and suc
 counts instead of creating a parallel score path, and generic durable memories feed feedback
 back into effective salience through bounded outcome-impact adjustments.
 
+This tranche now also supports direct `belief_id` feedback. Belief feedback stays belief-native:
+it updates the persisted `BeliefRecord`, preserves the Phase 4 score surface by flowing through
+bounded evidence-strength adjustment rather than a new ranking factor, and remains auditable via
+the same controller-owned `outcome_feedback_recorded` event.
+
 This keeps ranking deterministic and inspectable without widening the storage model or changing the
 intent routing contract.
 

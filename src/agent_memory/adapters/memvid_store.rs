@@ -23,6 +23,7 @@ pub trait MemoryStore {
     fn update_belief(&mut self, belief: &BeliefRecord) -> Result<()>;
     fn get_active_belief(&mut self, entity: &str, slot: &str) -> Result<Option<BeliefRecord>>;
     fn get_current_belief(&mut self, entity: &str, slot: &str) -> Result<Option<BeliefRecord>>;
+    fn get_belief_by_id(&mut self, belief_id: &str) -> Result<Option<BeliefRecord>>;
     fn get_memory(&mut self, memory_id: &str) -> Result<Option<DurableMemory>>;
     fn search(&mut self, query: &RetrievalQuery) -> Result<Vec<RetrievalHit>>;
     fn list_memories_by_layer(&mut self, layer: MemoryLayer) -> Result<Vec<DurableMemory>>;
@@ -342,6 +343,14 @@ impl MemoryStore for InMemoryMemoryStore {
         Ok(self
             .beliefs
             .get(&(entity.to_string(), slot.to_string()))
+            .cloned())
+    }
+
+    fn get_belief_by_id(&mut self, belief_id: &str) -> Result<Option<BeliefRecord>> {
+        Ok(self
+            .beliefs
+            .values()
+            .find(|belief| belief.belief_id == belief_id)
             .cloned())
     }
 
@@ -817,6 +826,24 @@ impl MemoryStore for MemvidStore {
             }
         }
         Ok(None)
+    }
+
+    fn get_belief_by_id(&mut self, belief_id: &str) -> Result<Option<BeliefRecord>> {
+        let mut latest: Option<(i64, BeliefRecord)> = None;
+        for card in self.memvid.memories().cards() {
+            if !card.entity.starts_with(BELIEF_PREFIX) || card.is_retracted() {
+                continue;
+            }
+            let belief: BeliefRecord = serde_json::from_str(&card.value)?;
+            if belief.belief_id != belief_id {
+                continue;
+            }
+            let timestamp = card.effective_timestamp();
+            if latest.as_ref().is_none_or(|(current_timestamp, _)| timestamp > *current_timestamp) {
+                latest = Some((timestamp, belief));
+            }
+        }
+        Ok(latest.map(|(_, belief)| belief))
     }
 
     fn get_memory(&mut self, memory_id: &str) -> Result<Option<DurableMemory>> {

@@ -47,6 +47,9 @@ fn current_fact_query_checks_belief_state_first() {
             contradictions_observed: 0,
             last_contradiction_at: None,
             time_to_last_resolution_seconds: None,
+            positive_outcome_count: 0,
+            negative_outcome_count: 0,
+            last_outcome_at: None,
             source_weights: std::collections::BTreeMap::from([(SourceType::Chat, 0.75)]),
         })
         .expect("belief stored");
@@ -126,6 +129,9 @@ fn noisy_support_evidence_does_not_displace_direct_belief_answer() {
             contradictions_observed: 0,
             last_contradiction_at: None,
             time_to_last_resolution_seconds: None,
+            positive_outcome_count: 0,
+            negative_outcome_count: 0,
+            last_outcome_at: None,
             source_weights: std::collections::BTreeMap::from([(SourceType::Tool, 0.95)]),
         })
         .expect("belief stored");
@@ -250,6 +256,9 @@ fn disputed_belief_surfaces_as_contested_current_fact_when_no_active_belief_exis
             contradictions_observed: 2,
             last_contradiction_at: Some(ts(1_700_000_100)),
             time_to_last_resolution_seconds: None,
+            positive_outcome_count: 0,
+            negative_outcome_count: 0,
+            last_outcome_at: None,
             source_weights: std::collections::BTreeMap::from([(SourceType::Tool, 0.95)]),
         })
         .expect("belief stored");
@@ -347,6 +356,9 @@ fn score_breakdown_in_metadata_contains_all_named_factors() {
             contradictions_observed: 0,
             last_contradiction_at: None,
             time_to_last_resolution_seconds: None,
+            positive_outcome_count: 0,
+            negative_outcome_count: 0,
+            last_outcome_at: None,
             source_weights: std::collections::BTreeMap::from([(SourceType::Tool, 0.95)]),
         })
         .expect("belief stored");
@@ -506,6 +518,9 @@ fn ranking_explanation_documents_why_answer_is_primary() {
             contradictions_observed: 0,
             last_contradiction_at: None,
             time_to_last_resolution_seconds: None,
+            positive_outcome_count: 0,
+            negative_outcome_count: 0,
+            last_outcome_at: None,
             source_weights: std::collections::BTreeMap::from([(SourceType::Tool, 0.95)]),
         })
         .expect("belief stored");
@@ -535,6 +550,91 @@ fn ranking_explanation_documents_why_answer_is_primary() {
     assert!(explanation.contains("direct_answer"));
     assert!(explanation.contains("belief"));
     assert!(explanation.contains("current_fact"));
+}
+
+#[test]
+fn positive_belief_feedback_increases_current_fact_evidence_strength() {
+    let mut positive_store = InMemoryMemoryStore::default();
+    positive_store
+        .update_belief(&BeliefRecord {
+            belief_id: "belief-positive".to_string(),
+            entity: "user".to_string(),
+            slot: "location".to_string(),
+            current_value: "Berlin".to_string(),
+            status: BeliefStatus::Active,
+            confidence: 0.8,
+            valid_from: ts(1_700_000_000),
+            valid_to: None,
+            last_reviewed_at: ts(1_700_000_050),
+            supporting_memory_ids: vec!["m-positive".to_string()],
+            opposing_memory_ids: Vec::new(),
+            contradictions_observed: 0,
+            last_contradiction_at: None,
+            time_to_last_resolution_seconds: None,
+            positive_outcome_count: 3,
+            negative_outcome_count: 0,
+            last_outcome_at: Some(ts(1_700_000_090)),
+            source_weights: std::collections::BTreeMap::from([(SourceType::Tool, 0.95)]),
+        })
+        .expect("positive belief stored");
+
+    let mut negative_store = InMemoryMemoryStore::default();
+    negative_store
+        .update_belief(&BeliefRecord {
+            belief_id: "belief-negative".to_string(),
+            entity: "user".to_string(),
+            slot: "location".to_string(),
+            current_value: "Berlin".to_string(),
+            status: BeliefStatus::Active,
+            confidence: 0.8,
+            valid_from: ts(1_700_000_000),
+            valid_to: None,
+            last_reviewed_at: ts(1_700_000_050),
+            supporting_memory_ids: vec!["m-negative".to_string()],
+            opposing_memory_ids: Vec::new(),
+            contradictions_observed: 0,
+            last_contradiction_at: None,
+            time_to_last_resolution_seconds: None,
+            positive_outcome_count: 0,
+            negative_outcome_count: 3,
+            last_outcome_at: Some(ts(1_700_000_090)),
+            source_weights: std::collections::BTreeMap::from([(SourceType::Tool, 0.95)]),
+        })
+        .expect("negative belief stored");
+
+    let retriever = MemoryRetriever::new(Ranker, RetentionManager::new(PolicySet::default()));
+    let query = RetrievalQuery {
+        query_text: "what is the user's current location".to_string(),
+        intent: QueryIntent::CurrentFact,
+        entity: Some("user".to_string()),
+        slot: Some("location".to_string()),
+        scope: None,
+        top_k: 1,
+        as_of: None,
+        include_expired: false,
+    };
+
+    let positive_hits = retriever
+        .retrieve(&mut positive_store, &query, &FixedClock::new(ts(1_700_000_100)))
+        .expect("positive retrieval works");
+    let negative_hits = retriever
+        .retrieve(&mut negative_store, &query, &FixedClock::new(ts(1_700_000_100)))
+        .expect("negative retrieval works");
+
+    let positive_strength = positive_hits[0]
+        .metadata
+        .get("score_signal_evidence_strength")
+        .and_then(|value| value.parse::<f32>().ok())
+        .expect("positive evidence strength");
+    let negative_strength = negative_hits[0]
+        .metadata
+        .get("score_signal_evidence_strength")
+        .and_then(|value| value.parse::<f32>().ok())
+        .expect("negative evidence strength");
+
+    assert!(positive_strength > 0.8);
+    assert!(negative_strength < 0.8);
+    assert!(positive_hits[0].score > negative_hits[0].score);
 }
 
 #[test]

@@ -20,6 +20,10 @@ impl<'a, S: MemoryStore> BeliefStore<'a, S> {
         self.store.get_current_belief(entity, slot)
     }
 
+    pub fn get_by_id(&mut self, belief_id: &str) -> Result<Option<BeliefRecord>> {
+        self.store.get_belief_by_id(belief_id)
+    }
+
     pub fn get_active(&mut self, entity: &str, slot: &str) -> Result<Option<BeliefRecord>> {
         self.store.get_active_belief(entity, slot)
     }

@@ -49,6 +49,9 @@ fn memvid_adapter_maps_governed_memory_to_real_memvid_interfaces() {
             contradictions_observed: 0,
             last_contradiction_at: None,
             time_to_last_resolution_seconds: None,
+            positive_outcome_count: 0,
+            negative_outcome_count: 0,
+            last_outcome_at: None,
             source_weights: std::collections::BTreeMap::from([(SourceType::Chat, 0.75)]),
         })
         .expect("belief stored");

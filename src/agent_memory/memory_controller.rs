@@ -433,10 +433,17 @@ impl<S: MemoryStore> MemoryController<S> {
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(ToString::to_string);
+        let target_belief_id = feedback
+            .belief_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string);
 
-        if workflow_key.is_none() && target_memory_id.is_none() {
+        if workflow_key.is_none() && target_memory_id.is_none() && target_belief_id.is_none() {
             return Err(AgentMemoryError::InvalidCandidate {
-                reason: "outcome feedback requires a memory_id or workflow_key".to_string(),
+                reason: "outcome feedback requires a memory_id, belief_id, or workflow_key"
+                    .to_string(),
             });
         }
 
@@ -459,6 +466,23 @@ impl<S: MemoryStore> MemoryController<S> {
                     }
                     self.store.put_memory(&updated)?;
                     stored_memory_ids.push(updated.memory_id.clone());
+                }
+            }
+        }
+
+        if let Some(belief_id) = target_belief_id.as_deref() {
+            let updated_belief = self
+                .store
+                .get_belief_by_id(belief_id)?
+                .map(|belief| belief.with_outcome_feedback(feedback.outcome, feedback.observed_at));
+            if let Some(updated_belief) = updated_belief {
+                target_layer = Some(MemoryLayer::Belief);
+                self.store.update_belief(&updated_belief)?;
+                if !stored_memory_ids
+                    .iter()
+                    .any(|existing| existing == &updated_belief.belief_id)
+                {
+                    stored_memory_ids.push(updated_belief.belief_id.clone());
                 }
             }
         }
@@ -508,6 +532,9 @@ impl<S: MemoryStore> MemoryController<S> {
         if let Some(memory_id) = target_memory_id {
             details.insert("target_memory_id".to_string(), memory_id);
         }
+        if let Some(belief_id) = target_belief_id {
+            details.insert("target_belief_id".to_string(), belief_id);
+        }
         if let Some(workflow_key_value) = workflow_key {
             details.insert("workflow_key".to_string(), workflow_key_value);
         }
@@ -523,8 +550,10 @@ impl<S: MemoryStore> MemoryController<S> {
             occurred_at: self.clock.now(),
             action: "outcome_feedback_recorded".to_string(),
             candidate_id: None,
-            memory_id: stored_memory_ids.first().cloned(),
-            belief_id: None,
+            memory_id: (target_layer != Some(MemoryLayer::Belief))
+                .then(|| stored_memory_ids.first().cloned())
+                .flatten(),
+            belief_id: feedback.belief_id.clone(),
             query_text: None,
             details,
         });

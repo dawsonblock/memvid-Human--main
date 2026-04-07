@@ -19,6 +19,10 @@ const LAST_POSITIVE_OUTCOME_AT_KEY: &str = "last_positive_outcome_at";
 const LAST_NEGATIVE_OUTCOME_AT_KEY: &str = "last_negative_outcome_at";
 const OUTCOME_IMPACT_SCORE_KEY: &str = "outcome_impact_score";
 const LAST_FEEDBACK_OUTCOME_KEY: &str = "last_feedback_outcome";
+const BELIEF_OUTCOME_IMPACT_COUNT_CAP: u32 = 6;
+const BELIEF_OUTCOME_IMPACT_WINDOW_DAYS: f32 = 30.0;
+const BELIEF_OUTCOME_IMPACT_MAX_ADJUSTMENT: f32 = 0.12;
+const BELIEF_OUTCOME_DAY_SECONDS: f32 = 86_400.0;
 
 fn trimmed_non_empty(value: &str) -> Option<&str> {
     let trimmed = value.trim();
@@ -723,6 +727,12 @@ pub struct BeliefRecord {
     pub last_contradiction_at: Option<DateTime<Utc>>,
     #[serde(default)]
     pub time_to_last_resolution_seconds: Option<i64>,
+    #[serde(default)]
+    pub positive_outcome_count: u32,
+    #[serde(default)]
+    pub negative_outcome_count: u32,
+    #[serde(default)]
+    pub last_outcome_at: Option<DateTime<Utc>>,
     pub source_weights: BTreeMap<SourceType, f32>,
 }
 
@@ -744,6 +754,63 @@ impl BeliefRecord {
         }
         self.last_contradiction_at
             .map(|observed_at| (now.timestamp() - observed_at.timestamp()).max(0))
+    }
+
+    #[must_use]
+    pub fn outcome_impact_score(&self) -> f32 {
+        let total = self.positive_outcome_count + self.negative_outcome_count;
+        if total == 0 {
+            0.0
+        } else {
+            ((self.positive_outcome_count as f32 - self.negative_outcome_count as f32)
+                / total as f32)
+                .clamp(-1.0, 1.0)
+        }
+    }
+
+    #[must_use]
+    pub fn effective_confidence(&self, now: DateTime<Utc>) -> f32 {
+        (self.confidence + self.outcome_impact_adjustment(now)).clamp(0.05, 0.99)
+    }
+
+    #[must_use]
+    pub fn outcome_impact_adjustment(&self, now: DateTime<Utc>) -> f32 {
+        let total = self.positive_outcome_count + self.negative_outcome_count;
+        if total == 0 {
+            return 0.0;
+        }
+
+        let count_weight = total.min(BELIEF_OUTCOME_IMPACT_COUNT_CAP) as f32
+            / BELIEF_OUTCOME_IMPACT_COUNT_CAP as f32;
+        let recency_weight = self.last_outcome_at.map_or(0.0, |last_outcome_at| {
+            let age_days = (now.timestamp() - last_outcome_at.timestamp()).max(0) as f32
+                / BELIEF_OUTCOME_DAY_SECONDS;
+            (1.0 - (age_days / BELIEF_OUTCOME_IMPACT_WINDOW_DAYS)).clamp(0.0, 1.0)
+        });
+
+        self.outcome_impact_score()
+            * count_weight
+            * recency_weight
+            * BELIEF_OUTCOME_IMPACT_MAX_ADJUSTMENT
+    }
+
+    #[must_use]
+    pub fn with_outcome_feedback(
+        mut self,
+        outcome: OutcomeFeedbackKind,
+        observed_at: DateTime<Utc>,
+    ) -> Self {
+        match outcome {
+            OutcomeFeedbackKind::Positive => {
+                self.positive_outcome_count = self.positive_outcome_count.saturating_add(1);
+            }
+            OutcomeFeedbackKind::Negative => {
+                self.negative_outcome_count = self.negative_outcome_count.saturating_add(1);
+            }
+        }
+        self.last_outcome_at = Some(observed_at);
+        self.last_reviewed_at = observed_at;
+        self
     }
 }
 
@@ -775,6 +842,7 @@ pub struct RetrievalQuery {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct OutcomeFeedback {
     pub memory_id: Option<String>,
+    pub belief_id: Option<String>,
     pub workflow_key: Option<String>,
     pub outcome: OutcomeFeedbackKind,
     pub observed_at: DateTime<Utc>,

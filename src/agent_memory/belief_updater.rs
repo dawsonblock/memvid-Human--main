@@ -65,6 +65,9 @@ impl BeliefUpdater {
                         contradictions_observed: 0,
                         last_contradiction_at: None,
                         time_to_last_resolution_seconds: None,
+                        positive_outcome_count: 0,
+                        negative_outcome_count: 0,
+                        last_outcome_at: None,
                         source_weights,
                     }),
                     prior_belief: None,
@@ -147,6 +150,9 @@ impl BeliefUpdater {
                             .map(|observed_at| {
                                 (now.timestamp() - observed_at.timestamp()).max(0)
                             }),
+                        positive_outcome_count: 0,
+                        negative_outcome_count: 0,
+                        last_outcome_at: None,
                         source_weights,
                     };
                     return BeliefUpdateOutcome {

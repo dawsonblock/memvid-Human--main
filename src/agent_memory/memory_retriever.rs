@@ -623,6 +623,25 @@ impl MemoryRetriever {
                 seconds.to_string(),
             );
         }
+        if belief.positive_outcome_count > 0 {
+            metadata.insert(
+                "positive_outcome_count".to_string(),
+                belief.positive_outcome_count.to_string(),
+            );
+        }
+        if belief.negative_outcome_count > 0 {
+            metadata.insert(
+                "negative_outcome_count".to_string(),
+                belief.negative_outcome_count.to_string(),
+            );
+        }
+        if let Some(last_outcome_at) = belief.last_outcome_at {
+            metadata.insert("last_outcome_at".to_string(), last_outcome_at.to_rfc3339());
+            metadata.insert(
+                "outcome_impact_score".to_string(),
+                format!("{:.6}", belief.outcome_impact_score()),
+            );
+        }
         Self::set_score_signal(
             &mut metadata,
             SCORE_SIGNAL_CONTENT_MATCH_KEY,
@@ -631,7 +650,7 @@ impl MemoryRetriever {
         Self::set_score_signal(
             &mut metadata,
             SCORE_SIGNAL_EVIDENCE_STRENGTH_KEY,
-            belief.confidence,
+            belief.effective_confidence(now),
         );
         Self::set_score_signal(
             &mut metadata,
@@ -657,7 +676,7 @@ impl MemoryRetriever {
             text: belief.current_value.clone(),
             memory_layer: Some(MemoryLayer::Belief),
             memory_type: Some(MemoryType::Fact),
-            score: belief.confidence,
+            score: belief.effective_confidence(now),
             timestamp: belief.last_reviewed_at,
             scope: query.scope,
             source: None,

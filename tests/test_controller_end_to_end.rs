@@ -236,6 +236,7 @@ fn outcome_feedback_updates_generic_memory_metadata() {
     controller
         .record_outcome_feedback(OutcomeFeedback {
             memory_id: Some(memory_id.clone()),
+            belief_id: None,
             workflow_key: None,
             outcome: OutcomeFeedbackKind::Positive,
             observed_at: now,
@@ -324,6 +325,7 @@ fn negative_feedback_can_cool_down_a_procedure() {
     controller
         .record_outcome_feedback(OutcomeFeedback {
             memory_id: Some(procedure_id.clone()),
+            belief_id: None,
             workflow_key: None,
             outcome: OutcomeFeedbackKind::Negative,
             observed_at: now,
@@ -357,4 +359,106 @@ fn negative_feedback_can_cool_down_a_procedure() {
     let actions: Vec<_> = sink.events().into_iter().map(|event| event.action).collect();
     assert!(actions.iter().any(|action| action == "outcome_feedback_recorded"));
     assert!(actions.iter().any(|action| action == "procedure_status_changed"));
+}
+
+#[test]
+fn outcome_feedback_updates_belief_by_id_and_improves_effective_confidence() {
+    let now = ts(1_700_000_160);
+    let (mut controller, sink) = controller(ts(1_700_000_000));
+    let mut verified = candidate(
+        "user",
+        "location",
+        "Berlin",
+        "The verified profile says the user currently lives in Berlin.",
+    );
+    verified
+        .metadata
+        .insert("verified_source".to_string(), "true".to_string());
+    controller.ingest(verified).expect("ingest succeeds");
+
+    let belief_id = controller
+        .store()
+        .beliefs()
+        .values()
+        .next()
+        .expect("belief exists")
+        .belief_id
+        .clone();
+
+    controller
+        .record_outcome_feedback(OutcomeFeedback {
+            memory_id: None,
+            belief_id: Some(belief_id.clone()),
+            workflow_key: None,
+            outcome: OutcomeFeedbackKind::Positive,
+            observed_at: now,
+            metadata: std::collections::BTreeMap::new(),
+        })
+        .expect("belief feedback succeeds");
+
+    let updated_belief = controller
+        .store()
+        .beliefs()
+        .values()
+        .next()
+        .expect("updated belief exists")
+        .clone();
+    assert_eq!(updated_belief.positive_outcome_count, 1);
+    assert_eq!(updated_belief.negative_outcome_count, 0);
+    assert_eq!(updated_belief.last_outcome_at, Some(now));
+    assert!(updated_belief.effective_confidence(now) > updated_belief.confidence);
+
+    let hits = controller
+        .retrieve(RetrievalQuery {
+            query_text: "what is the user's current location".to_string(),
+            intent: QueryIntent::CurrentFact,
+            entity: Some("user".to_string()),
+            slot: Some("location".to_string()),
+            scope: None,
+            top_k: 1,
+            as_of: None,
+            include_expired: false,
+        })
+        .expect("retrieval succeeds");
+    let direct = hits.first().expect("direct belief hit");
+    assert_eq!(
+        direct
+            .metadata
+            .get("positive_outcome_count")
+            .map(String::as_str),
+        Some("1")
+    );
+    assert!(
+        direct
+            .metadata
+            .get("score_signal_evidence_strength")
+            .and_then(|value| value.parse::<f32>().ok())
+            .expect("effective evidence strength")
+            > updated_belief.confidence
+    );
+
+    let feedback_event = sink
+        .events()
+        .into_iter()
+        .find(|event| event.action == "outcome_feedback_recorded")
+        .expect("feedback audit event present");
+    assert_eq!(
+        feedback_event.belief_id.as_deref(),
+        Some(belief_id.as_str())
+    );
+    assert_eq!(feedback_event.memory_id, None);
+    assert_eq!(
+        feedback_event
+            .details
+            .get("target_belief_id")
+            .map(String::as_str),
+        Some(belief_id.as_str())
+    );
+    assert_eq!(
+        feedback_event
+            .details
+            .get("target_layer")
+            .map(String::as_str),
+        Some("belief")
+    );
 }

@@ -53,6 +53,9 @@ fn matching_fact_reinforces_belief() {
         contradictions_observed: 0,
         last_contradiction_at: None,
         time_to_last_resolution_seconds: None,
+        positive_outcome_count: 0,
+        negative_outcome_count: 0,
+        last_outcome_at: None,
         source_weights: BTreeMap::from([(SourceType::Chat, 0.75)]),
     };
     let memory = durable(
@@ -100,6 +103,9 @@ fn higher_trust_replacement_updates_belief() {
         contradictions_observed: 0,
         last_contradiction_at: None,
         time_to_last_resolution_seconds: None,
+        positive_outcome_count: 0,
+        negative_outcome_count: 0,
+        last_outcome_at: None,
         source_weights: BTreeMap::from([(SourceType::Chat, 0.75)]),
     };
     let memory = durable(
@@ -148,6 +154,9 @@ fn lower_trust_conflict_disputes_existing_belief() {
         contradictions_observed: 0,
         last_contradiction_at: None,
         time_to_last_resolution_seconds: None,
+        positive_outcome_count: 0,
+        negative_outcome_count: 0,
+        last_outcome_at: None,
         source_weights: BTreeMap::from([(SourceType::System, 1.0)]),
     };
     let memory = durable(
@@ -194,6 +203,9 @@ fn reinforcing_disputed_belief_restores_active_status_and_tracks_resolution_time
         contradictions_observed: 1,
         last_contradiction_at: Some(ts(1_700_000_050)),
         time_to_last_resolution_seconds: None,
+        positive_outcome_count: 0,
+        negative_outcome_count: 0,
+        last_outcome_at: None,
         source_weights: BTreeMap::from([(SourceType::System, 1.0)]),
     };
     let memory = durable(

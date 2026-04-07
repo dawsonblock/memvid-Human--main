@@ -26,6 +26,9 @@ fn contradictory_lower_trust_memory_does_not_silently_replace_stronger_belief() 
         contradictions_observed: 0,
         last_contradiction_at: None,
         time_to_last_resolution_seconds: None,
+        positive_outcome_count: 0,
+        negative_outcome_count: 0,
+        last_outcome_at: None,
         source_weights: BTreeMap::from([(SourceType::File, 0.9)]),
     };
     let conflicting = durable(
