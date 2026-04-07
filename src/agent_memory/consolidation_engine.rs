@@ -105,96 +105,94 @@ impl ConsolidationEngine {
                             );
                             let disposition =
                                 self.consolidation_disposition(store, &semantic_key, &fingerprint)?;
-                            if disposition == ConsolidationDisposition::Duplicate {
-                                continue;
+                            if disposition != ConsolidationDisposition::Duplicate {
+                                let description = episode
+                                    .metadata
+                                    .get("procedure_description")
+                                    .cloned()
+                                    .unwrap_or_else(|| {
+                                        format!(
+                                            "workflow {workflow_key} has succeeded repeatedly and should be reused"
+                                        )
+                                    });
+                                let procedure_outcome = {
+                                    let mut procedure_store = ProcedureStore::new(store);
+                                    procedure_store.upsert_success(
+                                        workflow_key,
+                                        &description,
+                                        &source_memory_ids,
+                                        now,
+                                    )?
+                                };
+                                let action = match disposition {
+                                    ConsolidationDisposition::Initial => "promotion",
+                                    ConsolidationDisposition::Reinforcement => "reinforcement",
+                                    ConsolidationDisposition::Duplicate => unreachable!(),
+                                };
+                                let record = ConsolidationRecord {
+                                    consolidation_id: Uuid::new_v4().to_string(),
+                                    target_layer: MemoryLayer::Procedure,
+                                    target_id: Some(procedure_outcome.record.procedure_id.clone()),
+                                    source_memory_ids,
+                                    reason: if disposition == ConsolidationDisposition::Initial {
+                                        format!(
+                                            "repeated successful workflow {workflow_key} promoted into procedure memory"
+                                        )
+                                    } else {
+                                        format!(
+                                            "repeated successful workflow {workflow_key} reinforced learned procedure memory"
+                                        )
+                                    },
+                                    confidence: procedure_outcome.record.confidence,
+                                    created_at: now,
+                                    metadata: {
+                                        let mut metadata = BTreeMap::from([
+                                            ("workflow_key".to_string(), workflow_key.clone()),
+                                            ("outcome".to_string(), "success".to_string()),
+                                            (
+                                                "consolidation_action".to_string(),
+                                                action.to_string(),
+                                            ),
+                                            (
+                                                "consolidation_semantic_key".to_string(),
+                                                semantic_key,
+                                            ),
+                                            (
+                                                "consolidation_fingerprint".to_string(),
+                                                fingerprint,
+                                            ),
+                                            (
+                                                "window_days".to_string(),
+                                                self.policy.consolidation_window_days().to_string(),
+                                            ),
+                                            (
+                                                "minimum_repetitions".to_string(),
+                                                self.policy
+                                                    .minimum_procedure_success_repetitions()
+                                                    .to_string(),
+                                            ),
+                                        ]);
+                                        if let Some(transition) = &procedure_outcome.status_transition {
+                                            metadata.insert(
+                                                "previous_procedure_status".to_string(),
+                                                transition.previous_status.as_str().to_string(),
+                                            );
+                                            metadata.insert(
+                                                "next_procedure_status".to_string(),
+                                                transition.next_status.as_str().to_string(),
+                                            );
+                                        }
+                                        metadata
+                                    },
+                                };
+                                let trace_id = self.persist_record(store, &record)?;
+                                outcomes.push(ConsolidationOutcome {
+                                    record,
+                                    trace_id,
+                                    learned_procedure_id: Some(procedure_outcome.record.procedure_id),
+                                    procedure_status_transition: procedure_outcome.status_transition,
+                                });
                             }
-
-                    let description = episode
-                        .metadata
-                        .get("procedure_description")
-                        .cloned()
-                        .unwrap_or_else(|| {
-                            format!(
-                                "workflow {workflow_key} has succeeded repeatedly and should be reused"
-                            )
-                        });
-                    let procedure_outcome = {
-                        let mut procedure_store = ProcedureStore::new(store);
-                        procedure_store.upsert_success(
-                            workflow_key,
-                            &description,
-                            &source_memory_ids,
-                            now,
-                        )?
-                    };
-                    let action = match disposition {
-                        ConsolidationDisposition::Initial => "promotion",
-                        ConsolidationDisposition::Reinforcement => "reinforcement",
-                        ConsolidationDisposition::Duplicate => unreachable!(),
-                    };
-                    let record = ConsolidationRecord {
-                        consolidation_id: Uuid::new_v4().to_string(),
-                        target_layer: MemoryLayer::Procedure,
-                        target_id: Some(procedure_outcome.record.procedure_id.clone()),
-                        source_memory_ids,
-                        reason: if disposition == ConsolidationDisposition::Initial {
-                            format!(
-                                "repeated successful workflow {workflow_key} promoted into procedure memory"
-                            )
-                        } else {
-                            format!(
-                                "repeated successful workflow {workflow_key} reinforced learned procedure memory"
-                            )
-                        },
-                        confidence: procedure_outcome.record.confidence,
-                        created_at: now,
-                        metadata: {
-                            let mut metadata = BTreeMap::from([
-                                ("workflow_key".to_string(), workflow_key.clone()),
-                                ("outcome".to_string(), "success".to_string()),
-                                (
-                                    "consolidation_action".to_string(),
-                                    action.to_string(),
-                                ),
-                                (
-                                    "consolidation_semantic_key".to_string(),
-                                    semantic_key,
-                                ),
-                                (
-                                    "consolidation_fingerprint".to_string(),
-                                    fingerprint,
-                                ),
-                                (
-                                    "window_days".to_string(),
-                                    self.policy.consolidation_window_days().to_string(),
-                                ),
-                                (
-                                    "minimum_repetitions".to_string(),
-                                    self.policy
-                                        .minimum_procedure_success_repetitions()
-                                        .to_string(),
-                                ),
-                            ]);
-                            if let Some(transition) = &procedure_outcome.status_transition {
-                                metadata.insert(
-                                    "previous_procedure_status".to_string(),
-                                    transition.previous_status.as_str().to_string(),
-                                );
-                                metadata.insert(
-                                    "next_procedure_status".to_string(),
-                                    transition.next_status.as_str().to_string(),
-                                );
-                            }
-                            metadata
-                        },
-                    };
-                    let trace_id = self.persist_record(store, &record)?;
-                    outcomes.push(ConsolidationOutcome {
-                        record,
-                        trace_id,
-                        learned_procedure_id: Some(procedure_outcome.record.procedure_id),
-                        procedure_status_transition: procedure_outcome.status_transition,
-                    });
                 }
             } else if Self::is_failure_outcome(outcome_value) {
                 let failure_memory_ids = vec![episode.memory_id.clone()];
@@ -206,73 +204,72 @@ impl ConsolidationEngine {
                 let fingerprint = self.evidence_fingerprint(&semantic_key, &failure_memory_ids, &[]);
                 let disposition =
                     self.consolidation_disposition(store, &semantic_key, &fingerprint)?;
-                if disposition == ConsolidationDisposition::Duplicate {
-                    continue;
-                }
-                let failure_outcome = {
-                    let mut procedure_store = ProcedureStore::new(store);
-                    procedure_store.record_failure(workflow_key, &failure_memory_ids, now)?
-                };
+                if disposition != ConsolidationDisposition::Duplicate {
+                    let failure_outcome = {
+                        let mut procedure_store = ProcedureStore::new(store);
+                        procedure_store.record_failure(workflow_key, &failure_memory_ids, now)?
+                    };
 
-                if let Some(procedure_outcome) = failure_outcome {
-                    let action = match disposition {
-                        ConsolidationDisposition::Initial => "promotion",
-                        ConsolidationDisposition::Reinforcement => "reinforcement",
-                        ConsolidationDisposition::Duplicate => unreachable!(),
-                    };
-                    let record = ConsolidationRecord {
-                        consolidation_id: Uuid::new_v4().to_string(),
-                        target_layer: MemoryLayer::Procedure,
-                        target_id: Some(procedure_outcome.record.procedure_id.clone()),
-                        source_memory_ids: failure_memory_ids,
-                        reason: if disposition == ConsolidationDisposition::Initial {
-                            format!(
-                                "observed workflow failure for {workflow_key} updated procedure lifecycle"
-                            )
-                        } else {
-                            format!(
-                                "observed workflow failure for {workflow_key} reinforced procedure lifecycle degradation"
-                            )
-                        },
-                        confidence: procedure_outcome.record.confidence,
-                        created_at: now,
-                        metadata: {
-                            let mut metadata = BTreeMap::from([
-                                ("workflow_key".to_string(), workflow_key.clone()),
-                                ("outcome".to_string(), "failure".to_string()),
-                                (
-                                    "consolidation_action".to_string(),
-                                    action.to_string(),
-                                ),
-                                (
-                                    "consolidation_semantic_key".to_string(),
-                                    semantic_key,
-                                ),
-                                (
-                                    "consolidation_fingerprint".to_string(),
-                                    fingerprint,
-                                ),
-                            ]);
-                            if let Some(transition) = &procedure_outcome.status_transition {
-                                metadata.insert(
-                                    "previous_procedure_status".to_string(),
-                                    transition.previous_status.as_str().to_string(),
-                                );
-                                metadata.insert(
-                                    "next_procedure_status".to_string(),
-                                    transition.next_status.as_str().to_string(),
-                                );
-                            }
-                            metadata
-                        },
-                    };
-                    let trace_id = self.persist_record(store, &record)?;
-                    outcomes.push(ConsolidationOutcome {
-                        record,
-                        trace_id,
-                        learned_procedure_id: None,
-                        procedure_status_transition: procedure_outcome.status_transition,
-                    });
+                    if let Some(procedure_outcome) = failure_outcome {
+                        let action = match disposition {
+                            ConsolidationDisposition::Initial => "promotion",
+                            ConsolidationDisposition::Reinforcement => "reinforcement",
+                            ConsolidationDisposition::Duplicate => unreachable!(),
+                        };
+                        let record = ConsolidationRecord {
+                            consolidation_id: Uuid::new_v4().to_string(),
+                            target_layer: MemoryLayer::Procedure,
+                            target_id: Some(procedure_outcome.record.procedure_id.clone()),
+                            source_memory_ids: failure_memory_ids,
+                            reason: if disposition == ConsolidationDisposition::Initial {
+                                format!(
+                                    "observed workflow failure for {workflow_key} updated procedure lifecycle"
+                                )
+                            } else {
+                                format!(
+                                    "observed workflow failure for {workflow_key} reinforced procedure lifecycle degradation"
+                                )
+                            },
+                            confidence: procedure_outcome.record.confidence,
+                            created_at: now,
+                            metadata: {
+                                let mut metadata = BTreeMap::from([
+                                    ("workflow_key".to_string(), workflow_key.clone()),
+                                    ("outcome".to_string(), "failure".to_string()),
+                                    (
+                                        "consolidation_action".to_string(),
+                                        action.to_string(),
+                                    ),
+                                    (
+                                        "consolidation_semantic_key".to_string(),
+                                        semantic_key,
+                                    ),
+                                    (
+                                        "consolidation_fingerprint".to_string(),
+                                        fingerprint,
+                                    ),
+                                ]);
+                                if let Some(transition) = &procedure_outcome.status_transition {
+                                    metadata.insert(
+                                        "previous_procedure_status".to_string(),
+                                        transition.previous_status.as_str().to_string(),
+                                    );
+                                    metadata.insert(
+                                        "next_procedure_status".to_string(),
+                                        transition.next_status.as_str().to_string(),
+                                    );
+                                }
+                                metadata
+                            },
+                        };
+                        let trace_id = self.persist_record(store, &record)?;
+                        outcomes.push(ConsolidationOutcome {
+                            record,
+                            trace_id,
+                            learned_procedure_id: None,
+                            procedure_status_transition: procedure_outcome.status_transition,
+                        });
+                    }
                 }
             }
         }

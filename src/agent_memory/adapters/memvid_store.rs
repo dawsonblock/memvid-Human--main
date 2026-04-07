@@ -181,6 +181,26 @@ fn retrieval_metadata(memory: &DurableMemory) -> BTreeMap<String, String> {
         "memory_layer".to_string(),
         memory.memory_layer().as_str().to_string(),
     );
+    metadata.insert("source_id".to_string(), memory.source.source_id.clone());
+    metadata.insert(
+        "source_type".to_string(),
+        format!("{:?}", memory.source.source_type).to_lowercase(),
+    );
+    metadata.insert(
+        "source_weight".to_string(),
+        memory.source.trust_weight.to_string(),
+    );
+    metadata.insert("stored_at".to_string(), memory.stored_at.to_rfc3339());
+    metadata.insert(
+        "event_at".to_string(),
+        memory.event_at.unwrap_or(memory.event_timestamp()).to_rfc3339(),
+    );
+    if let Some(valid_from) = memory.valid_from {
+        metadata.insert("valid_from".to_string(), valid_from.to_rfc3339());
+    }
+    if let Some(valid_to) = memory.valid_to {
+        metadata.insert("valid_to".to_string(), valid_to.to_rfc3339());
+    }
     metadata
 }
 
@@ -737,6 +757,11 @@ impl MemoryStore for MemvidStore {
             {
                 let memory_id = extra.get("agent_memory_id").cloned();
                 let expired = memory_id.as_deref().is_some_and(|id| self.is_expired(id));
+                let memory_type = parse_memory_type(extra.get("agent_memory_type"));
+                let timestamp = parse_datetime(extra.get("agent_event_at"))?
+                    .or(parse_datetime(extra.get("agent_valid_from"))?)
+                    .or(parse_datetime(extra.get("agent_stored_at"))?)
+                    .unwrap_or_else(|| query.as_of.unwrap_or_else(Utc::now));
                 hits.push(RetrievalHit {
                     memory_id,
                     belief_id: None,
@@ -744,12 +769,10 @@ impl MemoryStore for MemvidStore {
                     slot: extra.get("agent_slot").cloned(),
                     value: extra.get("agent_value").cloned(),
                     text: hit.chunk_text.unwrap_or(hit.text),
-                    memory_layer: extra
-                        .get("agent_memory_layer")
-                        .and_then(|value| MemoryLayer::from_str(value)),
-                    memory_type: Some(parse_memory_type(extra.get("agent_memory_type"))),
+                    memory_layer: Some(parse_memory_layer(extra.get("agent_memory_layer"), memory_type)),
+                    memory_type: Some(memory_type),
                     score: hit.score.unwrap_or(0.1),
-                    timestamp: query.as_of.unwrap_or_else(Utc::now),
+                    timestamp,
                     scope: Some(parse_scope(extra.get("agent_scope"))),
                     source: Some(parse_source_type(extra.get("agent_source_type"))),
                     from_belief: false,
@@ -764,6 +787,27 @@ impl MemoryStore for MemvidStore {
                             .collect();
                         if let Some(layer) = extra.get("agent_memory_layer") {
                             metadata.insert("memory_layer".to_string(), layer.clone());
+                        }
+                        if let Some(source_id) = extra.get("agent_source_id") {
+                            metadata.insert("source_id".to_string(), source_id.clone());
+                        }
+                        if let Some(source_type) = extra.get("agent_source_type") {
+                            metadata.insert("source_type".to_string(), source_type.clone());
+                        }
+                        if let Some(source_weight) = extra.get("agent_source_weight") {
+                            metadata.insert("source_weight".to_string(), source_weight.clone());
+                        }
+                        if let Some(stored_at) = extra.get("agent_stored_at") {
+                            metadata.insert("stored_at".to_string(), stored_at.clone());
+                        }
+                        if let Some(event_at) = extra.get("agent_event_at") {
+                            metadata.insert("event_at".to_string(), event_at.clone());
+                        }
+                        if let Some(valid_from) = extra.get("agent_valid_from") {
+                            metadata.insert("valid_from".to_string(), valid_from.clone());
+                        }
+                        if let Some(valid_to) = extra.get("agent_valid_to") {
+                            metadata.insert("valid_to".to_string(), valid_to.clone());
                         }
                         metadata
                     },

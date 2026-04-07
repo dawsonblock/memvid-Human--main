@@ -7,7 +7,7 @@ use super::belief_store::BeliefStore;
 use super::belief_updater::BeliefUpdater;
 use super::clock::Clock;
 use super::consolidation_engine::ConsolidationEngine;
-use super::enums::{MemoryLayer, MemoryType, PromotionDecision};
+use super::enums::{MemoryLayer, MemoryType, PromotionDecision, SourceType};
 use super::episode_store::EpisodeStore;
 use super::errors::Result;
 use super::goal_state_store::GoalStateStore;
@@ -15,7 +15,9 @@ use super::memory_classifier::MemoryClassifier;
 use super::memory_promoter::MemoryPromoter;
 use super::memory_retriever::MemoryRetriever;
 use super::procedure_store::{ProcedureStatusTransition, ProcedureStore};
-use super::schemas::{AuditEvent, CandidateMemory, RetrievalHit, RetrievalQuery};
+use super::schemas::{
+    AuditEvent, CandidateMemory, PromotionContext, RetrievalHit, RetrievalQuery,
+};
 use super::self_model_store::SelfModelStore;
 
 /// Single governed write/read authority for agent memory.
@@ -41,6 +43,7 @@ impl<S: MemoryStore> MemoryController<S> {
         belief_updater: BeliefUpdater,
         retriever: MemoryRetriever,
     ) -> Self {
+        let consolidation_policy = promoter.policy().clone();
         Self {
             store,
             clock,
@@ -49,7 +52,7 @@ impl<S: MemoryStore> MemoryController<S> {
             promoter,
             belief_updater,
             retriever,
-            consolidation_engine: ConsolidationEngine::new(promoter.policy().clone()),
+            consolidation_engine: ConsolidationEngine::new(consolidation_policy),
         }
     }
 
@@ -86,7 +89,25 @@ impl<S: MemoryStore> MemoryController<S> {
             },
         });
 
-        let promotion = self.promoter.promote(&classified, self.clock.as_ref());
+        let promotion_context = self.build_promotion_context(&classified)?;
+        let promotion = self.promoter.promote_with_context(
+            &classified,
+            &promotion_context,
+            self.clock.as_ref(),
+        );
+        let mut promotion_details = BTreeMap::from([
+            (
+                "decision".to_string(),
+                format!("{:?}", promotion.decision).to_lowercase(),
+            ),
+            (
+                "memory_layer".to_string(),
+                classified.memory_layer().as_str().to_string(),
+            ),
+            ("reason".to_string(), promotion.reason.clone()),
+            ("score".to_string(), promotion.score.to_string()),
+        ]);
+        promotion_details.extend(promotion.details.clone());
         self.audit.emit(AuditEvent {
             event_id: String::new(),
             occurred_at: self.clock.now(),
@@ -98,23 +119,49 @@ impl<S: MemoryStore> MemoryController<S> {
                 .map(|memory| memory.memory_id.clone()),
             belief_id: None,
             query_text: None,
-            details: BTreeMap::from([
-                (
-                    "decision".to_string(),
-                    format!("{:?}", promotion.decision).to_lowercase(),
-                ),
-                (
-                    "memory_layer".to_string(),
-                    classified.memory_layer().as_str().to_string(),
-                ),
-                ("reason".to_string(), promotion.reason.clone()),
-                ("score".to_string(), promotion.score.to_string()),
-            ]),
+            details: promotion_details,
         });
 
         match promotion.decision {
             PromotionDecision::Reject => Ok(None),
             PromotionDecision::StoreTrace => {
+                if promotion.details.get("fallback_layer").map(String::as_str) == Some("episode")
+                {
+                    let episode_memory = {
+                        let mut episode_store = EpisodeStore::new(&mut self.store);
+                        episode_store.record_candidate(&classified, self.clock.as_ref())?
+                    };
+                    self.audit.emit(AuditEvent {
+                        event_id: String::new(),
+                        occurred_at: self.clock.now(),
+                        action: "episode_stored".to_string(),
+                        candidate_id: Some(classified.candidate_id.clone()),
+                        memory_id: Some(episode_memory.memory_id.clone()),
+                        belief_id: None,
+                        query_text: None,
+                        details: BTreeMap::from([
+                            (
+                                "memory_layer".to_string(),
+                                MemoryLayer::Episode.as_str().to_string(),
+                            ),
+                            (
+                                "source_layer".to_string(),
+                                classified.memory_layer().as_str().to_string(),
+                            ),
+                            ("route_mode".to_string(), "evidence_only".to_string()),
+                            (
+                                "route_basis".to_string(),
+                                promotion
+                                    .details
+                                    .get("route_basis")
+                                    .cloned()
+                                    .unwrap_or_else(|| "insufficient_evidence".to_string()),
+                            ),
+                        ]),
+                    });
+                    return Ok(Some(episode_memory.memory_id));
+                }
+
                 let mut trace_meta = BTreeMap::from([
                     (
                         "memory_type".to_string(),
@@ -456,6 +503,72 @@ impl<S: MemoryStore> MemoryController<S> {
         &mut self.store
     }
 
+    fn build_promotion_context(&mut self, candidate: &CandidateMemory) -> Result<PromotionContext> {
+        let mut context = PromotionContext {
+            verified_source: Self::is_verified_source(candidate),
+            seeded_by_system: Self::is_seeded_by_system(candidate),
+            goal_state_evidence_count: usize::from(candidate.memory_layer() == MemoryLayer::GoalState),
+            ..PromotionContext::default()
+        };
+
+        if let (Some(entity), Some(slot), Some(value)) = (
+            candidate.entity.as_deref(),
+            candidate.slot.as_deref(),
+            candidate.value.as_deref(),
+        ) {
+            context.belief_evidence_count = self
+                .store
+                .list_memories_for_belief(entity, slot)?
+                .into_iter()
+                .filter(|memory| !memory.is_retraction)
+                .filter(|memory| memory.value == value)
+                .count()
+                + usize::from(candidate.memory_layer() == MemoryLayer::Belief);
+
+            context.self_model_evidence_count = {
+                let mut self_model_store = SelfModelStore::new(&mut self.store);
+                self_model_store.matching_values(entity, slot, value)?.len()
+            } + usize::from(candidate.memory_layer() == MemoryLayer::SelfModel);
+
+            context.goal_state_evidence_count = if candidate.memory_layer() == MemoryLayer::GoalState {
+                let mut goal_store = GoalStateStore::new(&mut self.store);
+                goal_store
+                    .list_all_memories()?
+                    .into_iter()
+                    .filter(|memory| memory.entity == entity)
+                    .filter(|memory| memory.slot == slot)
+                    .filter(|memory| memory.value == value)
+                    .count()
+                    + 1
+            } else {
+                context.goal_state_evidence_count
+            };
+        }
+
+        if let Some(workflow_key) = candidate.metadata.get("workflow_key") {
+            let workflow_episodes = {
+                let mut episode_store = EpisodeStore::new(&mut self.store);
+                episode_store.list_by_workflow_key(workflow_key)?
+            };
+            context.procedure_success_count = workflow_episodes
+                .iter()
+                .filter(|record| Self::is_success_outcome(record.outcome.as_deref()))
+                .count()
+                + usize::from(Self::is_success_outcome(
+                    candidate.metadata.get("outcome").map(String::as_str),
+                ));
+            context.procedure_failure_count = workflow_episodes
+                .iter()
+                .filter(|record| Self::is_failure_outcome(record.outcome.as_deref()))
+                .count()
+                + usize::from(Self::is_failure_outcome(
+                    candidate.metadata.get("outcome").map(String::as_str),
+                ));
+        }
+
+        Ok(context)
+    }
+
     fn emit_procedure_status_transition(
         &mut self,
         candidate_id: Option<String>,
@@ -533,5 +646,47 @@ impl<S: MemoryStore> MemoryController<S> {
             Some("success") => "success",
             _ => "consolidation",
         }
+    }
+
+    fn is_verified_source(candidate: &CandidateMemory) -> bool {
+        candidate
+            .metadata
+            .get("verified_source")
+            .or_else(|| candidate.metadata.get("verified"))
+            .is_some_and(|value| value == "true")
+    }
+
+    fn is_seeded_by_system(candidate: &CandidateMemory) -> bool {
+        candidate.source.source_type == SourceType::System
+            && (candidate.memory_layer() == MemoryLayer::Procedure
+                || candidate
+                    .metadata
+                    .get("seeded_by_system")
+                    .is_some_and(|value| value == "true")
+                || candidate
+                    .metadata
+                    .get("seeded")
+                    .is_some_and(|value| value == "true"))
+    }
+
+    fn is_success_outcome(value: Option<&str>) -> bool {
+        value.is_some_and(|text| {
+            let lower = text.to_lowercase();
+            lower.contains("success")
+                || lower.contains("completed")
+                || lower.contains("passed")
+                || lower.contains("ok")
+        })
+    }
+
+    fn is_failure_outcome(value: Option<&str>) -> bool {
+        value.is_some_and(|text| {
+            let lower = text.to_lowercase();
+            lower.contains("fail")
+                || lower.contains("error")
+                || lower.contains("blocked")
+                || lower.contains("aborted")
+                || lower.contains("timeout")
+        })
     }
 }

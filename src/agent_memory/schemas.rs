@@ -480,6 +480,18 @@ pub struct RetrievalHit {
     pub metadata: BTreeMap<String, String>,
 }
 
+/// Context gathered before deciding whether a candidate may enter a durable layer.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct PromotionContext {
+    pub belief_evidence_count: usize,
+    pub self_model_evidence_count: usize,
+    pub goal_state_evidence_count: usize,
+    pub procedure_success_count: usize,
+    pub procedure_failure_count: usize,
+    pub verified_source: bool,
+    pub seeded_by_system: bool,
+}
+
 /// Promotion outcome for a candidate.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PromotionResult {
@@ -487,6 +499,7 @@ pub struct PromotionResult {
     pub score: f32,
     pub reason: String,
     pub durable_memory: Option<DurableMemory>,
+    pub details: BTreeMap<String, String>,
 }
 
 /// Append-only audit event.
