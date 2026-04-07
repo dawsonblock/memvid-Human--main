@@ -20,8 +20,8 @@ use super::memory_retriever::MemoryRetriever;
 use super::policy::ReasonCode;
 use super::procedure_store::{ProcedureStatusTransition, ProcedureStore};
 use super::schemas::{
-    AuditEvent, BeliefRecord, CandidateMemory, DurableMemory, PromotionContext, RetrievalHit,
-    RetrievalQuery,
+    AuditEvent, BeliefRecord, CandidateMemory, DurableMemory, OutcomeFeedback,
+    PromotionContext, RetrievalHit, RetrievalQuery,
 };
 use super::self_model_store::SelfModelStore;
 
@@ -418,6 +418,118 @@ impl<S: MemoryStore> MemoryController<S> {
             details,
         });
         Ok(hits)
+    }
+
+    pub fn record_outcome_feedback(&mut self, feedback: OutcomeFeedback) -> Result<Option<String>> {
+        let mut workflow_key = feedback
+            .workflow_key
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string);
+        let target_memory_id = feedback
+            .memory_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string);
+
+        if workflow_key.is_none() && target_memory_id.is_none() {
+            return Err(AgentMemoryError::InvalidCandidate {
+                reason: "outcome feedback requires a memory_id or workflow_key".to_string(),
+            });
+        }
+
+        let mut stored_memory_ids = Vec::new();
+        let mut target_layer = None;
+
+        if let Some(memory_id) = target_memory_id.as_deref() {
+            if let Some(memory) = self.store.get_memory(memory_id)? {
+                target_layer = Some(memory.memory_layer());
+                if workflow_key.is_none() && memory.memory_layer() == MemoryLayer::Procedure {
+                    workflow_key = memory.workflow_key_non_empty().map(ToString::to_string);
+                }
+
+                if !matches!(memory.memory_layer(), MemoryLayer::Trace | MemoryLayer::Procedure) {
+                    let mut updated = memory.with_outcome_feedback(feedback.outcome, feedback.observed_at);
+                    for (key, value) in &feedback.metadata {
+                        updated
+                            .metadata
+                            .insert(format!("feedback_{key}"), value.clone());
+                    }
+                    self.store.put_memory(&updated)?;
+                    stored_memory_ids.push(updated.memory_id.clone());
+                }
+            }
+        }
+
+        if let Some(workflow_key_value) = workflow_key.as_deref() {
+            let procedure_outcome = {
+                let mut procedure_store = ProcedureStore::new(&mut self.store);
+                procedure_store.record_feedback(
+                    workflow_key_value,
+                    feedback.outcome,
+                    feedback.observed_at,
+                )?
+            };
+            if let Some(procedure_outcome) = procedure_outcome {
+                target_layer = Some(MemoryLayer::Procedure);
+                if !stored_memory_ids
+                    .iter()
+                    .any(|existing| existing == &procedure_outcome.record.procedure_id)
+                {
+                    stored_memory_ids.push(procedure_outcome.record.procedure_id.clone());
+                }
+                if let Some(transition) = procedure_outcome.status_transition {
+                    self.emit_procedure_status_transition(
+                        None,
+                        transition,
+                        "feedback",
+                        match feedback.outcome {
+                            super::enums::OutcomeFeedbackKind::Positive => "positive_feedback",
+                            super::enums::OutcomeFeedbackKind::Negative => "negative_feedback",
+                        },
+                    )?;
+                }
+            }
+        }
+
+        if stored_memory_ids.is_empty() {
+            return Ok(None);
+        }
+
+        let mut details = BTreeMap::from([
+            ("outcome".to_string(), feedback.outcome.as_str().to_string()),
+            (
+                "stored_memory_ids".to_string(),
+                stored_memory_ids.join(","),
+            ),
+        ]);
+        if let Some(memory_id) = target_memory_id {
+            details.insert("target_memory_id".to_string(), memory_id);
+        }
+        if let Some(workflow_key_value) = workflow_key {
+            details.insert("workflow_key".to_string(), workflow_key_value);
+        }
+        if let Some(layer) = target_layer {
+            details.insert("target_layer".to_string(), layer.as_str().to_string());
+        }
+        for (key, value) in feedback.metadata {
+            details.insert(format!("feedback_meta_{key}"), value);
+        }
+
+        self.audit.emit(AuditEvent {
+            event_id: String::new(),
+            occurred_at: self.clock.now(),
+            action: "outcome_feedback_recorded".to_string(),
+            candidate_id: None,
+            memory_id: stored_memory_ids.first().cloned(),
+            belief_id: None,
+            query_text: None,
+            details,
+        });
+
+        Ok(stored_memory_ids.into_iter().next())
     }
 
     #[must_use]

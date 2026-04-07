@@ -316,6 +316,12 @@ The controller now records bounded access metadata on returned durable memories 
 effective salience used by ranking. The visible score surface stays the same: the `salience`
 component now reflects both write-time salience and bounded repeated-recall boosts.
 
+Phase 6 extends that same controller-owned maintenance path with explicit outcome feedback.
+External callers can now attach positive or negative feedback to a durable memory id or
+procedure workflow key, procedure feedback reuses the existing lifecycle and success/failure
+counts instead of creating a parallel score path, and generic durable memories feed feedback
+back into effective salience through bounded outcome-impact adjustments.
+
 This keeps ranking deterministic and inspectable without widening the storage model or changing the
 intent routing contract.
 

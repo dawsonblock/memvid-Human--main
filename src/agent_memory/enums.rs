@@ -148,6 +148,14 @@ pub enum ProcedureStatus {
     Retired,
 }
 
+/// External task outcome feedback recorded against a memory or workflow.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OutcomeFeedbackKind {
+    Positive,
+    Negative,
+}
+
 impl MemoryLayer {
     #[must_use]
     pub const fn as_str(self) -> &'static str {
@@ -269,6 +277,25 @@ impl BeliefStatus {
             Self::Disputed => BeliefViewStatus::Contested,
             Self::Stale => BeliefViewStatus::Superseded,
             Self::Retracted => BeliefViewStatus::Retracted,
+        }
+    }
+}
+
+impl OutcomeFeedbackKind {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Positive => "positive",
+            Self::Negative => "negative",
+        }
+    }
+
+    #[must_use]
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "positive" | "success" => Some(Self::Positive),
+            "negative" | "failure" | "failed" => Some(Self::Negative),
+            _ => None,
         }
     }
 }

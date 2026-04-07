@@ -155,6 +155,40 @@ fn recently_accessed_memory_gets_a_salience_boost() {
     assert!(accessed_eval.decayed_salience > baseline_eval.decayed_salience);
 }
 
+#[test]
+fn positive_outcome_feedback_outranks_negative_feedback_in_salience() {
+    let retention = RetentionManager::new(PolicySet::default());
+    let mut positive = durable(
+        "project",
+        "note",
+        "review",
+        "Review checklist",
+        MemoryType::Episode,
+        SourceType::Chat,
+        0.75,
+        ts(1_700_000_000),
+    );
+    positive
+        .metadata
+        .insert("positive_outcome_count".to_string(), "3".to_string());
+    positive.metadata.insert(
+        "last_outcome_at".to_string(),
+        ts(1_700_000_000 + 86_400).to_rfc3339(),
+    );
+    let mut negative = positive.clone();
+    negative.metadata.remove("positive_outcome_count");
+    negative
+        .metadata
+        .insert("negative_outcome_count".to_string(), "3".to_string());
+
+    let positive_eval = retention.evaluate(&positive, ts(1_700_000_000 + 2 * 86_400));
+    let negative_eval = retention.evaluate(&negative, ts(1_700_000_000 + 2 * 86_400));
+
+    assert!(positive_eval.outcome_impact_adjustment > 0.0);
+    assert!(negative_eval.outcome_impact_adjustment < 0.0);
+    assert!(positive_eval.decayed_salience > negative_eval.decayed_salience);
+}
+
 fn procedure_memory(
     status: ProcedureStatus,
     success_count: u32,

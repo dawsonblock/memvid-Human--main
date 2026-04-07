@@ -13,6 +13,9 @@ const ACCESS_COUNT_CAP: u32 = 8;
 const ACCESS_COUNT_MAX_BOOST: f32 = 0.15;
 const ACCESS_RECENCY_WINDOW_DAYS: f32 = 14.0;
 const ACCESS_RECENCY_MAX_BOOST: f32 = 0.10;
+const OUTCOME_IMPACT_COUNT_CAP: u32 = 6;
+const OUTCOME_IMPACT_WINDOW_DAYS: f32 = 30.0;
+const OUTCOME_IMPACT_MAX_ADJUSTMENT: f32 = 0.18;
 
 /// Retention evaluation output.
 #[derive(Debug, Clone, PartialEq)]
@@ -21,6 +24,7 @@ pub struct RetentionEvaluation {
     pub expired: bool,
     pub base_salience: f32,
     pub access_boost: f32,
+    pub outcome_impact_adjustment: f32,
     pub decayed_salience: f32,
 }
 
@@ -69,13 +73,16 @@ impl RetentionManager {
         let decay_multiplier = (1.0 - (rule.decay_per_day * age_days)).clamp(0.05, 1.0);
         let base_salience = (memory.salience * decay_multiplier).clamp(0.0, 1.0);
         let access_boost = Self::access_boost(memory, now);
+        let outcome_impact_adjustment = Self::outcome_impact_adjustment(memory, now);
 
         RetentionEvaluation {
             rule,
             expired,
             base_salience,
             access_boost,
-            decayed_salience: (base_salience + access_boost).clamp(0.0, 1.0),
+            outcome_impact_adjustment,
+            decayed_salience: (base_salience + access_boost + outcome_impact_adjustment)
+                .clamp(0.0, 1.0),
         }
     }
 
@@ -96,6 +103,24 @@ impl RetentionManager {
 
         (count_boost + recency_boost)
             .clamp(0.0, ACCESS_COUNT_MAX_BOOST + ACCESS_RECENCY_MAX_BOOST)
+    }
+
+    fn outcome_impact_adjustment(memory: &DurableMemory, now: DateTime<Utc>) -> f32 {
+        let positive = memory.positive_outcome_count();
+        let negative = memory.negative_outcome_count();
+        let total = positive + negative;
+        if total == 0 {
+            return 0.0;
+        }
+
+        let count_weight = total.min(OUTCOME_IMPACT_COUNT_CAP) as f32 / OUTCOME_IMPACT_COUNT_CAP as f32;
+        let recency_weight = memory.last_outcome_at().map_or(0.0, |last_outcome_at| {
+            let age_days = (now.timestamp() - last_outcome_at.timestamp()).max(0) as f32
+                / DAY_SECONDS as f32;
+            (1.0 - (age_days / OUTCOME_IMPACT_WINDOW_DAYS)).clamp(0.0, 1.0)
+        });
+
+        memory.outcome_impact_score() * count_weight * recency_weight * OUTCOME_IMPACT_MAX_ADJUSTMENT
     }
 
     fn adjust_procedure_rule(rule: &mut RetentionRule, record: &ProcedureRecord) {

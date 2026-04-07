@@ -4,14 +4,21 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use super::enums::{
-    BeliefStatus, BeliefViewStatus, GoalStatus, MemoryLayer, MemoryType, ProcedureStatus,
-    PromotionDecision, QueryIntent, Scope, SelfModelKind, SelfModelStabilityClass,
-    SelfModelUpdateRequirement, SourceType,
+    BeliefStatus, BeliefViewStatus, GoalStatus, MemoryLayer, MemoryType, OutcomeFeedbackKind,
+    ProcedureStatus, PromotionDecision, QueryIntent, Scope, SelfModelKind,
+    SelfModelStabilityClass, SelfModelUpdateRequirement, SourceType,
 };
 use super::policy::ReasonCode;
 
 const RETRIEVAL_COUNT_KEY: &str = "retrieval_count";
 const LAST_ACCESSED_AT_KEY: &str = "last_accessed_at";
+const POSITIVE_OUTCOME_COUNT_KEY: &str = "positive_outcome_count";
+const NEGATIVE_OUTCOME_COUNT_KEY: &str = "negative_outcome_count";
+const LAST_OUTCOME_AT_KEY: &str = "last_outcome_at";
+const LAST_POSITIVE_OUTCOME_AT_KEY: &str = "last_positive_outcome_at";
+const LAST_NEGATIVE_OUTCOME_AT_KEY: &str = "last_negative_outcome_at";
+const OUTCOME_IMPACT_SCORE_KEY: &str = "outcome_impact_score";
+const LAST_FEEDBACK_OUTCOME_KEY: &str = "last_feedback_outcome";
 
 fn trimmed_non_empty(value: &str) -> Option<&str> {
     let trimmed = value.trim();
@@ -243,6 +250,88 @@ impl DurableMemory {
             accessed_at.to_rfc3339(),
         );
         self.stored_at = accessed_at;
+        self
+    }
+
+    #[must_use]
+    pub fn positive_outcome_count(&self) -> u32 {
+        self.metadata
+            .get(POSITIVE_OUTCOME_COUNT_KEY)
+            .and_then(|value| value.parse::<u32>().ok())
+            .unwrap_or(0)
+    }
+
+    #[must_use]
+    pub fn negative_outcome_count(&self) -> u32 {
+        self.metadata
+            .get(NEGATIVE_OUTCOME_COUNT_KEY)
+            .and_then(|value| value.parse::<u32>().ok())
+            .unwrap_or(0)
+    }
+
+    #[must_use]
+    pub fn last_outcome_at(&self) -> Option<DateTime<Utc>> {
+        self.metadata
+            .get(LAST_OUTCOME_AT_KEY)
+            .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+            .map(|value| value.with_timezone(&Utc))
+    }
+
+    #[must_use]
+    pub fn outcome_impact_score(&self) -> f32 {
+        let positive = self.positive_outcome_count();
+        let negative = self.negative_outcome_count();
+        let total = positive + negative;
+        if total == 0 {
+            0.0
+        } else {
+            ((positive as f32 - negative as f32) / total as f32).clamp(-1.0, 1.0)
+        }
+    }
+
+    #[must_use]
+    pub fn with_outcome_feedback(
+        mut self,
+        outcome: OutcomeFeedbackKind,
+        observed_at: DateTime<Utc>,
+    ) -> Self {
+        let positive = self.positive_outcome_count();
+        let negative = self.negative_outcome_count();
+        match outcome {
+            OutcomeFeedbackKind::Positive => {
+                self.metadata.insert(
+                    POSITIVE_OUTCOME_COUNT_KEY.to_string(),
+                    positive.saturating_add(1).to_string(),
+                );
+                self.metadata.insert(
+                    LAST_POSITIVE_OUTCOME_AT_KEY.to_string(),
+                    observed_at.to_rfc3339(),
+                );
+            }
+            OutcomeFeedbackKind::Negative => {
+                self.metadata.insert(
+                    NEGATIVE_OUTCOME_COUNT_KEY.to_string(),
+                    negative.saturating_add(1).to_string(),
+                );
+                self.metadata.insert(
+                    LAST_NEGATIVE_OUTCOME_AT_KEY.to_string(),
+                    observed_at.to_rfc3339(),
+                );
+            }
+        }
+        self.metadata.insert(
+            LAST_OUTCOME_AT_KEY.to_string(),
+            observed_at.to_rfc3339(),
+        );
+        self.metadata.insert(
+            LAST_FEEDBACK_OUTCOME_KEY.to_string(),
+            outcome.as_str().to_string(),
+        );
+        self.metadata.insert(
+            OUTCOME_IMPACT_SCORE_KEY.to_string(),
+            format!("{:.6}", self.outcome_impact_score()),
+        );
+        self.stored_at = observed_at;
         self
     }
 
@@ -680,6 +769,17 @@ pub struct RetrievalQuery {
     pub top_k: usize,
     pub as_of: Option<DateTime<Utc>>,
     pub include_expired: bool,
+}
+
+/// External outcome signal attached to a memory id or workflow key.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct OutcomeFeedback {
+    pub memory_id: Option<String>,
+    pub workflow_key: Option<String>,
+    pub outcome: OutcomeFeedbackKind,
+    pub observed_at: DateTime<Utc>,
+    #[serde(default)]
+    pub metadata: BTreeMap<String, String>,
 }
 
 /// Retrieval result emitted by the governed layer.

@@ -4,9 +4,19 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use super::adapters::memvid_store::MemoryStore;
-use super::enums::{MemoryLayer, MemoryType, ProcedureStatus, Scope, SourceType};
+use super::enums::{
+    MemoryLayer, MemoryType, OutcomeFeedbackKind, ProcedureStatus, Scope, SourceType,
+};
 use super::errors::{AgentMemoryError, Result};
 use super::schemas::{DurableMemory, ProcedureRecord, Provenance};
+
+const POSITIVE_OUTCOME_COUNT_KEY: &str = "positive_outcome_count";
+const NEGATIVE_OUTCOME_COUNT_KEY: &str = "negative_outcome_count";
+const LAST_OUTCOME_AT_KEY: &str = "last_outcome_at";
+const LAST_POSITIVE_OUTCOME_AT_KEY: &str = "last_positive_outcome_at";
+const LAST_NEGATIVE_OUTCOME_AT_KEY: &str = "last_negative_outcome_at";
+const OUTCOME_IMPACT_SCORE_KEY: &str = "outcome_impact_score";
+const LAST_FEEDBACK_OUTCOME_KEY: &str = "last_feedback_outcome";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProcedureStatusTransition {
@@ -60,6 +70,64 @@ fn procedure_confidence(success_count: u32, failure_count: u32) -> f32 {
 
     let success_ratio = success_count as f32 / total as f32;
     (0.3 + (success_ratio * 0.68)).clamp(0.12, 0.98)
+}
+
+fn metadata_outcome_count(metadata: &BTreeMap<String, String>, key: &str) -> u32 {
+    metadata
+        .get(key)
+        .and_then(|value| value.parse::<u32>().ok())
+        .unwrap_or(0)
+}
+
+fn metadata_outcome_impact_score(metadata: &BTreeMap<String, String>) -> f32 {
+    let positive = metadata_outcome_count(metadata, POSITIVE_OUTCOME_COUNT_KEY);
+    let negative = metadata_outcome_count(metadata, NEGATIVE_OUTCOME_COUNT_KEY);
+    let total = positive + negative;
+    if total == 0 {
+        0.0
+    } else {
+        ((positive as f32 - negative as f32) / total as f32).clamp(-1.0, 1.0)
+    }
+}
+
+fn apply_outcome_feedback_metadata(
+    metadata: &mut BTreeMap<String, String>,
+    outcome: OutcomeFeedbackKind,
+    observed_at: DateTime<Utc>,
+) {
+    let positive = metadata_outcome_count(metadata, POSITIVE_OUTCOME_COUNT_KEY);
+    let negative = metadata_outcome_count(metadata, NEGATIVE_OUTCOME_COUNT_KEY);
+    match outcome {
+        OutcomeFeedbackKind::Positive => {
+            metadata.insert(
+                POSITIVE_OUTCOME_COUNT_KEY.to_string(),
+                positive.saturating_add(1).to_string(),
+            );
+            metadata.insert(
+                LAST_POSITIVE_OUTCOME_AT_KEY.to_string(),
+                observed_at.to_rfc3339(),
+            );
+        }
+        OutcomeFeedbackKind::Negative => {
+            metadata.insert(
+                NEGATIVE_OUTCOME_COUNT_KEY.to_string(),
+                negative.saturating_add(1).to_string(),
+            );
+            metadata.insert(
+                LAST_NEGATIVE_OUTCOME_AT_KEY.to_string(),
+                observed_at.to_rfc3339(),
+            );
+        }
+    }
+    metadata.insert(LAST_OUTCOME_AT_KEY.to_string(), observed_at.to_rfc3339());
+    metadata.insert(
+        LAST_FEEDBACK_OUTCOME_KEY.to_string(),
+        outcome.as_str().to_string(),
+    );
+    metadata.insert(
+        OUTCOME_IMPACT_SCORE_KEY.to_string(),
+        format!("{:.6}", metadata_outcome_impact_score(metadata)),
+    );
 }
 
 /// Dedicated bounded store for learned operational procedures.
@@ -235,6 +303,51 @@ impl<'a, S: MemoryStore> ProcedureStore<'a, S> {
             None,
             Some(now),
         );
+        self.persist_record_outcome(Some(existing_record), workflow_key, record, now)
+            .map(Some)
+    }
+
+    pub(crate) fn record_feedback(
+        &mut self,
+        workflow_key: &str,
+        outcome: OutcomeFeedbackKind,
+        now: DateTime<Utc>,
+    ) -> Result<Option<ProcedureUpsertOutcome>> {
+        let workflow_key = workflow_key.trim();
+        if workflow_key.is_empty() {
+            return Ok(None);
+        }
+
+        let existing = self.get_by_workflow_key(workflow_key)?;
+        let Some(existing_record) = existing.as_ref() else {
+            return Ok(None);
+        };
+
+        let mut record = match outcome {
+            OutcomeFeedbackKind::Positive => self.build_record(
+                Some(existing_record),
+                workflow_key,
+                &existing_record.description,
+                &[],
+                existing_record.success_count + 1,
+                existing_record.failure_count,
+                now,
+                Some(now),
+                None,
+            ),
+            OutcomeFeedbackKind::Negative => self.build_record(
+                Some(existing_record),
+                workflow_key,
+                &existing_record.description,
+                &[],
+                existing_record.success_count,
+                existing_record.failure_count + 1,
+                now,
+                None,
+                Some(now),
+            ),
+        };
+        apply_outcome_feedback_metadata(&mut record.metadata, outcome, now);
         self.persist_record_outcome(Some(existing_record), workflow_key, record, now)
             .map(Some)
     }

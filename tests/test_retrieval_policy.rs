@@ -671,6 +671,76 @@ fn recently_accessed_memory_ranks_above_equally_relevant_peer() {
 }
 
 #[test]
+fn positive_outcome_feedback_ranks_memory_above_negative_peer() {
+    let mut store = InMemoryMemoryStore::default();
+    let mut positive = durable(
+        "project",
+        "review_note_positive",
+        "review",
+        "Repo review checklist",
+        MemoryType::Episode,
+        SourceType::Chat,
+        0.75,
+        ts(1_700_000_000),
+    );
+    positive.memory_id = "positive-review-note".to_string();
+    positive.source.source_id = "source-positive-review".to_string();
+    positive
+        .metadata
+        .insert("positive_outcome_count".to_string(), "3".to_string());
+    positive.metadata.insert(
+        "last_outcome_at".to_string(),
+        ts(1_700_000_090).to_rfc3339(),
+    );
+
+    let mut negative = durable(
+        "project",
+        "review_note_negative",
+        "review",
+        "Repo review checklist",
+        MemoryType::Episode,
+        SourceType::Chat,
+        0.75,
+        ts(1_700_000_000),
+    );
+    negative.memory_id = "negative-review-note".to_string();
+    negative.source.source_id = "source-negative-review".to_string();
+    negative
+        .metadata
+        .insert("negative_outcome_count".to_string(), "3".to_string());
+    negative.metadata.insert(
+        "last_outcome_at".to_string(),
+        ts(1_700_000_090).to_rfc3339(),
+    );
+
+    store.put_memory(&negative).expect("negative note stored");
+    store.put_memory(&positive).expect("positive note stored");
+
+    let retriever = MemoryRetriever::new(Ranker, RetentionManager::new(PolicySet::default()));
+    let hits = retriever
+        .retrieve(
+            &mut store,
+            &RetrievalQuery {
+                query_text: "repo review checklist".to_string(),
+                intent: QueryIntent::SemanticBackground,
+                entity: None,
+                slot: None,
+                scope: None,
+                top_k: 2,
+                as_of: None,
+                include_expired: false,
+            },
+            &FixedClock::new(ts(1_700_000_100)),
+        )
+        .expect("retrieval works");
+
+    assert_eq!(
+        hits.first().and_then(|hit| hit.memory_id.as_deref()),
+        Some("positive-review-note")
+    );
+}
+
+#[test]
 fn preference_query_ranks_preference_memory_above_generic_semantic_hits() {
     let mut store = InMemoryMemoryStore::default();
     store
