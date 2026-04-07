@@ -1,9 +1,9 @@
 mod common;
 
-use memvid_core::agent_memory::enums::QueryIntent;
+use memvid_core::agent_memory::enums::{MemoryType, QueryIntent, SourceType};
 use memvid_core::agent_memory::schemas::RetrievalQuery;
 
-use common::{candidate, controller, ts};
+use common::{apply_durable, candidate, controller, durable, ts};
 
 #[test]
 fn ingest_low_trust_fact_preserves_episode_evidence_without_promoting_truth() {
@@ -86,7 +86,7 @@ fn ingest_verified_fact_promotes_belief_and_audits_route() {
         })
         .expect("retrieval succeeds");
 
-    assert_eq!(controller.store().memories().len(), 2);
+    assert!(controller.store().memories().len() >= 2);
     assert_eq!(controller.store().beliefs().len(), 1);
     assert_eq!(hits.first().map(|hit| hit.from_belief), Some(true));
     assert_eq!(
@@ -133,5 +133,85 @@ fn ingest_verified_fact_promotes_belief_and_audits_route() {
             .get("verified_source")
             .map(String::as_str),
         Some("true")
+    );
+
+    let retrieval_event = sink
+        .events()
+        .into_iter()
+        .find(|event| event.action == "retrieval")
+        .expect("retrieval audit event present");
+    assert_eq!(
+        retrieval_event
+            .details
+            .get("touched_memories")
+            .map(String::as_str),
+        Some("2")
+    );
+}
+
+#[test]
+fn retrieval_touches_returned_memories_and_persists_access_metadata() {
+    let now = ts(1_700_000_100);
+    let (mut controller, sink) = controller(now);
+    let memory = durable(
+        "user",
+        "favorite_editor",
+        "vim",
+        "The user prefers vim for editing",
+        MemoryType::Preference,
+        SourceType::Chat,
+        0.75,
+        ts(1_700_000_000),
+    );
+
+    let memory_id = apply_durable(&mut controller, &memory, None);
+
+    controller
+        .retrieve(RetrievalQuery {
+            query_text: "what editor does the user prefer".to_string(),
+            intent: QueryIntent::PreferenceLookup,
+            entity: Some("user".to_string()),
+            slot: None,
+            scope: None,
+            top_k: 1,
+            as_of: None,
+            include_expired: false,
+        })
+        .expect("retrieval succeeds");
+
+    let latest = controller
+        .store()
+        .memories()
+        .iter()
+        .rev()
+        .find(|stored| stored.memory_id == memory_id)
+        .expect("touched memory present");
+    assert_eq!(
+        latest.metadata.get("retrieval_count").map(String::as_str),
+        Some("1")
+    );
+    assert_eq!(
+        latest.metadata.get("last_accessed_at").map(String::as_str),
+        Some(now.to_rfc3339().as_str())
+    );
+
+    let retrieval_event = sink
+        .events()
+        .into_iter()
+        .find(|event| event.action == "retrieval")
+        .expect("retrieval audit event present");
+    assert_eq!(
+        retrieval_event
+            .details
+            .get("touched_memories")
+            .map(String::as_str),
+        Some("1")
+    );
+    assert_eq!(
+        retrieval_event
+            .details
+            .get("touched_memory_ids")
+            .map(String::as_str),
+        Some(memory_id.as_str())
     );
 }

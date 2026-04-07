@@ -23,6 +23,7 @@ pub trait MemoryStore {
     fn update_belief(&mut self, belief: &BeliefRecord) -> Result<()>;
     fn get_active_belief(&mut self, entity: &str, slot: &str) -> Result<Option<BeliefRecord>>;
     fn get_current_belief(&mut self, entity: &str, slot: &str) -> Result<Option<BeliefRecord>>;
+    fn get_memory(&mut self, memory_id: &str) -> Result<Option<DurableMemory>>;
     fn search(&mut self, query: &RetrievalQuery) -> Result<Vec<RetrievalHit>>;
     fn list_memories_by_layer(&mut self, layer: MemoryLayer) -> Result<Vec<DurableMemory>>;
     fn list_memories_for_belief(&mut self, entity: &str, slot: &str) -> Result<Vec<DurableMemory>>;
@@ -207,6 +208,58 @@ fn retrieval_metadata(memory: &DurableMemory) -> BTreeMap<String, String> {
     metadata
 }
 
+fn memory_is_newer(candidate: &DurableMemory, existing: &DurableMemory) -> bool {
+    candidate.stored_at > existing.stored_at
+        || (candidate.stored_at == existing.stored_at
+            && candidate.event_timestamp() > existing.event_timestamp())
+}
+
+fn latest_memories_by_id(memories: impl IntoIterator<Item = DurableMemory>) -> Vec<DurableMemory> {
+    let mut latest = HashMap::new();
+    for memory in memories {
+        match latest.get(&memory.memory_id) {
+            Some(existing) if !memory_is_newer(&memory, existing) => {}
+            _ => {
+                latest.insert(memory.memory_id.clone(), memory);
+            }
+        }
+    }
+    latest.into_values().collect()
+}
+
+fn hit_identity(hit: &RetrievalHit) -> Option<String> {
+    hit.memory_id
+        .as_ref()
+        .map(|memory_id| format!("memory:{memory_id}"))
+        .or_else(|| hit.belief_id.as_ref().map(|belief_id| format!("belief:{belief_id}")))
+}
+
+fn dedup_search_hits(hits: Vec<RetrievalHit>) -> Vec<RetrievalHit> {
+    let mut deduped: HashMap<String, RetrievalHit> = HashMap::new();
+    for hit in hits {
+        let Some(identity) = hit_identity(&hit) else {
+            continue;
+        };
+        match deduped.get(&identity) {
+            Some(existing)
+                if existing.score > hit.score
+                    || (existing.score == hit.score && existing.timestamp >= hit.timestamp) => {}
+            _ => {
+                deduped.insert(identity, hit);
+            }
+        }
+    }
+
+    let mut hits: Vec<_> = deduped.into_values().collect();
+    hits.sort_by(|left, right| {
+        right
+            .score
+            .total_cmp(&left.score)
+            .then_with(|| right.timestamp.cmp(&left.timestamp))
+    });
+    hits
+}
+
 fn belief_entity(entity: &str) -> String {
     format!("{BELIEF_PREFIX}:{entity}")
 }
@@ -289,6 +342,15 @@ impl MemoryStore for InMemoryMemoryStore {
         Ok(self
             .beliefs
             .get(&(entity.to_string(), slot.to_string()))
+            .cloned())
+    }
+
+    fn get_memory(&mut self, memory_id: &str) -> Result<Option<DurableMemory>> {
+        Ok(self
+            .memories
+            .iter()
+            .rev()
+            .find(|memory| memory.memory_id == memory_id)
             .cloned())
     }
 
@@ -377,18 +439,18 @@ impl MemoryStore for InMemoryMemoryStore {
                 metadata: metadata.clone(),
             });
         }
-        hits.sort_by(|left, right| right.score.total_cmp(&left.score));
+        let mut hits = dedup_search_hits(hits);
         hits.truncate(query.top_k.saturating_mul(4));
         Ok(hits)
     }
 
     fn list_memories_by_layer(&mut self, layer: MemoryLayer) -> Result<Vec<DurableMemory>> {
-        Ok(self
-            .memories
-            .iter()
-            .filter(|memory| memory.memory_layer() == layer)
-            .cloned()
-            .collect())
+        Ok(latest_memories_by_id(
+            self.memories
+                .iter()
+                .filter(|memory| memory.memory_layer() == layer)
+                .cloned(),
+        ))
     }
 
     fn list_memories_for_belief(&mut self, entity: &str, slot: &str) -> Result<Vec<DurableMemory>> {
@@ -757,6 +819,30 @@ impl MemoryStore for MemvidStore {
         Ok(None)
     }
 
+    fn get_memory(&mut self, memory_id: &str) -> Result<Option<DurableMemory>> {
+        let cards: Vec<_> = self.memvid.memories().cards().to_vec();
+        let mut latest = None;
+
+        for card in &cards {
+            if card.entity.starts_with(BELIEF_PREFIX) || card.entity == expiry_entity() {
+                continue;
+            }
+            let frame = self.memvid.frame_by_id(card.source_frame_id)?;
+            if frame.extra_metadata.get("agent_memory_id").map(String::as_str) != Some(memory_id) {
+                continue;
+            }
+            let memory = self.build_durable_from_frame(card.source_frame_id, &frame.extra_metadata)?;
+            if latest
+                .as_ref()
+                .is_none_or(|existing| memory_is_newer(&memory, existing))
+            {
+                latest = Some(memory);
+            }
+        }
+
+        Ok(latest)
+    }
+
     fn search(&mut self, query: &RetrievalQuery) -> Result<Vec<RetrievalHit>> {
         let mut hits = self.search_memory_cards(query)?;
         let response = self.memvid.search(SearchRequest {
@@ -875,7 +961,7 @@ impl MemoryStore for MemvidStore {
                 });
             }
         }
-        Ok(hits)
+        Ok(dedup_search_hits(hits))
     }
 
     fn list_memories_by_layer(&mut self, layer: MemoryLayer) -> Result<Vec<DurableMemory>> {
@@ -895,7 +981,7 @@ impl MemoryStore for MemvidStore {
                 memories.push(memory);
             }
         }
-        Ok(memories)
+        Ok(latest_memories_by_id(memories))
     }
 
     fn list_memories_for_belief(&mut self, entity: &str, slot: &str) -> Result<Vec<DurableMemory>> {

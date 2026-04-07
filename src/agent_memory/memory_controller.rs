@@ -389,6 +389,24 @@ impl<S: MemoryStore> MemoryController<S> {
         let hits = self
             .retriever
             .retrieve(&mut self.store, &query, self.clock.as_ref())?;
+        let touched_memory_ids = self.touch_retrieved_memories(&hits)?;
+        let mut details = BTreeMap::from([
+            (
+                "intent".to_string(),
+                format!("{:?}", query.intent).to_lowercase(),
+            ),
+            ("hits".to_string(), hits.len().to_string()),
+        ]);
+        if !touched_memory_ids.is_empty() {
+            details.insert(
+                "touched_memories".to_string(),
+                touched_memory_ids.len().to_string(),
+            );
+            details.insert(
+                "touched_memory_ids".to_string(),
+                touched_memory_ids.join(","),
+            );
+        }
         self.audit.emit(AuditEvent {
             event_id: String::new(),
             occurred_at: self.clock.now(),
@@ -397,13 +415,7 @@ impl<S: MemoryStore> MemoryController<S> {
             memory_id: None,
             belief_id: None,
             query_text: Some(query.query_text.clone()),
-            details: BTreeMap::from([
-                (
-                    "intent".to_string(),
-                    format!("{:?}", query.intent).to_lowercase(),
-                ),
-                ("hits".to_string(), hits.len().to_string()),
-            ]),
+            details,
         });
         Ok(hits)
     }
@@ -415,6 +427,35 @@ impl<S: MemoryStore> MemoryController<S> {
 
     pub fn store_mut(&mut self) -> &mut S {
         &mut self.store
+    }
+
+    fn touch_retrieved_memories(&mut self, hits: &[RetrievalHit]) -> Result<Vec<String>> {
+        let accessed_at = self.clock.now();
+        let mut touched = Vec::new();
+        let mut seen = std::collections::BTreeSet::new();
+
+        for hit in hits {
+            if hit.expired {
+                continue;
+            }
+            let Some(memory_id) = hit.memory_id.as_deref() else {
+                continue;
+            };
+            if !seen.insert(memory_id.to_string()) {
+                continue;
+            }
+            let Some(memory) = self.store.get_memory(memory_id)? else {
+                continue;
+            };
+            if memory.memory_layer() == MemoryLayer::Trace {
+                continue;
+            }
+
+            self.store.put_memory(&memory.with_retrieval_access(accessed_at))?;
+            touched.push(memory_id.to_string());
+        }
+
+        Ok(touched)
     }
 
     fn persist_durable_memory(

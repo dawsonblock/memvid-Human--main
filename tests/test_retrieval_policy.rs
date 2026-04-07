@@ -606,6 +606,71 @@ fn procedure_lifecycle_penalty_appears_in_breakdown_for_cooling_down_procedure()
 }
 
 #[test]
+fn recently_accessed_memory_ranks_above_equally_relevant_peer() {
+    let mut store = InMemoryMemoryStore::default();
+    let mut accessed = durable(
+        "project",
+        "note_accessed",
+        "build",
+        "Rust build checklist",
+        MemoryType::Episode,
+        SourceType::Chat,
+        0.75,
+        ts(1_700_000_000),
+    );
+    accessed.memory_id = "accessed-note".to_string();
+    accessed.source.source_id = "source-accessed".to_string();
+    accessed
+        .metadata
+        .insert("retrieval_count".to_string(), "4".to_string());
+    accessed.metadata.insert(
+        "last_accessed_at".to_string(),
+        ts(1_700_000_090).to_rfc3339(),
+    );
+    let mut baseline = durable(
+        "project",
+        "note_baseline",
+        "build",
+        "Rust build checklist",
+        MemoryType::Episode,
+        SourceType::Chat,
+        0.75,
+        ts(1_700_000_000),
+    );
+    baseline.memory_id = "baseline-note".to_string();
+    baseline.source.source_id = "source-baseline".to_string();
+
+    store.put_memory(&baseline).expect("baseline stored");
+    store.put_memory(&accessed).expect("accessed stored");
+
+    let retriever = MemoryRetriever::new(Ranker, RetentionManager::new(PolicySet::default()));
+    let hits = retriever
+        .retrieve(
+            &mut store,
+            &RetrievalQuery {
+                query_text: "rust build checklist".to_string(),
+                intent: QueryIntent::SemanticBackground,
+                entity: None,
+                slot: None,
+                scope: None,
+                top_k: 2,
+                as_of: None,
+                include_expired: false,
+            },
+            &FixedClock::new(ts(1_700_000_100)),
+        )
+        .expect("retrieval works");
+
+    assert_eq!(hits.first().and_then(|hit| hit.memory_id.as_deref()), Some("accessed-note"));
+    assert_eq!(
+        hits.first()
+            .and_then(|hit| hit.metadata.get("retrieval_count"))
+            .map(String::as_str),
+        Some("4")
+    );
+}
+
+#[test]
 fn preference_query_ranks_preference_memory_above_generic_semantic_hits() {
     let mut store = InMemoryMemoryStore::default();
     store

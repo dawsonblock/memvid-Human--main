@@ -125,6 +125,36 @@ fn failure_heavy_procedures_decay_faster_even_when_marked_active() {
     assert!(successful_eval.decayed_salience > failure_eval.decayed_salience);
 }
 
+#[test]
+fn recently_accessed_memory_gets_a_salience_boost() {
+    let retention = RetentionManager::new(PolicySet::default());
+    let baseline = durable(
+        "project",
+        "note",
+        "build",
+        "Rust build checklist",
+        MemoryType::Episode,
+        SourceType::Chat,
+        0.75,
+        ts(1_700_000_000),
+    );
+    let mut accessed = baseline.clone();
+    accessed
+        .metadata
+        .insert("retrieval_count".to_string(), "4".to_string());
+    accessed.metadata.insert(
+        "last_accessed_at".to_string(),
+        ts(1_700_000_000 + 86_400).to_rfc3339(),
+    );
+
+    let baseline_eval = retention.evaluate(&baseline, ts(1_700_000_000 + 2 * 86_400));
+    let accessed_eval = retention.evaluate(&accessed, ts(1_700_000_000 + 2 * 86_400));
+
+    assert_eq!(baseline_eval.expired, accessed_eval.expired);
+    assert!(accessed_eval.access_boost > 0.0);
+    assert!(accessed_eval.decayed_salience > baseline_eval.decayed_salience);
+}
+
 fn procedure_memory(
     status: ProcedureStatus,
     success_count: u32,

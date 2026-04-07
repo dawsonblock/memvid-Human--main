@@ -310,6 +310,12 @@ structural bonuses remain explicit to preserve answer-first routing:
 - belief-priority bonus for current-fact answers sourced from the belief layer
 - explicit lifecycle and expiry penalties
 
+Phase 5 keeps that explanation contract intact while making salience maintenance dynamic.
+The controller now records bounded access metadata on returned durable memories using
+`retrieval_count` and `last_accessed_at`, and retention folds those signals back into the
+effective salience used by ranking. The visible score surface stays the same: the `salience`
+component now reflects both write-time salience and bounded repeated-recall boosts.
+
 This keeps ranking deterministic and inspectable without widening the storage model or changing the
 intent routing contract.
 

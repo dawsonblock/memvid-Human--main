@@ -10,6 +10,9 @@ use super::enums::{
 };
 use super::policy::ReasonCode;
 
+const RETRIEVAL_COUNT_KEY: &str = "retrieval_count";
+const LAST_ACCESSED_AT_KEY: &str = "last_accessed_at";
+
 fn trimmed_non_empty(value: &str) -> Option<&str> {
     let trimmed = value.trim();
     (!trimmed.is_empty()).then_some(trimmed)
@@ -211,6 +214,36 @@ impl DurableMemory {
             .get("workflow_key")
             .and_then(|value| trimmed_non_empty(value))
             .or_else(|| self.slot_non_empty())
+    }
+
+    #[must_use]
+    pub fn retrieval_count(&self) -> u32 {
+        self.metadata
+            .get(RETRIEVAL_COUNT_KEY)
+            .and_then(|value| value.parse::<u32>().ok())
+            .unwrap_or(0)
+    }
+
+    #[must_use]
+    pub fn last_accessed_at(&self) -> Option<DateTime<Utc>> {
+        self.metadata
+            .get(LAST_ACCESSED_AT_KEY)
+            .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+            .map(|value| value.with_timezone(&Utc))
+    }
+
+    #[must_use]
+    pub fn with_retrieval_access(mut self, accessed_at: DateTime<Utc>) -> Self {
+        self.metadata.insert(
+            RETRIEVAL_COUNT_KEY.to_string(),
+            self.retrieval_count().saturating_add(1).to_string(),
+        );
+        self.metadata.insert(
+            LAST_ACCESSED_AT_KEY.to_string(),
+            accessed_at.to_rfc3339(),
+        );
+        self.stored_at = accessed_at;
+        self
     }
 
     #[must_use]

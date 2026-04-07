@@ -9,12 +9,18 @@ const DAY_SECONDS: i64 = 86_400;
 const LONG_LIVED_PROCEDURE_TTL: i64 = 180 * DAY_SECONDS;
 const COOLING_PROCEDURE_TTL: i64 = 45 * DAY_SECONDS;
 const RETIRED_PROCEDURE_TTL: i64 = 14 * DAY_SECONDS;
+const ACCESS_COUNT_CAP: u32 = 8;
+const ACCESS_COUNT_MAX_BOOST: f32 = 0.15;
+const ACCESS_RECENCY_WINDOW_DAYS: f32 = 14.0;
+const ACCESS_RECENCY_MAX_BOOST: f32 = 0.10;
 
 /// Retention evaluation output.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RetentionEvaluation {
     pub rule: RetentionRule,
     pub expired: bool,
+    pub base_salience: f32,
+    pub access_boost: f32,
     pub decayed_salience: f32,
 }
 
@@ -61,12 +67,35 @@ impl RetentionManager {
         let age_days =
             (now.timestamp() - age_anchor.timestamp()).max(0) as f32 / DAY_SECONDS as f32;
         let decay_multiplier = (1.0 - (rule.decay_per_day * age_days)).clamp(0.05, 1.0);
+        let base_salience = (memory.salience * decay_multiplier).clamp(0.0, 1.0);
+        let access_boost = Self::access_boost(memory, now);
 
         RetentionEvaluation {
             rule,
             expired,
-            decayed_salience: (memory.salience * decay_multiplier).clamp(0.0, 1.0),
+            base_salience,
+            access_boost,
+            decayed_salience: (base_salience + access_boost).clamp(0.0, 1.0),
         }
+    }
+
+    fn access_boost(memory: &DurableMemory, now: DateTime<Utc>) -> f32 {
+        let retrieval_count = memory.retrieval_count().min(ACCESS_COUNT_CAP);
+        let count_boost = if retrieval_count == 0 {
+            0.0
+        } else {
+            retrieval_count as f32 / ACCESS_COUNT_CAP as f32 * ACCESS_COUNT_MAX_BOOST
+        };
+
+        let recency_boost = memory.last_accessed_at().map_or(0.0, |last_accessed_at| {
+            let age_days = (now.timestamp() - last_accessed_at.timestamp()).max(0) as f32
+                / DAY_SECONDS as f32;
+            (1.0 - (age_days / ACCESS_RECENCY_WINDOW_DAYS)).clamp(0.0, 1.0)
+                * ACCESS_RECENCY_MAX_BOOST
+        });
+
+        (count_boost + recency_boost)
+            .clamp(0.0, ACCESS_COUNT_MAX_BOOST + ACCESS_RECENCY_MAX_BOOST)
     }
 
     fn adjust_procedure_rule(rule: &mut RetentionRule, record: &ProcedureRecord) {
