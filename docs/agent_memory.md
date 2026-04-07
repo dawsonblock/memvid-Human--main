@@ -1,275 +1,241 @@
 # Agent Memory
 
-`src/agent_memory` is a governed in-process memory layer built on top of the `Memvid` kernel.
-It provides a **six-layer bounded memory architecture** with a single controlled entry point
-(`MemoryController`) for all reads and writes.
+`src/agent_memory` is a bounded, policy-governed layer built on top of `Memvid`. It does not add
+new storage backends or widen the architecture. It adds deterministic routing, promotion,
+consolidation, retrieval, retention, and audit behavior around six internal layers.
 
----
+## Layer Model
 
-## Why a layered model
+Public memory types map to internal storage layers as follows:
 
-Raw `Memvid` stores every frame equally — it has no notion of "this is a transient observation"
-vs. "this is a long-lived fact". The agent memory subsystem adds:
+- `Trace -> Trace`
+- `Episode -> Episode`
+- `Fact -> Belief`
+- `Preference -> SelfModel`
+- `GoalState -> GoalState`
 
-1. **Semantic routing** — classifying incoming observations into the correct retention layer
-2. **Promotion gates** — only high-confidence, high-salience observations graduate to durable storage
-3. **Conflict detection** — contradicting beliefs are flagged or retracted automatically
-4. **Lifecycle governance** — procedures have explicit status transitions with auditable reasons
-5. **Retention policy** — each layer has independent TTL and decay rules
-6. **Audit trail** — every classification, promotion, and retrieval is logged to an append-only audit stream
+`Procedure` is an internal layer reached only through explicit routing and consolidation.
 
----
+| Layer | Role | Logical identity and read behavior | Default retention |
+| --- | --- | --- | --- |
+| `Trace` | Raw observations, audit traces, lifecycle traces | Archival only; never promoted directly to higher-order durable layers | TTL 3 days, decay 0.18/day |
+| `Episode` | Event evidence and historical records | Event evidence layer; also used as fallback when a durable promotion is denied but the observation is worth keeping | TTL 30 days, decay 0.04/day |
+| `Belief` | Current factual state plus supporting evidence memories | Active truth is maintained per `(entity, slot)` while supporting evidence remains retrievable | No default TTL, decay 0.005/day |
+| `GoalState` | Active tasks, blockers, and waiting states | Latest logical record per `(entity, slot)`; active reads keep only current active or blocked states | TTL 14 days, decay 0.03/day |
+| `SelfModel` | Durable preferences, constraints, and operating traits | One logical trait per `(entity, slot)`; repetition reinforces instead of duplicating | No default TTL, decay 0.002/day |
+| `Procedure` | Reusable workflows and operational habits | One logical procedure per `workflow_key`; lifecycle can be `active`, `cooling_down`, or `retired` | TTL 90 days, decay 0.01/day |
 
-## The six layers
+## Policy-Backed Thresholds
 
-| Layer | `MemoryLayer` variant | Typical content | Retention |
-|---|---|---|---|
-| Trace | `Trace` | Raw chat turns, tool outputs, transient observations | Short (hours–days) |
-| Episode | `Episode` | Consolidated event records ("the user deployed alpha on Fri") | Medium (weeks) |
-| Belief | `Belief` | Long-lived factual assertions with polarity and confidence | Long (indefinite) |
-| GoalState | `GoalState` | Active tasks, objectives, sub-goals and their status | Task lifetime |
-| SelfModel | `SelfModel` | Agent capability descriptions, identity, configuration facts | Persistent |
-| Procedure | `Procedure` | Learned multi-step processes with explicit lifecycle transitions | Persistent |
+`PolicySet` is the single semantic source for promotion, repetition, and stabilization knobs.
+The default score is:
 
-Each layer maps to a dedicated store module (`trace_store` is folded into `episode_store` for
-compactness; the others have their own files: `belief_store`, `episode_store`, `goal_state_store`,
-`self_model_store`, `procedure_store`).
-
----
-
-## `MemoryController`
-
-The single governed authority for all writes and reads.
-
-```rust
-pub struct MemoryController<S: MemoryStore> {
-    store: S,
-    clock: Arc<dyn Clock>,
-    audit: AuditLogger,
-    classifier: MemoryClassifier,
-    promoter: MemoryPromoter,
-    belief_updater: BeliefUpdater,
-    retriever: MemoryRetriever,
-    consolidation_engine: ConsolidationEngine,
-}
+```text
+score = (confidence * 0.6) + (salience * 0.4)
 ```
 
-### Construction
+Current default thresholds from `policy.rs` are:
 
-```rust
-use memvid_core::agent_memory::MemoryController;
+- Reject below `0.25`
+- Trace-only below `0.35`
+- Episode promotion threshold `0.65`
+- Belief promotion threshold `0.75`
+- Self-model promotion threshold `0.70`
+- Goal-state promotion threshold `0.65`
+- Procedure promotion threshold `0.72`
+- Minimum self-model repetitions `2`
+- Minimum successful procedure repetitions `2`
+- Minimum recurring blocker repetitions `3`
+- Minimum belief stabilization repetitions `2`
+- Consolidation window `30` days
+- Minimum belief stability span `3` days
+- Trusted belief source weight `0.8`
+- Trusted self-model source weight `0.9`
 
-let controller = MemoryController::new(
-    store,               // impl MemoryStore
-    clock,               // Arc<dyn Clock>
-    audit_logger,
-    classifier,
-    promoter,
-    belief_updater,
-    retriever,
-);
+`PromotionContext` is built before promotion and carries:
+
+- `belief_evidence_count`
+- `self_model_evidence_count`
+- `goal_state_evidence_count`
+- `procedure_success_count`
+- `procedure_failure_count`
+- `verified_source`
+- `seeded_by_system`
+
+## Ingest And Destination-Aware Promotion
+
+`MemoryController` is the single governed authority for writes and reads. The ingest path is:
+
+```text
+ingest(candidate)
+  -> classify
+  -> build PromotionContext from current store state
+  -> promote with destination-aware rules
+  -> write supporting episode when applicable
+  -> write durable layer if allowed
+  -> update beliefs when applicable
+  -> run consolidation
+  -> emit audit events for every step
 ```
 
-### Ingest
+Promotion is destination-aware rather than score-only.
 
-```rust
-let result = controller.ingest(candidate)?;
-// Returns Option<String> — the stable memory_id if the candidate was promoted to durable storage,
-// or None if it was rejected or stored only in the Trace layer.
-```
+- `Trace`: archival only. Trace candidates can be retained as trace but are never promoted directly into durable higher-order layers.
+- `Episode`: singleton promotion is allowed only for event-like observations.
+- `GoalState`: singleton promotion is allowed for structured task-state or blocker observations with explicit goal-state semantics.
+- `Belief`: requires `entity`, `slot`, and `value`, then one of: verified source, repeated evidence at or above threshold, or trusted source at or above the belief trust floor.
+- `SelfModel`: requires `entity`, `slot`, and `value`, then either repeated stable evidence or an explicit durable preference or constraint statement from a verified source or a trusted `System` or `Tool` source.
+- `Procedure`: requires a `workflow_key` and either repeated successful workflow evidence or explicit system seeding.
 
-### Retrieve
+When durable promotion is denied but the observation still has useful structure or event semantics,
+the controller stores it as `Episode` evidence instead of treating it as current truth. This is the
+normal fallback for denied belief, self-model, and procedure promotion. Only low-scoring or
+unstructured leftovers fall all the way back to `Trace`.
 
-```rust
-let query = RetrievalQuery {
-    text: "what is the deployment target?".to_string(),
-    intent: QueryIntent::CurrentFact,
-    top_k: 5,
-    ..Default::default()
-};
-let hits: Vec<RetrievalHit> = controller.retrieve(&query)?;
-```
+When a non-episode observation does promote durably, the controller records a supporting episode
+first and attaches that episode id to the durable memory. This keeps history and truth separated
+while preserving evidence linkage.
 
----
+## Durable Layer Behavior
 
-## Key types
+### Belief
 
-### `CandidateMemory`
+Belief state is split between supporting evidence memories and an active `BeliefRecord` for the
+current `(entity, slot)` value. Contradictions and retractions flow through `BeliefUpdater`, which
+can mark beliefs as `active`, `disputed`, `stale`, or `retracted` while leaving evidence available
+for historical retrieval and consolidation.
 
-Input to `MemoryController::ingest`. Carries the raw observation plus its provenance.
+### GoalState
 
-```rust
-pub struct CandidateMemory {
-    pub candidate_id: String,
-    pub observed_at: DateTime<Utc>,
-    pub entity: String,      // Subject of the memory ("user", "system", …)
-    pub slot: String,        // Property name ("preferred_language", "deploy_target", …)
-    pub value: String,       // Property value
-    pub raw_text: String,    // Original text the observation came from
-    pub source: Provenance,
-    pub memory_type: MemoryType,   // Trace | Episode | Fact | Preference | GoalState
-    pub confidence: f32,     // 0.0–1.0
-    pub salience: f32,       // 0.0–1.0
-    pub scope: Scope,        // Private | Task | Project | Shared
-    pub ttl: Option<i64>,    // Seconds; None = no forced expiry
-    pub tags: Vec<String>,
-    pub metadata: BTreeMap<String, String>,
-    pub is_retraction: bool, // True if this observation retracts a previous belief
-    // … temporal validity fields
-}
-```
+`GoalStateStore` gives goal-state memories logical identity by `(entity, slot)`. New writes for the
+same key reuse the prior memory id and replace the current logical view. Active queries surface only
+the latest record per key whose status is one of:
 
-The `memory_layer()` method returns the routing layer (falling back from `internal_layer` to
-the layer implied by `memory_type`).
+- `active`
+- `blocked`
+- `waiting_on_user`
+- `waiting_on_system`
 
-### `Provenance`
+`completed`, `inactive`, and `stale` goal states stay in storage but are filtered out of active
+task-state recall.
 
-```rust
-pub struct Provenance {
-    pub source_type: SourceType,    // Chat | File | Tool | System | External
-    pub source_id: String,
-    pub source_label: Option<String>,
-    pub observed_by: Option<String>,
-    pub trust_weight: f32,          // 0.0–1.0
-}
-```
+### SelfModel
 
-### `RetrievalQuery`
+`SelfModelStore` gives self-model memories logical identity by `(entity, slot)`.
 
-```rust
-pub struct RetrievalQuery {
-    pub text: String,
-    pub intent: QueryIntent,        // CurrentFact | HistoricalFact | PreferenceLookup | …
-    pub entity: Option<String>,
-    pub slot: Option<String>,
-    pub top_k: usize,
-    pub min_confidence: Option<f32>,
-    pub scope: Option<Scope>,
-}
-```
+- Repeated same-value evidence reinforces one logical entry.
+- Reinforcement increments `reinforcement_count` and records `last_reinforced_at`.
+- Supporting evidence ids are merged instead of duplicating the logical trait.
+- Stronger contradictions can update the current trait on the same logical id.
+- Weaker contradictions are stored as `disputed` and do not replace the stable active trait.
 
-### `QueryIntent`
+This keeps self-model memory narrow and durable instead of becoming a scrapbook of user remarks.
 
-| Variant | Routing behaviour |
-|---|---|
-| `CurrentFact` | Prioritises Belief layer, recency-boosted |
-| `HistoricalFact` | Searches Episode layer |
-| `PreferenceLookup` | Searches Belief + SelfModel layers |
-| `TaskState` | Searches GoalState layer |
-| `EpisodicRecall` | Searches Episode layer with temporal relevance |
-| `SemanticBackground` | Broad search across all layers |
+### Procedure
 
-### `MemoryType` and `MemoryLayer`
+`ProcedureStore` uses `workflow_key` as the logical identity.
 
-`MemoryType` is the semantic category (Trace / Episode / Fact / Preference / GoalState).
-`MemoryLayer` is the physical storage target (Trace / Episode / Belief / GoalState / SelfModel / Procedure).
-`MemoryType::memory_layer()` provides the default mapping.
+- Relearning the same workflow reuses the same procedure id.
+- Success increments `success_count` and adjusts confidence.
+- Failures increment `failure_count` immediately.
+- Effective lifecycle is derived from observed outcomes and can be `active`, `cooling_down`, or `retired`.
+- Retired procedures are filtered from task-state retrieval; cooling-down procedures are still retrievable but ranked lower.
 
----
+## Consolidation
 
-## Ingest pipeline
+`ConsolidationEngine` promotes repeated bounded patterns into searchable consolidation traces. It
+currently consolidates:
 
-```
-ingest(CandidateMemory)
-  │
-  ├─ MemoryClassifier::classify()
-  │    assigns memory_type, memory_layer, confidence normalisation
-  │    emits AuditEvent("classification")
-  │
-  ├─ MemoryPromoter::promote()
-  │    promotion gate: Reject | StoreTrace | Promote
-  │    Promote → creates DurableMemory record, assigns memory_id
-  │    emits AuditEvent("promotion")
-  │
-  ├─ if Belief && is_retraction → BeliefUpdater::handle_retraction()
-  ├─ if Belief && not retraction → BeliefUpdater::update_or_create()
-  │    may mark conflicting beliefs as Disputed or Stale
-  │    emits AuditEvent("belief_update")
-  │
-  ├─ route to layer store (episode_store, belief_store, …)
-  │
-  └─ return memory_id (or None if Reject)
-```
+- stable self-model evidence
+- stable belief windows
+- recurring blockers
+- repeated workflow success
+- workflow failure that degrades an existing procedure lifecycle
 
-### `PromotionDecision`
+Every consolidation branch follows the same model:
 
-| Decision | Meaning |
-|---|---|
-| `Reject` | Observation dropped; below confidence/salience threshold |
-| `StoreTrace` | Stored in Trace layer only; not promoted to durable record |
-| `Promote` | Stored in the appropriate durable layer with a stable ID |
+- threshold semantics using policy-backed `>=` checks where repetition matters
+- a semantic key that identifies the meaning of the pattern
+- an evidence fingerprint that identifies the exact source evidence and threshold/window inputs
+- a disposition of `initial`, `reinforcement`, or `duplicate`
 
----
+Disposition behavior is:
 
-## Belief management
+- `initial`: first time this semantic pattern has been recorded
+- `reinforcement`: same semantic pattern, but supported by new evidence
+- `duplicate`: same semantic pattern and same evidence fingerprint; no new record is emitted
 
-Beliefs are the primary long-lived memory type. Each belief carries:
+This makes consolidation idempotent on rerun while distinguishing first-time promotion from later
+reinforcement.
 
-- `entity` + `slot` — the subject-property pair it asserts
-- `value` — the current asserted value
-- `status` — `Active | Disputed | Stale | Retracted`
-- `confidence` — float 0–1
-- `valid_from` / `valid_to` — optional temporal validity window
+Procedure-related consolidation records also preserve workflow metadata, outcome, and any status
+transition caused by the new evidence.
 
-When a new observation contradicts an existing Active belief for the same `(entity, slot)`,
-`BeliefUpdater` marks the older belief as `Disputed` and the audit log records both events.
-A retraction (`is_retraction = true`) transitions the belief to `Retracted`.
+## Retrieval And Ranking
 
----
+`MemoryRetriever` is answer-first. Each intent returns a primary direct layer hit first, then a
+small bounded amount of support evidence, then archive fallback only when needed.
 
-## Procedure lifecycle
+Current intent behavior is:
 
-`ProcedureStore` tracks learned multi-step processes. Each procedure has a status
-(`Draft → Active → Deprecated → Archived`) and every transition requires an explicit
-`ProcedureStatusTransition` with a human-readable reason. The full transition history is
-stored alongside the procedure so the `MemoryRetriever` can surface it as context.
+- `CurrentFact`: active belief first, then up to `3` support memories and up to `3` supporting episodes, then archive fallback.
+- `HistoricalFact`: recent episodes first, then bounded prior-state support, then archive fallback.
+- `PreferenceLookup`: self-model first, then up to `3` bounded support hits and linked support episodes, then archive fallback.
+- `TaskState`: active goals first, then up to `3` aligned episodes, then up to `2` aligned procedures, then archive fallback.
+- procedural help under `SemanticBackground`: up to `3` direct procedures first, then up to `3` successful supporting episodes.
+- procedure lifecycle history under `SemanticBackground` or `EpisodicRecall`: direct answers come from stored lifecycle trace entries.
 
----
+Support hits are marked with `retrieval_role = support_evidence`. Direct hits are marked with
+`retrieval_role = direct_answer`. Archive fallback hits are marked with `retrieval_role = archive_fallback`.
 
-## Retention and consolidation
+`Ranker` enforces layer-role hierarchy rather than generic additive math.
 
-`MemoryDecay` applies TTL-based and salience-weighted decay to Trace and Episode entries.
-`ConsolidationEngine` periodically promotes high-frequency episode patterns to Beliefs.
-`MemoryCompactor` removes fully expired entries and defragments the underlying store.
+- Direct answers outrank support evidence.
+- Support evidence outranks archive fallback.
+- Current fact strongly prefers belief.
+- Preference lookup strongly prefers self-model.
+- Task state strongly prefers goal-state, with blocked and waiting states boosted over generic active goals.
+- Procedural help prefers procedure memory.
+- Historical queries prefer episodes over current belief.
+- Recency matters strongly for episodes and goal-state, and much less for stable beliefs, self-model, and procedures.
+- Cooling-down procedures are penalized; retired procedures are heavily penalized or filtered depending on the query path.
 
-Retention policies are configured per-layer via `policy` module types. The defaults are:
+Before returning results, retrieval performs semantic dedup rather than id-only dedup. The dedup key
+combines entity, slot, value, `workflow_key`, source identity, and a coarse time bucket where
+possible, then falls back to belief id, memory id, or normalized text.
 
-- Trace: 72 h TTL, no consolidation upward
-- Episode: 30 d TTL, eligible for Belief consolidation after ≥ 3 corroborating observations
-- Belief/GoalState/SelfModel/Procedure: no automatic expiry (manual retraction or archival)
+## Adapter And Audit Preservation
 
----
+`MemvidStore` preserves the metadata needed by ranking, dedup, support linkage, and lifecycle logic.
+Durable memories are written with agent-prefixed metadata for:
 
-## Audit log
+- memory id and candidate id
+- entity, slot, and value
+- memory layer and memory type
+- source id, source type, and source weight
+- confidence and salience
+- stored, event, and validity timestamps
+- arbitrary workflow, support, and layer-specific metadata
 
-Every ingest action emits an `AuditEvent` to `AuditLogger`:
+On read, those fields are reconstructed into `DurableMemory` and `RetrievalHit`. Query time is not
+injected as if it were memory time; retrieval uses persisted stored and event timestamps.
 
-```rust
-pub struct AuditEvent {
-    pub event_id: String,
-    pub occurred_at: DateTime<Utc>,
-    pub action: String,           // "classification" | "promotion" | "belief_update" | …
-    pub candidate_id: Option<String>,
-    pub memory_id: Option<String>,
-    pub belief_id: Option<String>,
-    pub query_text: Option<String>,
-    pub details: BTreeMap<String, String>,
-}
-```
+The audit trail is append-only and explicit. `MemoryController` emits events such as:
 
-The audit log is append-only and stored in its own track so it can be queried independently of
-the main memory search path.
+- `classification`
+- `promotion`
+- `trace_stored`
+- `episode_stored`
+- `memory_stored`
+- `belief_updated`
+- `procedure_learned`
+- `procedure_status_changed`
+- `retrieval`
 
----
+Promotion audit details explain which layer was chosen, the score and threshold, route basis such as
+`verified_source`, `trusted_source`, `repeated_evidence`, or `system_seeded`, and any fallback layer
+when durable promotion is denied.
 
-## Public exports
-
-From `src/agent_memory/mod.rs`:
-
-```rust
-pub use memory_controller::MemoryController;
-// All other types are accessed via their submodules:
-// agent_memory::schemas::{CandidateMemory, DurableMemory, RetrievalHit, RetrievalQuery, …}
-// agent_memory::enums::{MemoryLayer, MemoryType, BeliefStatus, QueryIntent, …}
-// agent_memory::errors::Result
-```
+Procedure lifecycle changes are also persisted as searchable trace entries with explicit
+`transition_reason` values such as `success`, `failure`, or `reconciliation`, so lifecycle history
+is visible through both audit and retrieval paths.

@@ -495,6 +495,99 @@ fn preference_query_returns_self_model_with_limited_support() {
 }
 
 #[test]
+fn procedural_help_query_returns_direct_procedure_with_bounded_support() {
+    let mut store = InMemoryMemoryStore::default();
+    let mut procedure = durable(
+        "procedure",
+        "repo_review",
+        "repo_review",
+        "Review the repo in a consistent order.",
+        MemoryType::Trace,
+        SourceType::System,
+        1.0,
+        ts(1_700_000_000),
+    );
+    procedure.internal_layer = Some(MemoryLayer::Procedure);
+    procedure
+        .metadata
+        .insert("procedure_name".to_string(), "repo_review".to_string());
+    procedure
+        .metadata
+        .insert("workflow_key".to_string(), "repo_review".to_string());
+    procedure
+        .metadata
+        .insert("context_tags".to_string(), "repo_review,review".to_string());
+    procedure
+        .metadata
+        .insert("success_count".to_string(), "4".to_string());
+    procedure
+        .metadata
+        .insert("failure_count".to_string(), "0".to_string());
+    procedure
+        .metadata
+        .insert("procedure_status".to_string(), "active".to_string());
+    store.put_memory(&procedure).expect("procedure stored");
+
+    for offset in 0..4 {
+        let mut episode = durable(
+            "project",
+            "event",
+            "repo_review",
+            "Completed the repo review workflow successfully.",
+            MemoryType::Episode,
+            SourceType::Tool,
+            0.9,
+            ts(1_700_000_010 + offset),
+        );
+        episode
+            .metadata
+            .insert("workflow_key".to_string(), "repo_review".to_string());
+        episode
+            .metadata
+            .insert("outcome".to_string(), "success".to_string());
+        episode.tags.push("review".to_string());
+        store.put_memory(&episode).expect("support episode stored");
+    }
+
+    let retriever = MemoryRetriever::new(Ranker, RetentionManager::new(PolicySet::default()));
+    let hits = retriever
+        .retrieve(
+            &mut store,
+            &RetrievalQuery {
+                query_text: "how do I run the repo_review workflow".to_string(),
+                intent: QueryIntent::SemanticBackground,
+                entity: None,
+                slot: None,
+                scope: None,
+                top_k: 5,
+                as_of: None,
+                include_expired: false,
+            },
+            &FixedClock::new(ts(1_700_000_100)),
+        )
+        .expect("retrieval works");
+
+    assert_eq!(hits.first().and_then(|hit| hit.memory_layer), Some(MemoryLayer::Procedure));
+    assert_eq!(
+        hits.first()
+            .and_then(|hit| hit.metadata.get("retrieval_role").map(String::as_str)),
+        Some("direct_answer")
+    );
+
+    let support_hits: Vec<_> = hits
+        .iter()
+        .filter(|hit| {
+            hit.metadata.get("retrieval_role").map(String::as_str) == Some("support_evidence")
+        })
+        .collect();
+    assert!(!support_hits.is_empty());
+    assert!(support_hits.len() <= 3);
+    assert!(support_hits
+        .iter()
+        .all(|hit| hit.memory_layer == Some(MemoryLayer::Episode)));
+}
+
+#[test]
 fn preference_query_falls_back_to_search_when_self_model_store_is_empty() {
     let mut store = InMemoryMemoryStore::default();
     store

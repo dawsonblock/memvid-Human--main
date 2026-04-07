@@ -1,5 +1,8 @@
 mod common;
 
+use memvid_core::agent_memory::clock::FixedClock;
+use memvid_core::agent_memory::consolidation_engine::ConsolidationEngine;
+use memvid_core::agent_memory::enums::MemoryLayer;
 use memvid_core::agent_memory::adapters::memvid_store::InMemoryMemoryStore;
 use memvid_core::agent_memory::enums::{BeliefStatus, MemoryType, SelfModelKind, SourceType};
 use memvid_core::agent_memory::self_model_store::SelfModelStore;
@@ -92,6 +95,127 @@ fn one_off_preference_observation_stays_episode_evidence_until_repeated() {
         controller.store().memories()[0].memory_layer().as_str(),
         "episode"
     );
+}
+
+#[test]
+fn explicit_trusted_preference_statement_promotes_directly_to_self_model() {
+    let (mut controller, sink) = controller(ts(1_700_000_000));
+    let mut trusted = candidate(
+        "user",
+        "favorite_editor",
+        "vim",
+        "The tool profile says the user always prefers vim for editing.",
+    );
+    trusted.source.source_type = SourceType::Tool;
+    trusted.source.source_id = "tool-profile".to_string();
+    trusted.source.trust_weight = 0.95;
+
+    let memory_id = controller
+        .ingest(trusted)
+        .expect("ingest succeeds")
+        .expect("self-model stored");
+
+    let latest = {
+        let mut self_model_store = SelfModelStore::new(controller.store_mut());
+        self_model_store
+            .get_latest_for_entity_slot("user", "favorite_editor")
+            .expect("latest self-model loaded")
+            .expect("latest self-model exists")
+    };
+
+    assert_eq!(memory_id, latest.memory_id);
+    assert_eq!(latest.value, "vim");
+    assert_eq!(
+        controller
+            .store()
+            .memories()
+            .iter()
+            .filter(|memory| memory.memory_layer() == MemoryLayer::SelfModel)
+            .count(),
+        1
+    );
+    assert_eq!(
+        controller
+            .store()
+            .memories()
+            .iter()
+            .filter(|memory| memory.memory_layer() == MemoryLayer::Episode)
+            .count(),
+        1
+    );
+
+    let promotion_event = sink
+        .events()
+        .into_iter()
+        .find(|event| event.action == "promotion")
+        .expect("promotion audit event present");
+    assert_eq!(
+        promotion_event.details.get("route_basis").map(String::as_str),
+        Some("trusted_source")
+    );
+    assert_eq!(
+        promotion_event.details.get("target_layer").map(String::as_str),
+        Some("self_model")
+    );
+}
+
+#[test]
+fn rerunning_same_self_model_stabilization_evidence_is_idempotent() {
+    let mut store = InMemoryMemoryStore::default();
+    let first = durable(
+        "user",
+        "response_style",
+        "concise",
+        "The user prefers concise responses",
+        MemoryType::Preference,
+        SourceType::Chat,
+        0.75,
+        ts(1_700_000_000),
+    );
+    let second = durable(
+        "user",
+        "response_style",
+        "concise",
+        "The user still prefers concise responses",
+        MemoryType::Preference,
+        SourceType::Chat,
+        0.8,
+        ts(1_700_000_060),
+    );
+
+    {
+        let mut self_model_store = SelfModelStore::new(&mut store);
+        self_model_store
+            .save_memory(&first, Some("episode-1"))
+            .expect("first self-model stored");
+        self_model_store
+            .save_memory(&second, Some("episode-2"))
+            .expect("second self-model stored");
+    }
+
+    let first_outcomes = ConsolidationEngine::default()
+        .consolidate(
+            &mut store,
+            None,
+            Some(&second),
+            &FixedClock::new(ts(1_700_000_120)),
+        )
+        .expect("consolidation succeeds");
+    assert!(first_outcomes.iter().any(|outcome| {
+        outcome.record.target_layer == MemoryLayer::SelfModel
+            && outcome.record.metadata.get("consolidation_action").map(String::as_str)
+                == Some("promotion")
+    }));
+
+    let rerun_outcomes = ConsolidationEngine::default()
+        .consolidate(
+            &mut store,
+            None,
+            Some(&second),
+            &FixedClock::new(ts(1_700_000_121)),
+        )
+        .expect("rerun consolidation succeeds");
+    assert!(rerun_outcomes.is_empty());
 }
 
 #[test]
