@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 
 use super::enums::{MemoryLayer, ProcedureStatus};
-use super::policy::PolicySet;
+use super::policy::{PolicyProfile, PolicySet};
 use super::procedure_store::effective_procedure_status;
 use super::schemas::{DurableMemory, ProcedureRecord, RetentionRule};
 
@@ -28,6 +28,11 @@ impl RetentionManager {
     #[must_use]
     pub fn new(policy: PolicySet) -> Self {
         Self { policy }
+    }
+
+    #[must_use]
+    pub fn policy_profile(&self) -> PolicyProfile {
+        self.policy.policy_profile()
     }
 
     #[must_use]

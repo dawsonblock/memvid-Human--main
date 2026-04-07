@@ -150,6 +150,27 @@ current `(entity, slot)` value. Contradictions and retractions flow through `Bel
 can mark beliefs as `active`, `disputed`, `stale`, or `retracted` while leaving evidence available
 for historical retrieval and consolidation.
 
+Phase 3 keeps the existing enum semantics but makes current interpretation explicit:
+
+- `opposing_memory_ids` remains the contradiction lineage for the current interpretation
+- `contradictions_observed` counts distinct contradiction events against the current belief
+- `last_contradiction_at` records when the current interpretation most recently became contested
+- `time_to_last_resolution_seconds` records how long the most recent contest lasted before
+  reinforcement, replacement, or retraction resolved it
+
+Belief revision now distinguishes three controller-owned outcomes without deleting history:
+
+- same-value reinforcement keeps the current belief id and can restore a `disputed` belief to
+  `active` when corroborating evidence arrives
+- higher-trust comparable evidence replaces the current interpretation, marks the old belief
+  `stale`, and starts a new active belief id
+- weaker contradictory evidence marks the current belief `disputed` instead of silently replacing it
+
+Current-fact retrieval prefers clean active beliefs. If the latest interpretation is contested and
+there is no active replacement, retrieval can still surface that belief as a direct answer with
+`belief_retrieval_status=contested`, contradiction counters, timing metadata, and bounded opposing
+evidence so callers can inspect uncertainty explicitly.
+
 ### GoalState
 
 `GoalStateStore` gives goal-state memories logical identity by `(entity, slot)`. New writes for the
@@ -249,6 +270,8 @@ small bounded amount of support evidence, then archive fallback only when needed
 Current intent behavior is:
 
 - `CurrentFact`: active belief first, then up to `3` support memories and up to `3` supporting episodes, then archive fallback.
+  If no active belief exists but the latest belief is `disputed`, the contested belief can surface
+  as the direct answer with explicit contradiction metadata and a ranking penalty.
 - `HistoricalFact`: recent episodes first, then bounded prior-state support, then archive fallback.
 - `PreferenceLookup`: self-model first, then up to `3` bounded support hits and linked support episodes, then archive fallback.
 - `TaskState`: active goals first, then up to `3` aligned episodes, then up to `2` aligned procedures, then archive fallback.
@@ -269,6 +292,26 @@ Support hits are marked with `retrieval_role = support_evidence`. Direct hits ar
 - Historical queries prefer episodes over current belief.
 - Recency matters strongly for episodes and goal-state, and much less for stable beliefs, self-model, and procedures.
 - Cooling-down procedures are penalized; retired procedures are heavily penalized or filtered depending on the query path.
+
+Phase 4 makes that ranking inspectable instead of opaque. Every returned hit now carries:
+
+- `score_components`: a stable ordered breakdown of named score terms
+- `ranking_explanation`: a short explanation of why that hit ranked where it did
+- per-component metadata such as `score_component_layer_match`, `score_component_content_match`,
+  `score_component_goal_relevance`, `score_component_self_relevance`, `score_component_salience`,
+  `score_component_evidence_strength`, `score_component_contradiction_penalty`,
+  `score_component_recency`, and lifecycle penalties when relevant
+
+The weighted terms are driven by `PolicyProfile::soft_weights()`, while a small number of
+structural bonuses remain explicit to preserve answer-first routing:
+
+- layer match for intent-aware routing
+- retrieval role priority for direct answers versus support and archive fallback
+- belief-priority bonus for current-fact answers sourced from the belief layer
+- explicit lifecycle and expiry penalties
+
+This keeps ranking deterministic and inspectable without widening the storage model or changing the
+intent routing contract.
 
 Before returning results, retrieval performs semantic dedup rather than id-only dedup. The dedup key
 combines entity, slot, value, `workflow_key`, source identity, and a coarse time bucket where

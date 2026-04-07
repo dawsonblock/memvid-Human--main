@@ -22,6 +22,7 @@ pub trait MemoryStore {
     fn put_memory(&mut self, memory: &DurableMemory) -> Result<String>;
     fn update_belief(&mut self, belief: &BeliefRecord) -> Result<()>;
     fn get_active_belief(&mut self, entity: &str, slot: &str) -> Result<Option<BeliefRecord>>;
+    fn get_current_belief(&mut self, entity: &str, slot: &str) -> Result<Option<BeliefRecord>>;
     fn search(&mut self, query: &RetrievalQuery) -> Result<Vec<RetrievalHit>>;
     fn list_memories_by_layer(&mut self, layer: MemoryLayer) -> Result<Vec<DurableMemory>>;
     fn list_memories_for_belief(&mut self, entity: &str, slot: &str) -> Result<Vec<DurableMemory>>;
@@ -181,6 +182,8 @@ fn retrieval_metadata(memory: &DurableMemory) -> BTreeMap<String, String> {
         "memory_layer".to_string(),
         memory.memory_layer().as_str().to_string(),
     );
+    metadata.insert("confidence".to_string(), memory.confidence.to_string());
+    metadata.insert("salience".to_string(), memory.salience.to_string());
     metadata.insert("source_id".to_string(), memory.source.source_id.clone());
     metadata.insert(
         "source_type".to_string(),
@@ -280,6 +283,13 @@ impl MemoryStore for InMemoryMemoryStore {
             .get(&(entity.to_string(), slot.to_string()))
             .cloned()
             .filter(|belief| belief.status == BeliefStatus::Active))
+    }
+
+    fn get_current_belief(&mut self, entity: &str, slot: &str) -> Result<Option<BeliefRecord>> {
+        Ok(self
+            .beliefs
+            .get(&(entity.to_string(), slot.to_string()))
+            .cloned())
     }
 
     fn search(&mut self, query: &RetrievalQuery) -> Result<Vec<RetrievalHit>> {
@@ -720,7 +730,27 @@ impl MemoryStore for MemvidStore {
         beliefs.reverse();
         for card in beliefs {
             let belief: BeliefRecord = serde_json::from_str(&card.value)?;
-            if belief.status == BeliefStatus::Active {
+            if belief.status == BeliefStatus::Stale {
+                continue;
+            }
+            return Ok((belief.status == BeliefStatus::Active).then_some(belief));
+        }
+        Ok(None)
+    }
+
+    fn get_current_belief(&mut self, entity: &str, slot: &str) -> Result<Option<BeliefRecord>> {
+        let mut beliefs: Vec<_> = self
+            .memvid
+            .memories()
+            .get_cards(&belief_entity(entity), slot)
+            .into_iter()
+            .filter(|card| !card.is_retracted())
+            .collect();
+        beliefs.sort_by_key(|card| card.effective_timestamp());
+        beliefs.reverse();
+        for card in beliefs {
+            let belief: BeliefRecord = serde_json::from_str(&card.value)?;
+            if belief.status != BeliefStatus::Stale {
                 return Ok(Some(belief));
             }
         }
@@ -796,6 +826,12 @@ impl MemoryStore for MemvidStore {
                         }
                         if let Some(source_weight) = extra.get("agent_source_weight") {
                             metadata.insert("source_weight".to_string(), source_weight.clone());
+                        }
+                        if let Some(confidence) = extra.get("agent_confidence") {
+                            metadata.insert("confidence".to_string(), confidence.clone());
+                        }
+                        if let Some(salience) = extra.get("agent_salience") {
+                            metadata.insert("salience".to_string(), salience.clone());
                         }
                         if let Some(stored_at) = extra.get("agent_stored_at") {
                             metadata.insert("stored_at".to_string(), stored_at.clone());

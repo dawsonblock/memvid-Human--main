@@ -62,6 +62,9 @@ impl BeliefUpdater {
                             vec![memory.memory_id.clone()]
                         },
                         opposing_memory_ids: Vec::new(),
+                        contradictions_observed: 0,
+                        last_contradiction_at: None,
+                        time_to_last_resolution_seconds: None,
                         source_weights,
                     }),
                     prior_belief: None,
@@ -72,7 +75,14 @@ impl BeliefUpdater {
                     current.status = BeliefStatus::Retracted;
                     current.valid_to = Some(now);
                     current.last_reviewed_at = now;
-                    current.opposing_memory_ids.push(memory.memory_id.clone());
+                    if !current.opposing_memory_ids.contains(&memory.memory_id) {
+                        current.opposing_memory_ids.push(memory.memory_id.clone());
+                    }
+                    if let Some(last_contradiction_at) = current.last_contradiction_at {
+                        current.time_to_last_resolution_seconds =
+                            Some((now.timestamp() - last_contradiction_at.timestamp()).max(0));
+                    }
+                    current.last_contradiction_at = None;
                     return BeliefUpdateOutcome {
                         action: BeliefAction::Retract,
                         current_belief: Some(current),
@@ -89,6 +99,15 @@ impl BeliefUpdater {
                     current
                         .source_weights
                         .insert(memory.source.source_type, memory.source.trust_weight);
+                    if current.status == BeliefStatus::Disputed {
+                        current.status = BeliefStatus::Active;
+                        if let Some(last_contradiction_at) = current.last_contradiction_at {
+                            current.time_to_last_resolution_seconds = Some(
+                                (now.timestamp() - last_contradiction_at.timestamp()).max(0),
+                            );
+                        }
+                        current.last_contradiction_at = None;
+                    }
                     return BeliefUpdateOutcome {
                         action: BeliefAction::Reinforce,
                         current_belief: Some(current),
@@ -96,11 +115,7 @@ impl BeliefUpdater {
                     };
                 }
 
-                let existing_trust = current
-                    .source_weights
-                    .values()
-                    .copied()
-                    .fold(0.0_f32, f32::max);
+                let existing_trust = current.strongest_source_weight();
                 let new_trust = memory.source.trust_weight;
                 let comparable_confidence = memory.confidence + 0.05 >= current.confidence;
 
@@ -125,6 +140,13 @@ impl BeliefUpdater {
                         last_reviewed_at: now,
                         supporting_memory_ids: vec![memory.memory_id.clone()],
                         opposing_memory_ids: stale.supporting_memory_ids.clone(),
+                        contradictions_observed: 0,
+                        last_contradiction_at: None,
+                        time_to_last_resolution_seconds: current
+                            .last_contradiction_at
+                            .map(|observed_at| {
+                                (now.timestamp() - observed_at.timestamp()).max(0)
+                            }),
                         source_weights,
                     };
                     return BeliefUpdateOutcome {
@@ -136,9 +158,16 @@ impl BeliefUpdater {
 
                 current.status = BeliefStatus::Disputed;
                 current.last_reviewed_at = now;
+                let mut observed_new_conflict = false;
                 if !current.opposing_memory_ids.contains(&memory.memory_id) {
                     current.opposing_memory_ids.push(memory.memory_id.clone());
+                    observed_new_conflict = true;
                 }
+                if observed_new_conflict {
+                    current.contradictions_observed = current.contradictions_observed.saturating_add(1);
+                }
+                current.last_contradiction_at = Some(now);
+                current.time_to_last_resolution_seconds = None;
                 BeliefUpdateOutcome {
                     action: BeliefAction::Dispute,
                     current_belief: Some(current),

@@ -4,12 +4,12 @@ use std::sync::Arc;
 use super::adapters::memvid_store::MemoryStore;
 use super::audit::AuditLogger;
 use super::belief_store::BeliefStore;
-use super::belief_updater::BeliefUpdater;
+use super::belief_updater::{BeliefUpdateOutcome, BeliefUpdater};
 use super::clock::Clock;
 use super::consolidation_engine::ConsolidationEngine;
 use super::enums::{
-    MemoryLayer, MemoryType, PromotionDecision, SelfModelStabilityClass, SelfModelKind,
-    SourceType,
+    BeliefAction, MemoryLayer, MemoryType, PromotionDecision, SelfModelStabilityClass,
+    SelfModelKind, SourceType,
 };
 use super::episode_store::EpisodeStore;
 use super::errors::{AgentMemoryError, Result};
@@ -20,7 +20,8 @@ use super::memory_retriever::MemoryRetriever;
 use super::policy::ReasonCode;
 use super::procedure_store::{ProcedureStatusTransition, ProcedureStore};
 use super::schemas::{
-    AuditEvent, CandidateMemory, DurableMemory, PromotionContext, RetrievalHit, RetrievalQuery,
+    AuditEvent, BeliefRecord, CandidateMemory, DurableMemory, PromotionContext, RetrievalHit,
+    RetrievalQuery,
 };
 use super::self_model_store::SelfModelStore;
 
@@ -454,7 +455,7 @@ impl<S: MemoryStore> MemoryController<S> {
                     event_id: String::new(),
                     occurred_at: self.clock.now(),
                     action: "memory_stored".to_string(),
-                    candidate_id,
+                    candidate_id: candidate_id.clone(),
                     memory_id: Some(memory_id.clone()),
                     belief_id: None,
                     query_text: None,
@@ -468,35 +469,30 @@ impl<S: MemoryStore> MemoryController<S> {
                     ]),
                 });
 
-                let mut belief_store = BeliefStore::new(&mut self.store);
-                let existing = belief_store.get(&memory.entity, &memory.slot)?;
+                let existing = {
+                    let mut belief_store = BeliefStore::new(&mut self.store);
+                    belief_store.get_current(&memory.entity, &memory.slot)?
+                };
                 let outcome = self
                     .belief_updater
-                    .apply(existing, &memory, self.clock.as_ref());
-                if let Some(prior) = outcome.prior_belief.as_ref() {
-                    belief_store.save(prior)?;
+                    .apply(existing.clone(), &memory, self.clock.as_ref());
+                {
+                    let mut belief_store = BeliefStore::new(&mut self.store);
+                    if let Some(prior) = outcome.prior_belief.as_ref() {
+                        belief_store.save(prior)?;
+                    }
+                    if let Some(current) = outcome.current_belief.as_ref() {
+                        belief_store.save(current)?;
+                    }
                 }
-                if let Some(current) = outcome.current_belief.as_ref() {
-                    belief_store.save(current)?;
-                    self.audit.emit(AuditEvent {
-                        event_id: String::new(),
-                        occurred_at: self.clock.now(),
-                        action: "belief_updated".to_string(),
-                        candidate_id: None,
-                        memory_id: Some(memory_id.clone()),
-                        belief_id: Some(current.belief_id.clone()),
-                        query_text: None,
-                        details: BTreeMap::from([
-                            (
-                                "action".to_string(),
-                                format!("{:?}", outcome.action).to_lowercase(),
-                            ),
-                            (
-                                "status".to_string(),
-                                format!("{:?}", current.status).to_lowercase(),
-                            ),
-                        ]),
-                    });
+                if outcome.current_belief.is_some() {
+                    self.emit_belief_transition_audits(
+                        candidate_id,
+                        &memory,
+                        &memory_id,
+                        existing.as_ref(),
+                        &outcome,
+                    );
                 }
                 Ok(memory_id)
             }
@@ -624,6 +620,193 @@ impl<S: MemoryStore> MemoryController<S> {
             query_text: None,
             details,
         });
+    }
+
+    fn emit_belief_transition_audits(
+        &self,
+        candidate_id: Option<String>,
+        memory: &DurableMemory,
+        memory_id: &str,
+        existing: Option<&BeliefRecord>,
+        outcome: &BeliefUpdateOutcome,
+    ) {
+        let Some(current) = outcome.current_belief.as_ref() else {
+            return;
+        };
+
+        let mut details = BTreeMap::from([
+            ("entity".to_string(), current.entity.clone()),
+            ("slot".to_string(), current.slot.clone()),
+            ("value".to_string(), current.current_value.clone()),
+            (
+                "action".to_string(),
+                format!("{:?}", outcome.action).to_lowercase(),
+            ),
+            ("status".to_string(), current.status.as_str().to_string()),
+            (
+                "belief_retrieval_status".to_string(),
+                current.view_status().as_str().to_string(),
+            ),
+            (
+                "supporting_memory_count".to_string(),
+                current.supporting_memory_ids.len().to_string(),
+            ),
+            (
+                "opposing_memory_count".to_string(),
+                current.opposing_memory_ids.len().to_string(),
+            ),
+            (
+                "contradictions_observed".to_string(),
+                current.contradictions_observed.to_string(),
+            ),
+        ]);
+        if let Some(last_contradiction_at) = current.last_contradiction_at {
+            details.insert(
+                "last_contradiction_at".to_string(),
+                last_contradiction_at.to_rfc3339(),
+            );
+        }
+        if let Some(seconds) = current.time_to_last_resolution_seconds {
+            details.insert(
+                "time_to_last_resolution_seconds".to_string(),
+                seconds.to_string(),
+            );
+        }
+
+        self.audit.emit(AuditEvent {
+            event_id: String::new(),
+            occurred_at: self.clock.now(),
+            action: "belief_updated".to_string(),
+            candidate_id: candidate_id.clone(),
+            memory_id: Some(memory_id.to_string()),
+            belief_id: Some(current.belief_id.clone()),
+            query_text: None,
+            details,
+        });
+
+        match outcome.action {
+            BeliefAction::Reinforce => {
+                let mut details = BTreeMap::from([
+                    ("entity".to_string(), current.entity.clone()),
+                    ("slot".to_string(), current.slot.clone()),
+                    ("value".to_string(), current.current_value.clone()),
+                    (
+                        "resolved_contestation".to_string(),
+                        (existing.is_some_and(|belief| belief.status == super::enums::BeliefStatus::Disputed)
+                            && current.status == super::enums::BeliefStatus::Active)
+                            .to_string(),
+                    ),
+                ]);
+                if let Some(seconds) = current.time_to_last_resolution_seconds {
+                    details.insert(
+                        "time_to_last_resolution_seconds".to_string(),
+                        seconds.to_string(),
+                    );
+                }
+                self.audit.emit(AuditEvent {
+                    event_id: String::new(),
+                    occurred_at: self.clock.now(),
+                    action: "belief_reinforced".to_string(),
+                    candidate_id: candidate_id.clone(),
+                    memory_id: Some(memory_id.to_string()),
+                    belief_id: Some(current.belief_id.clone()),
+                    query_text: None,
+                    details,
+                });
+            }
+            BeliefAction::Dispute => {
+                let existing_trust = existing.map(BeliefRecord::strongest_source_weight).unwrap_or(0.0);
+                let mut details = BTreeMap::from([
+                    ("entity".to_string(), current.entity.clone()),
+                    ("slot".to_string(), current.slot.clone()),
+                    (
+                        "prior_value".to_string(),
+                        existing
+                            .map(|belief| belief.current_value.clone())
+                            .unwrap_or_default(),
+                    ),
+                    ("new_value".to_string(), memory.value.clone()),
+                    (
+                        "trust_comparison".to_string(),
+                        format!("new={:.2},existing={:.2}", memory.source.trust_weight, existing_trust),
+                    ),
+                    (
+                        "contradictions_observed".to_string(),
+                        current.contradictions_observed.to_string(),
+                    ),
+                ]);
+                if let Some(last_contradiction_at) = current.last_contradiction_at {
+                    details.insert(
+                        "last_contradiction_at".to_string(),
+                        last_contradiction_at.to_rfc3339(),
+                    );
+                }
+                self.audit.emit(AuditEvent {
+                    event_id: String::new(),
+                    occurred_at: self.clock.now(),
+                    action: "belief_contradiction_detected".to_string(),
+                    candidate_id: candidate_id.clone(),
+                    memory_id: Some(memory_id.to_string()),
+                    belief_id: Some(current.belief_id.clone()),
+                    query_text: None,
+                    details,
+                });
+            }
+            BeliefAction::Update if outcome.prior_belief.is_some() => {
+                let prior = outcome.prior_belief.as_ref().expect("prior belief present");
+                let mut details = BTreeMap::from([
+                    ("entity".to_string(), current.entity.clone()),
+                    ("slot".to_string(), current.slot.clone()),
+                    ("prior_value".to_string(), prior.current_value.clone()),
+                    ("new_value".to_string(), current.current_value.clone()),
+                    (
+                        "previous_status".to_string(),
+                        prior.status.as_str().to_string(),
+                    ),
+                    (
+                        "trust_comparison".to_string(),
+                        format!(
+                            "new={:.2},existing={:.2}",
+                            memory.source.trust_weight,
+                            existing.map(BeliefRecord::strongest_source_weight).unwrap_or(0.0)
+                        ),
+                    ),
+                ]);
+                if let Some(seconds) = current.time_to_last_resolution_seconds {
+                    details.insert(
+                        "time_to_last_resolution_seconds".to_string(),
+                        seconds.to_string(),
+                    );
+                }
+                self.audit.emit(AuditEvent {
+                    event_id: String::new(),
+                    occurred_at: self.clock.now(),
+                    action: "belief_replaced".to_string(),
+                    candidate_id: candidate_id.clone(),
+                    memory_id: Some(memory_id.to_string()),
+                    belief_id: Some(current.belief_id.clone()),
+                    query_text: None,
+                    details,
+                });
+            }
+            BeliefAction::Retract => {
+                self.audit.emit(AuditEvent {
+                    event_id: String::new(),
+                    occurred_at: self.clock.now(),
+                    action: "belief_retracted".to_string(),
+                    candidate_id: candidate_id.clone(),
+                    memory_id: Some(memory_id.to_string()),
+                    belief_id: Some(current.belief_id.clone()),
+                    query_text: None,
+                    details: BTreeMap::from([
+                        ("entity".to_string(), current.entity.clone()),
+                        ("slot".to_string(), current.slot.clone()),
+                        ("value".to_string(), current.current_value.clone()),
+                    ]),
+                });
+            }
+            BeliefAction::Update => {}
+        }
     }
 
     fn govern_self_model_memory(

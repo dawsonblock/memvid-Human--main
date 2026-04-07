@@ -33,6 +33,16 @@ pub enum BeliefStatus {
     Retracted,
 }
 
+/// Retrieval-facing interpretation status derived from belief state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BeliefViewStatus {
+    Active,
+    Contested,
+    Superseded,
+    Retracted,
+}
+
 /// Intent classes for governed retrieval.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -247,6 +257,39 @@ impl BeliefStatus {
             "active" => Some(Self::Active),
             "disputed" => Some(Self::Disputed),
             "stale" => Some(Self::Stale),
+            "retracted" => Some(Self::Retracted),
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    pub const fn view_status(self) -> BeliefViewStatus {
+        match self {
+            Self::Active => BeliefViewStatus::Active,
+            Self::Disputed => BeliefViewStatus::Contested,
+            Self::Stale => BeliefViewStatus::Superseded,
+            Self::Retracted => BeliefViewStatus::Retracted,
+        }
+    }
+}
+
+impl BeliefViewStatus {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::Contested => "contested",
+            Self::Superseded => "superseded",
+            Self::Retracted => "retracted",
+        }
+    }
+
+    #[must_use]
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "active" => Some(Self::Active),
+            "contested" => Some(Self::Contested),
+            "superseded" => Some(Self::Superseded),
             "retracted" => Some(Self::Retracted),
             _ => None,
         }

@@ -50,6 +50,9 @@ fn matching_fact_reinforces_belief() {
         last_reviewed_at: ts(1_700_000_000),
         supporting_memory_ids: vec!["m1".to_string()],
         opposing_memory_ids: Vec::new(),
+        contradictions_observed: 0,
+        last_contradiction_at: None,
+        time_to_last_resolution_seconds: None,
         source_weights: BTreeMap::from([(SourceType::Chat, 0.75)]),
     };
     let memory = durable(
@@ -94,6 +97,9 @@ fn higher_trust_replacement_updates_belief() {
         last_reviewed_at: ts(1_700_000_000),
         supporting_memory_ids: vec!["m1".to_string()],
         opposing_memory_ids: Vec::new(),
+        contradictions_observed: 0,
+        last_contradiction_at: None,
+        time_to_last_resolution_seconds: None,
         source_weights: BTreeMap::from([(SourceType::Chat, 0.75)]),
     };
     let memory = durable(
@@ -139,6 +145,9 @@ fn lower_trust_conflict_disputes_existing_belief() {
         last_reviewed_at: ts(1_700_000_000),
         supporting_memory_ids: vec!["m1".to_string()],
         opposing_memory_ids: Vec::new(),
+        contradictions_observed: 0,
+        last_contradiction_at: None,
+        time_to_last_resolution_seconds: None,
         source_weights: BTreeMap::from([(SourceType::System, 1.0)]),
     };
     let memory = durable(
@@ -162,4 +171,53 @@ fn lower_trust_conflict_disputes_existing_belief() {
     let belief = outcome.current_belief.expect("belief");
     assert_eq!(belief.status, BeliefStatus::Disputed);
     assert_eq!(belief.current_value, "Berlin");
+    assert_eq!(belief.contradictions_observed, 1);
+    assert_eq!(belief.last_contradiction_at, Some(ts(1_700_000_200)));
+    assert_eq!(belief.time_to_last_resolution_seconds, None);
+}
+
+#[test]
+fn reinforcing_disputed_belief_restores_active_status_and_tracks_resolution_time() {
+    let updater = BeliefUpdater;
+    let existing = BeliefRecord {
+        belief_id: "belief-1".to_string(),
+        entity: "user".to_string(),
+        slot: "location".to_string(),
+        current_value: "Berlin".to_string(),
+        status: BeliefStatus::Disputed,
+        confidence: 0.85,
+        valid_from: ts(1_700_000_000),
+        valid_to: None,
+        last_reviewed_at: ts(1_700_000_050),
+        supporting_memory_ids: vec!["m1".to_string()],
+        opposing_memory_ids: vec!["m2".to_string()],
+        contradictions_observed: 1,
+        last_contradiction_at: Some(ts(1_700_000_050)),
+        time_to_last_resolution_seconds: None,
+        source_weights: BTreeMap::from([(SourceType::System, 1.0)]),
+    };
+    let memory = durable(
+        "user",
+        "location",
+        "Berlin",
+        "A second system record confirms Berlin",
+        memvid_core::agent_memory::enums::MemoryType::Fact,
+        SourceType::System,
+        1.0,
+        ts(1_700_000_100),
+    );
+
+    let outcome = updater.apply(
+        Some(existing),
+        &memory,
+        &memvid_core::agent_memory::clock::FixedClock::new(ts(1_700_000_100)),
+    );
+
+    assert_eq!(outcome.action, BeliefAction::Reinforce);
+    let belief = outcome.current_belief.expect("belief");
+    assert_eq!(belief.status, BeliefStatus::Active);
+    assert_eq!(belief.current_value, "Berlin");
+    assert_eq!(belief.contradictions_observed, 1);
+    assert_eq!(belief.last_contradiction_at, None);
+    assert_eq!(belief.time_to_last_resolution_seconds, Some(50));
 }

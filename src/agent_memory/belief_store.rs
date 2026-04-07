@@ -13,6 +13,14 @@ impl<'a, S: MemoryStore> BeliefStore<'a, S> {
     }
 
     pub fn get(&mut self, entity: &str, slot: &str) -> Result<Option<BeliefRecord>> {
+        self.get_current(entity, slot)
+    }
+
+    pub fn get_current(&mut self, entity: &str, slot: &str) -> Result<Option<BeliefRecord>> {
+        self.store.get_current_belief(entity, slot)
+    }
+
+    pub fn get_active(&mut self, entity: &str, slot: &str) -> Result<Option<BeliefRecord>> {
         self.store.get_active_belief(entity, slot)
     }
 

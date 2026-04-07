@@ -4,8 +4,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use super::enums::{
-    BeliefStatus, GoalStatus, MemoryLayer, MemoryType, ProcedureStatus, PromotionDecision,
-    QueryIntent, Scope, SelfModelKind, SelfModelStabilityClass,
+    BeliefStatus, BeliefViewStatus, GoalStatus, MemoryLayer, MemoryType, ProcedureStatus,
+    PromotionDecision, QueryIntent, Scope, SelfModelKind, SelfModelStabilityClass,
     SelfModelUpdateRequirement, SourceType,
 };
 use super::policy::ReasonCode;
@@ -595,7 +595,34 @@ pub struct BeliefRecord {
     pub last_reviewed_at: DateTime<Utc>,
     pub supporting_memory_ids: Vec<String>,
     pub opposing_memory_ids: Vec<String>,
+    #[serde(default)]
+    pub contradictions_observed: u32,
+    #[serde(default)]
+    pub last_contradiction_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub time_to_last_resolution_seconds: Option<i64>,
     pub source_weights: BTreeMap<SourceType, f32>,
+}
+
+impl BeliefRecord {
+    #[must_use]
+    pub fn strongest_source_weight(&self) -> f32 {
+        self.source_weights.values().copied().fold(0.0_f32, f32::max)
+    }
+
+    #[must_use]
+    pub const fn view_status(&self) -> BeliefViewStatus {
+        self.status.view_status()
+    }
+
+    #[must_use]
+    pub fn time_in_dispute_seconds(&self, now: DateTime<Utc>) -> Option<i64> {
+        if self.status != BeliefStatus::Disputed {
+            return None;
+        }
+        self.last_contradiction_at
+            .map(|observed_at| (now.timestamp() - observed_at.timestamp()).max(0))
+    }
 }
 
 /// Type-specific retention policy.

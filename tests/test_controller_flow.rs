@@ -1,10 +1,10 @@
 mod common;
 
-use memvid_core::agent_memory::enums::{MemoryLayer, SourceType};
+use memvid_core::agent_memory::enums::{BeliefStatus, MemoryLayer, SourceType};
 use memvid_core::agent_memory::policy::ReasonCode;
 use memvid_core::agent_memory::self_model_store::SelfModelStore;
 
-use common::{candidate, controller, ts};
+use common::{candidate, controller, durable, ts};
 
 #[test]
 fn low_trust_fact_routes_to_episode_evidence_and_audits_why() {
@@ -296,6 +296,72 @@ fn unseeded_procedure_routes_to_episode_evidence_and_audits_why() {
     assert_eq!(
         promotion_event.details.get("reason_code").map(String::as_str),
         Some(ReasonCode::ProcedureEvidenceRestricted.as_str())
+    );
+}
+
+#[test]
+fn weaker_belief_contradiction_is_audited_explicitly() {
+    let (mut controller, sink) = controller(ts(1_700_000_200));
+
+    controller
+        .apply_durable_memory(
+            durable(
+                "user",
+                "location",
+                "Berlin",
+                "A trusted system record says the user is in Berlin.",
+                memvid_core::agent_memory::enums::MemoryType::Fact,
+                SourceType::System,
+                1.0,
+                ts(1_700_000_000),
+            ),
+            None,
+        )
+        .expect("seed belief stored");
+
+    controller
+        .apply_durable_memory(
+            durable(
+                "user",
+                "location",
+                "Paris",
+                "A weaker chat message says the user moved to Paris.",
+                memvid_core::agent_memory::enums::MemoryType::Fact,
+                SourceType::Chat,
+                0.7,
+                ts(1_700_000_200),
+            ),
+            None,
+        )
+        .expect("conflicting belief evidence stored");
+
+    let belief = controller
+        .store()
+        .beliefs()
+        .get(&("user".to_string(), "location".to_string()))
+        .expect("belief present");
+    assert_eq!(belief.status, BeliefStatus::Disputed);
+    assert_eq!(belief.contradictions_observed, 1);
+
+    let contradiction_event = sink
+        .events()
+        .into_iter()
+        .find(|event| event.action == "belief_contradiction_detected")
+        .expect("contradiction audit present");
+    assert_eq!(
+        contradiction_event.details.get("prior_value").map(String::as_str),
+        Some("Berlin")
+    );
+    assert_eq!(
+        contradiction_event.details.get("new_value").map(String::as_str),
+        Some("Paris")
+    );
+    assert_eq!(
+        contradiction_event
+            .details
+            .get("contradictions_observed")
+            .map(String::as_str),
+        Some("1")
     );
 }
 

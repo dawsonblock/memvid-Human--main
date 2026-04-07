@@ -23,6 +23,9 @@ fn contradictory_lower_trust_memory_does_not_silently_replace_stronger_belief() 
         last_reviewed_at: ts(1_700_000_000),
         supporting_memory_ids: vec!["m-strong".to_string()],
         opposing_memory_ids: Vec::new(),
+        contradictions_observed: 0,
+        last_contradiction_at: None,
+        time_to_last_resolution_seconds: None,
         source_weights: BTreeMap::from([(SourceType::File, 0.9)]),
     };
     let conflicting = durable(
@@ -45,6 +48,8 @@ fn contradictory_lower_trust_memory_does_not_silently_replace_stronger_belief() 
 
     assert_eq!(resulting.current_value, "Acme");
     assert_eq!(resulting.status, BeliefStatus::Disputed);
+    assert_eq!(resulting.contradictions_observed, 1);
+    assert_eq!(resulting.last_contradiction_at, Some(ts(1_700_000_100)));
     assert!(
         resulting
             .opposing_memory_ids

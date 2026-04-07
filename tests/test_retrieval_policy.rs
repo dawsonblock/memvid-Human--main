@@ -9,9 +9,24 @@ use memvid_core::agent_memory::memory_retriever::MemoryRetriever;
 use memvid_core::agent_memory::policy::PolicySet;
 use memvid_core::agent_memory::ranker::Ranker;
 use memvid_core::agent_memory::retention::RetentionManager;
-use memvid_core::agent_memory::schemas::{BeliefRecord, RetrievalQuery};
+use memvid_core::agent_memory::schemas::{BeliefRecord, RetrievalHit, RetrievalQuery};
 
 use common::{durable, ts};
+
+fn score_components(hit: &RetrievalHit) -> std::collections::BTreeMap<String, f32> {
+    hit.metadata
+        .get("score_components")
+        .expect("score components metadata present")
+        .split('|')
+        .filter_map(|entry| entry.split_once('='))
+        .map(|(key, value)| {
+            (
+                key.to_string(),
+                value.parse::<f32>().expect("score component parses"),
+            )
+        })
+        .collect()
+}
 
 #[test]
 fn current_fact_query_checks_belief_state_first() {
@@ -29,6 +44,9 @@ fn current_fact_query_checks_belief_state_first() {
             last_reviewed_at: ts(1_700_000_100),
             supporting_memory_ids: vec!["m1".to_string()],
             opposing_memory_ids: Vec::new(),
+            contradictions_observed: 0,
+            last_contradiction_at: None,
+            time_to_last_resolution_seconds: None,
             source_weights: std::collections::BTreeMap::from([(SourceType::Chat, 0.75)]),
         })
         .expect("belief stored");
@@ -105,6 +123,9 @@ fn noisy_support_evidence_does_not_displace_direct_belief_answer() {
             last_reviewed_at: ts(1_700_000_090),
             supporting_memory_ids: vec!["support-0".to_string()],
             opposing_memory_ids: Vec::new(),
+            contradictions_observed: 0,
+            last_contradiction_at: None,
+            time_to_last_resolution_seconds: None,
             source_weights: std::collections::BTreeMap::from([(SourceType::Tool, 0.95)]),
         })
         .expect("belief stored");
@@ -208,6 +229,380 @@ fn historical_fact_queries_prefer_episodes_and_prior_state_evidence() {
 
     assert_eq!(hits.first().and_then(|hit| hit.memory_layer), Some(MemoryLayer::Episode));
     assert!(hits.iter().any(|hit| hit.memory_layer == Some(MemoryLayer::Belief)));
+}
+
+#[test]
+fn disputed_belief_surfaces_as_contested_current_fact_when_no_active_belief_exists() {
+    let mut store = InMemoryMemoryStore::default();
+    store
+        .update_belief(&BeliefRecord {
+            belief_id: "belief-disputed".to_string(),
+            entity: "user".to_string(),
+            slot: "location".to_string(),
+            current_value: "Berlin".to_string(),
+            status: BeliefStatus::Disputed,
+            confidence: 0.88,
+            valid_from: ts(1_700_000_000),
+            valid_to: None,
+            last_reviewed_at: ts(1_700_000_120),
+            supporting_memory_ids: vec!["support-berlin".to_string()],
+            opposing_memory_ids: vec!["support-paris".to_string()],
+            contradictions_observed: 2,
+            last_contradiction_at: Some(ts(1_700_000_100)),
+            time_to_last_resolution_seconds: None,
+            source_weights: std::collections::BTreeMap::from([(SourceType::Tool, 0.95)]),
+        })
+        .expect("belief stored");
+    store
+        .put_memory(&durable(
+            "user",
+            "location",
+            "Berlin",
+            "A trusted tool still points to Berlin",
+            MemoryType::Fact,
+            SourceType::Tool,
+            0.95,
+            ts(1_700_000_050),
+        ))
+        .expect("support memory stored");
+    let mut opposing = durable(
+        "user",
+        "location",
+        "Paris",
+        "A new conflicting source points to Paris",
+        MemoryType::Fact,
+        SourceType::Chat,
+        0.7,
+        ts(1_700_000_100),
+    );
+    opposing.memory_id = "support-paris".to_string();
+    store.put_memory(&opposing).expect("opposing memory stored");
+
+    let retriever = MemoryRetriever::new(Ranker, RetentionManager::new(PolicySet::default()));
+    let hits = retriever
+        .retrieve(
+            &mut store,
+            &RetrievalQuery {
+                query_text: "what is the user's current location".to_string(),
+                intent: QueryIntent::CurrentFact,
+                entity: Some("user".to_string()),
+                slot: Some("location".to_string()),
+                scope: None,
+                top_k: 4,
+                as_of: None,
+                include_expired: false,
+            },
+            &FixedClock::new(ts(1_700_000_200)),
+        )
+        .expect("retrieval works");
+
+    let direct = hits.first().expect("contested direct hit");
+    assert!(direct.from_belief);
+    assert_eq!(
+        direct.metadata.get("belief_status").map(String::as_str),
+        Some("disputed")
+    );
+    assert_eq!(
+        direct
+            .metadata
+            .get("belief_retrieval_status")
+            .map(String::as_str),
+        Some("contested")
+    );
+    assert_eq!(
+        direct
+            .metadata
+            .get("contradictions_observed")
+            .map(String::as_str),
+        Some("2")
+    );
+    assert_eq!(
+        direct
+            .metadata
+            .get("time_in_dispute_seconds")
+            .map(String::as_str),
+        Some("100")
+    );
+    assert!(hits.iter().skip(1).any(|hit| {
+        hit.metadata.get("belief_relation").map(String::as_str) == Some("opposing")
+    }));
+}
+
+#[test]
+fn score_breakdown_in_metadata_contains_all_named_factors() {
+    let mut store = InMemoryMemoryStore::default();
+    store
+        .update_belief(&BeliefRecord {
+            belief_id: "belief-1".to_string(),
+            entity: "user".to_string(),
+            slot: "location".to_string(),
+            current_value: "Berlin".to_string(),
+            status: BeliefStatus::Active,
+            confidence: 0.9,
+            valid_from: ts(1_700_000_000),
+            valid_to: None,
+            last_reviewed_at: ts(1_700_000_100),
+            supporting_memory_ids: vec!["m1".to_string()],
+            opposing_memory_ids: Vec::new(),
+            contradictions_observed: 0,
+            last_contradiction_at: None,
+            time_to_last_resolution_seconds: None,
+            source_weights: std::collections::BTreeMap::from([(SourceType::Tool, 0.95)]),
+        })
+        .expect("belief stored");
+
+    let retriever = MemoryRetriever::new(Ranker, RetentionManager::new(PolicySet::default()));
+    let hits = retriever
+        .retrieve(
+            &mut store,
+            &RetrievalQuery {
+                query_text: "what is the user's current location".to_string(),
+                intent: QueryIntent::CurrentFact,
+                entity: Some("user".to_string()),
+                slot: Some("location".to_string()),
+                scope: None,
+                top_k: 1,
+                as_of: None,
+                include_expired: false,
+            },
+            &FixedClock::new(ts(1_700_000_200)),
+        )
+        .expect("retrieval works");
+
+    let direct = hits.first().expect("direct belief hit");
+    let components = score_components(direct);
+    for key in [
+        "layer_match",
+        "role_priority",
+        "belief_priority",
+        "content_match",
+        "goal_relevance",
+        "self_relevance",
+        "salience",
+        "evidence_strength",
+        "contradiction_penalty",
+        "recency",
+        "procedure_success",
+        "goal_status_priority",
+        "lifecycle_history_bonus",
+        "procedure_lifecycle_penalty",
+        "expiry_penalty",
+        "total",
+    ] {
+        assert!(components.contains_key(key), "missing score component {key}");
+    }
+    assert!(direct.metadata.contains_key("ranking_explanation"));
+}
+
+#[test]
+fn score_breakdown_sums_to_final_score() {
+    let mut store = InMemoryMemoryStore::default();
+    store
+        .put_memory(&durable(
+            "user",
+            "favorite_editor",
+            "vim",
+            "The user prefers vim for editing",
+            MemoryType::Preference,
+            SourceType::Chat,
+            0.75,
+            ts(1_700_000_000),
+        ))
+        .expect("preference stored");
+
+    let retriever = MemoryRetriever::new(Ranker, RetentionManager::new(PolicySet::default()));
+    let hits = retriever
+        .retrieve(
+            &mut store,
+            &RetrievalQuery {
+                query_text: "what editor does the user prefer".to_string(),
+                intent: QueryIntent::PreferenceLookup,
+                entity: Some("user".to_string()),
+                slot: None,
+                scope: None,
+                top_k: 1,
+                as_of: None,
+                include_expired: false,
+            },
+            &FixedClock::new(ts(1_700_000_100)),
+        )
+        .expect("retrieval works");
+
+    let direct = hits.first().expect("direct self-model hit");
+    let components = score_components(direct);
+    let summed = components
+        .iter()
+        .filter(|(key, _)| key.as_str() != "total")
+        .map(|(_, value)| *value)
+        .sum::<f32>();
+    let reported_total = components.get("total").copied().expect("total present");
+
+    assert!((summed - direct.score).abs() < 0.0001);
+    assert!((reported_total - direct.score).abs() < 0.0001);
+}
+
+#[test]
+fn score_components_are_stable_across_runs() {
+    let mut store = InMemoryMemoryStore::default();
+    store
+        .put_memory(&durable(
+            "user",
+            "favorite_editor",
+            "vim",
+            "The user prefers vim for editing",
+            MemoryType::Preference,
+            SourceType::Chat,
+            0.75,
+            ts(1_700_000_000),
+        ))
+        .expect("preference stored");
+
+    let retriever = MemoryRetriever::new(Ranker, RetentionManager::new(PolicySet::default()));
+    let query = RetrievalQuery {
+        query_text: "what editor does the user prefer".to_string(),
+        intent: QueryIntent::PreferenceLookup,
+        entity: Some("user".to_string()),
+        slot: None,
+        scope: None,
+        top_k: 1,
+        as_of: None,
+        include_expired: false,
+    };
+
+    let first = retriever
+        .retrieve(&mut store, &query, &FixedClock::new(ts(1_700_000_100)))
+        .expect("first retrieval works");
+    let second = retriever
+        .retrieve(&mut store, &query, &FixedClock::new(ts(1_700_000_100)))
+        .expect("second retrieval works");
+
+    assert_eq!(
+        first[0].metadata.get("score_components"),
+        second[0].metadata.get("score_components")
+    );
+    assert_eq!(
+        first[0].metadata.get("ranking_explanation"),
+        second[0].metadata.get("ranking_explanation")
+    );
+    assert_eq!(first[0].score, second[0].score);
+}
+
+#[test]
+fn ranking_explanation_documents_why_answer_is_primary() {
+    let mut store = InMemoryMemoryStore::default();
+    store
+        .update_belief(&BeliefRecord {
+            belief_id: "belief-why".to_string(),
+            entity: "user".to_string(),
+            slot: "location".to_string(),
+            current_value: "Berlin".to_string(),
+            status: BeliefStatus::Active,
+            confidence: 0.92,
+            valid_from: ts(1_700_000_000),
+            valid_to: None,
+            last_reviewed_at: ts(1_700_000_050),
+            supporting_memory_ids: vec!["m-why".to_string()],
+            opposing_memory_ids: Vec::new(),
+            contradictions_observed: 0,
+            last_contradiction_at: None,
+            time_to_last_resolution_seconds: None,
+            source_weights: std::collections::BTreeMap::from([(SourceType::Tool, 0.95)]),
+        })
+        .expect("belief stored");
+
+    let retriever = MemoryRetriever::new(Ranker, RetentionManager::new(PolicySet::default()));
+    let hits = retriever
+        .retrieve(
+            &mut store,
+            &RetrievalQuery {
+                query_text: "what is the user's current location".to_string(),
+                intent: QueryIntent::CurrentFact,
+                entity: Some("user".to_string()),
+                slot: Some("location".to_string()),
+                scope: None,
+                top_k: 1,
+                as_of: None,
+                include_expired: false,
+            },
+            &FixedClock::new(ts(1_700_000_100)),
+        )
+        .expect("retrieval works");
+
+    let explanation = hits[0]
+        .metadata
+        .get("ranking_explanation")
+        .expect("ranking explanation present");
+    assert!(explanation.contains("direct_answer"));
+    assert!(explanation.contains("belief"));
+    assert!(explanation.contains("current_fact"));
+}
+
+#[test]
+fn procedure_lifecycle_penalty_appears_in_breakdown_for_cooling_down_procedure() {
+    let mut store = InMemoryMemoryStore::default();
+    let mut procedure = durable(
+        "procedure",
+        "repo_review",
+        "repo_review",
+        "Review the repo in a consistent order.",
+        MemoryType::Trace,
+        SourceType::System,
+        1.0,
+        ts(1_700_000_000),
+    );
+    procedure.internal_layer = Some(MemoryLayer::Procedure);
+    procedure
+        .metadata
+        .insert("procedure_name".to_string(), "repo_review".to_string());
+    procedure
+        .metadata
+        .insert("workflow_key".to_string(), "repo_review".to_string());
+    procedure
+        .metadata
+        .insert("context_tags".to_string(), "repo_review,review".to_string());
+    procedure
+        .metadata
+        .insert("success_count".to_string(), "1".to_string());
+    procedure
+        .metadata
+        .insert("failure_count".to_string(), "3".to_string());
+    procedure
+        .metadata
+        .insert("procedure_status".to_string(), "cooling_down".to_string());
+    store.put_memory(&procedure).expect("procedure stored");
+
+    let retriever = MemoryRetriever::new(Ranker, RetentionManager::new(PolicySet::default()));
+    let hits = retriever
+        .retrieve(
+            &mut store,
+            &RetrievalQuery {
+                query_text: "how do I run the repo_review workflow".to_string(),
+                intent: QueryIntent::SemanticBackground,
+                entity: None,
+                slot: None,
+                scope: None,
+                top_k: 3,
+                as_of: None,
+                include_expired: false,
+            },
+            &FixedClock::new(ts(1_700_000_100)),
+        )
+        .expect("retrieval works");
+
+    let direct = hits.first().expect("procedure hit");
+    assert_eq!(direct.memory_layer, Some(MemoryLayer::Procedure));
+    assert_eq!(
+        direct
+            .metadata
+            .get("score_component_procedure_lifecycle_penalty")
+            .map(String::as_str),
+        Some("-1.500000")
+    );
+    assert!(direct
+        .metadata
+        .get("score_components")
+        .expect("score components present")
+        .contains("procedure_lifecycle_penalty=-1.500000"));
 }
 
 #[test]
