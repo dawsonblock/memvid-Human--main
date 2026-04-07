@@ -83,7 +83,7 @@ Promotion is destination-aware rather than score-only.
 - `Trace`: archival only. Trace candidates can be retained as trace but are never promoted directly into durable higher-order layers.
 - `Episode`: singleton promotion is allowed only for event-like observations.
 - `GoalState`: singleton promotion is allowed for structured task-state or blocker observations with explicit goal-state semantics.
-- `Belief`: requires `entity`, `slot`, and `value`, then one of: verified source, repeated evidence at or above threshold, or trusted source at or above the belief trust floor.
+- `Belief`: requires `entity`, `slot`, and `value`, then one of: verified source, repeated evidence at or above threshold, or an explicitly trusted singleton source class. The current policy restricts trusted singleton belief promotion to `System` and `Tool` sources that meet the belief trust floor; high-trust `Chat` evidence still requires repetition unless it is verified.
 - `SelfModel`: requires `entity`, `slot`, and `value`, then either repeated stable evidence or an explicit durable preference or constraint statement from a verified source or a trusted `System` or `Tool` source.
 - `Procedure`: requires a `workflow_key` and either repeated successful workflow evidence or explicit system seeding.
 
@@ -234,7 +234,8 @@ The audit trail is append-only and explicit. `MemoryController` emits events suc
 
 Promotion audit details explain which layer was chosen, the score and threshold, route basis such as
 `verified_source`, `trusted_source`, `repeated_evidence`, or `system_seeded`, and any fallback layer
-when durable promotion is denied.
+when durable promotion is denied. After the current hardening pass, `trusted_source` for belief and
+self-model singleton promotion means an allowed trusted source class, not just a large trust weight.
 
 Procedure lifecycle changes are also persisted as searchable trace entries with explicit
 `transition_reason` values such as `success`, `failure`, or `reconciliation`, so lifecycle history

@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use uuid::Uuid;
 
 use super::clock::Clock;
-use super::enums::{MemoryLayer, PromotionDecision, SelfModelKind, SourceType};
+use super::enums::{MemoryLayer, PromotionDecision, SelfModelKind};
 use super::policy::PolicySet;
 use super::schemas::{CandidateMemory, DurableMemory, PromotionContext, PromotionResult};
 
@@ -295,7 +295,10 @@ impl MemoryPromoter {
                 fallback_layer: "episode",
             };
         }
-        if candidate.source.trust_weight >= self.policy.trusted_belief_source_weight() {
+        if self.policy.allows_singleton_belief_from_trusted_source(
+            candidate.source.source_type,
+            candidate.source.trust_weight,
+        ) {
             return DestinationEligibility {
                 allowed: true,
                 reason: "belief promotion allowed for trusted source evidence".to_string(),
@@ -339,8 +342,10 @@ impl MemoryPromoter {
             };
         }
         if Self::is_explicit_durable_self_model_statement(candidate)
-            && candidate.source.trust_weight >= self.policy.trusted_self_model_source_weight()
-            && matches!(candidate.source.source_type, SourceType::System | SourceType::Tool)
+            && self.policy.allows_singleton_self_model_from_trusted_source(
+                candidate.source.source_type,
+                candidate.source.trust_weight,
+            )
         {
             return DestinationEligibility {
                 allowed: true,

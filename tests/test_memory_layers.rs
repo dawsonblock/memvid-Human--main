@@ -182,6 +182,34 @@ fn low_trust_fact_is_preserved_as_episode_not_current_truth() {
 }
 
 #[test]
+fn high_trust_chat_fact_still_requires_repetition_for_belief() {
+    let (mut controller, _) = controller(ts(1_700_000_000));
+    let mut fact = candidate(
+        "user",
+        "location",
+        "Berlin",
+        "The user currently lives in Berlin",
+    );
+    fact.source.trust_weight = 0.95;
+
+    controller
+        .ingest(fact)
+        .expect("ingest succeeds")
+        .expect("episode stored");
+
+    assert_eq!(controller.store().beliefs().len(), 0);
+    assert_eq!(
+        controller
+            .store()
+            .memories()
+            .iter()
+            .filter(|memory| memory.memory_layer() == MemoryLayer::Episode)
+            .count(),
+        1
+    );
+}
+
+#[test]
 fn clear_goal_state_promotes_more_easily_than_self_model_or_belief() {
     let (mut controller, _) = controller(ts(1_700_000_000));
 

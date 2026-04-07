@@ -107,3 +107,109 @@ fn explicit_trusted_preference_routes_to_self_model_and_audits_basis() {
         Some("episode")
     );
 }
+
+#[test]
+fn untrusted_preference_routes_to_episode_evidence_and_audits_why() {
+    let (mut controller, sink) = controller(ts(1_700_000_000));
+
+    let memory_id = controller
+        .ingest(candidate(
+            "user",
+            "favorite_editor",
+            "vim",
+            "The user prefers vim for editing.",
+        ))
+        .expect("ingest succeeds")
+        .expect("episode evidence stored");
+
+    assert!(!memory_id.is_empty());
+    assert!(!controller
+        .store()
+        .memories()
+        .iter()
+        .any(|memory| memory.memory_layer() == MemoryLayer::SelfModel));
+    assert_eq!(
+        controller
+            .store()
+            .memories()
+            .iter()
+            .filter(|memory| memory.memory_layer() == MemoryLayer::Episode)
+            .count(),
+        1
+    );
+
+    let promotion_event = sink
+        .events()
+        .into_iter()
+        .find(|event| event.action == "promotion")
+        .expect("promotion event present");
+    assert_eq!(
+        promotion_event.details.get("target_layer").map(String::as_str),
+        Some("self_model")
+    );
+    assert_eq!(
+        promotion_event.details.get("route_basis").map(String::as_str),
+        Some("insufficient_evidence")
+    );
+    assert_eq!(
+        promotion_event.details.get("fallback_layer").map(String::as_str),
+        Some("episode")
+    );
+}
+
+#[test]
+fn unseeded_procedure_routes_to_episode_evidence_and_audits_why() {
+    let (mut controller, sink) = controller(ts(1_700_000_000));
+    let mut candidate = candidate(
+        "procedure",
+        "repo_review",
+        "repo_review",
+        "Review the repo in a consistent order.",
+    );
+    candidate.source.source_type = SourceType::Tool;
+    candidate.source.source_id = "tool-seed".to_string();
+    candidate.source.trust_weight = 0.95;
+    candidate.internal_layer = Some(MemoryLayer::Procedure);
+    candidate
+        .metadata
+        .insert("workflow_key".to_string(), "repo_review".to_string());
+
+    let memory_id = controller
+        .ingest(candidate)
+        .expect("ingest succeeds")
+        .expect("episode evidence stored");
+
+    assert!(!memory_id.is_empty());
+    assert!(!controller
+        .store()
+        .memories()
+        .iter()
+        .any(|memory| memory.memory_layer() == MemoryLayer::Procedure));
+    assert_eq!(
+        controller
+            .store()
+            .memories()
+            .iter()
+            .filter(|memory| memory.memory_layer() == MemoryLayer::Episode)
+            .count(),
+        1
+    );
+
+    let promotion_event = sink
+        .events()
+        .into_iter()
+        .find(|event| event.action == "promotion")
+        .expect("promotion event present");
+    assert_eq!(
+        promotion_event.details.get("target_layer").map(String::as_str),
+        Some("procedure")
+    );
+    assert_eq!(
+        promotion_event.details.get("route_basis").map(String::as_str),
+        Some("insufficient_evidence")
+    );
+    assert_eq!(
+        promotion_event.details.get("fallback_layer").map(String::as_str),
+        Some("episode")
+    );
+}

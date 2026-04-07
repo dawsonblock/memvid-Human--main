@@ -1,4 +1,4 @@
-use super::enums::{MemoryLayer, MemoryType};
+use super::enums::{MemoryLayer, MemoryType, SourceType};
 use super::schemas::RetentionRule;
 
 const DAY_SECONDS: i64 = 86_400;
@@ -118,6 +118,26 @@ impl PolicySet {
     #[must_use]
     pub fn trusted_procedure_source_weight(&self) -> f32 {
         self.trusted_procedure_source_weight
+    }
+
+    #[must_use]
+    pub fn allows_singleton_belief_from_trusted_source(
+        &self,
+        source_type: SourceType,
+        trust_weight: f32,
+    ) -> bool {
+        matches!(source_type, SourceType::System | SourceType::Tool)
+            && trust_weight >= self.trusted_belief_source_weight
+    }
+
+    #[must_use]
+    pub fn allows_singleton_self_model_from_trusted_source(
+        &self,
+        source_type: SourceType,
+        trust_weight: f32,
+    ) -> bool {
+        matches!(source_type, SourceType::System | SourceType::Tool)
+            && trust_weight >= self.trusted_self_model_source_weight
     }
 
     #[must_use]
