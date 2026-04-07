@@ -1,3 +1,5 @@
+#![cfg(feature = "lex")]
+
 //! Integration tests for Memvid search operations.
 //! Tests: search (lex), timeline queries
 

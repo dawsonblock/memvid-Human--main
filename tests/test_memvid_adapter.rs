@@ -1,3 +1,5 @@
+#![cfg(feature = "lex")]
+
 mod common;
 
 use memvid_core::Memvid;

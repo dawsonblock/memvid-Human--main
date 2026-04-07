@@ -1,3 +1,5 @@
+#![cfg(feature = "lex")]
+
 //! Integration tests for implicit AND operator behavior.
 //!
 //! These tests verify that multi-word queries without explicit operators
