@@ -327,6 +327,87 @@ fn weaker_contradictory_preference_is_disputed_without_replacing_active_trait() 
 }
 
 #[test]
+fn repeated_contradiction_churn_preserves_one_effective_active_trait() {
+    let mut store = InMemoryMemoryStore::default();
+    let stable = durable(
+        "user",
+        "response_style",
+        "concise",
+        "The system profile says the user prefers concise responses",
+        MemoryType::Preference,
+        SourceType::System,
+        1.0,
+        ts(1_700_000_000),
+    );
+
+    {
+        let mut self_model_store = SelfModelStore::new(&mut store);
+        self_model_store
+            .save_memory(&stable, Some("episode-1"))
+            .expect("stable trait stored");
+    }
+
+    for (index, value) in ["verbose", "narrative", "chatty"].into_iter().enumerate() {
+        let contradictory = durable(
+            "user",
+            "response_style",
+            value,
+            &format!("One chat turn suggested a more {value} style"),
+            MemoryType::Preference,
+            SourceType::Chat,
+            0.55,
+            ts(1_700_000_100 + index as i64),
+        );
+        let mut self_model_store = SelfModelStore::new(&mut store);
+        self_model_store
+            .save_memory(&contradictory, Some(&format!("episode-{}", index + 2)))
+            .expect("contradictory trait stored");
+    }
+
+    let latest = {
+        let mut self_model_store = SelfModelStore::new(&mut store);
+        self_model_store
+            .get_latest_for_entity_slot("user", "response_style")
+            .expect("latest self-model loaded")
+            .expect("latest self-model exists")
+    };
+    let all_records = {
+        let mut self_model_store = SelfModelStore::new(&mut store);
+        self_model_store
+            .list_for_entity("user")
+            .expect("self-model records listed")
+    };
+    let latest_records = {
+        let mut self_model_store = SelfModelStore::new(&mut store);
+        self_model_store
+            .list_latest_for_entity("user")
+            .expect("latest self-model entries listed")
+    };
+
+    assert_eq!(latest.value, "concise");
+    assert_eq!(latest.status, BeliefStatus::Active);
+    assert_eq!(
+        all_records
+            .iter()
+            .filter(|record| {
+                record.slot == "response_style" && record.status == BeliefStatus::Active
+            })
+            .count(),
+        1
+    );
+    assert_eq!(
+        latest_records
+            .iter()
+            .filter(|record| record.slot == "response_style")
+            .count(),
+        1
+    );
+    assert!(all_records.iter().filter(|record| {
+        record.slot == "response_style" && record.status == BeliefStatus::Disputed
+    }).count() >= 1);
+}
+
+#[test]
 fn self_model_store_rejects_blank_structure_and_latest_valid_trait_survives_bypass_row() {
     let mut store = InMemoryMemoryStore::default();
     let invalid = durable(

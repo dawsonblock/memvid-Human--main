@@ -254,27 +254,43 @@ impl SelfModelKind {
     }
 
     #[must_use]
-    pub fn from_slot(slot: &str) -> Self {
-        let lower = slot.to_lowercase();
-        if lower.contains("style") || lower.contains("tone") || lower.contains("verbosity") {
-            Self::ResponseStyle
-        } else if lower.contains("risk") {
-            Self::RiskTolerance
-        } else if lower.contains("tool") || lower.contains("editor") {
-            Self::ToolPreference
-        } else if lower.contains("norm") || lower.contains("convention") {
-            Self::ProjectNorm
-        } else if lower.contains("constraint") || lower.contains("limit") {
-            Self::Constraint
-        } else if lower.contains("value") || lower.contains("priority") {
-            Self::Value
-        } else if lower.contains("pattern") || lower.contains("workflow") {
-            Self::WorkPattern
-        } else if lower.contains("capability") || lower.contains("strength") {
-            Self::CapabilityLimit
-        } else {
-            Self::Preference
+    pub fn from_slot_strict(slot: &str) -> Option<Self> {
+        let lower = slot.trim().to_lowercase();
+        if lower.is_empty() {
+            return None;
         }
+
+        if lower.contains("style") || lower.contains("tone") || lower.contains("verbosity") {
+            Some(Self::ResponseStyle)
+        } else if lower.contains("risk") {
+            Some(Self::RiskTolerance)
+        } else if lower.contains("tool") || lower.contains("editor") {
+            Some(Self::ToolPreference)
+        } else if lower.contains("norm") || lower.contains("convention") {
+            Some(Self::ProjectNorm)
+        } else if lower.contains("constraint") || lower.contains("limit") {
+            Some(Self::Constraint)
+        } else if lower.contains("value") || lower.contains("priority") {
+            Some(Self::Value)
+        } else if lower.contains("pattern") || lower.contains("workflow") {
+            Some(Self::WorkPattern)
+        } else if lower.contains("capability") || lower.contains("strength") {
+            Some(Self::CapabilityLimit)
+        } else if lower.contains("prefer")
+            || lower.contains("preference")
+            || lower.contains("favorite")
+            || lower.contains("like")
+            || lower.contains("dislike")
+        {
+            Some(Self::Preference)
+        } else {
+            None
+        }
+    }
+
+    #[must_use]
+    pub fn from_slot(slot: &str) -> Self {
+        Self::from_slot_strict(slot).unwrap_or(Self::Preference)
     }
 
     #[must_use]

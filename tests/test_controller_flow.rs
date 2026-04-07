@@ -109,6 +109,60 @@ fn explicit_trusted_preference_routes_to_self_model_and_audits_basis() {
 }
 
 #[test]
+fn trusted_unknown_slot_does_not_singleton_promote_to_self_model() {
+    let (mut controller, sink) = controller(ts(1_700_000_000));
+    let mut trusted = candidate(
+        "user",
+        "timezone_note",
+        "Europe/Berlin",
+        "The tool profile says the user always prefers Europe/Berlin for scheduling.",
+    );
+    trusted.source.source_type = SourceType::Tool;
+    trusted.source.source_id = "tool-profile".to_string();
+    trusted.source.trust_weight = 0.95;
+    trusted.internal_layer = Some(MemoryLayer::SelfModel);
+
+    let memory_id = controller
+        .ingest(trusted)
+        .expect("ingest succeeds")
+        .expect("episode evidence stored");
+
+    assert!(!memory_id.is_empty());
+    assert!(!controller
+        .store()
+        .memories()
+        .iter()
+        .any(|memory| memory.memory_layer() == MemoryLayer::SelfModel));
+    assert_eq!(
+        controller
+            .store()
+            .memories()
+            .iter()
+            .filter(|memory| memory.memory_layer() == MemoryLayer::Episode)
+            .count(),
+        1
+    );
+
+    let promotion_event = sink
+        .events()
+        .into_iter()
+        .find(|event| event.action == "promotion")
+        .expect("promotion event present");
+    assert_eq!(
+        promotion_event.details.get("target_layer").map(String::as_str),
+        Some("self_model")
+    );
+    assert_eq!(
+        promotion_event.details.get("route_basis").map(String::as_str),
+        Some("insufficient_evidence")
+    );
+    assert_eq!(
+        promotion_event.details.get("fallback_layer").map(String::as_str),
+        Some("episode")
+    );
+}
+
+#[test]
 fn untrusted_preference_routes_to_episode_evidence_and_audits_why() {
     let (mut controller, sink) = controller(ts(1_700_000_000));
 

@@ -84,7 +84,7 @@ Promotion is destination-aware rather than score-only.
 - `Episode`: singleton promotion is allowed only for event-like observations.
 - `GoalState`: requires non-empty `entity`, `slot`, and `value` after trimming, then singleton promotion is allowed for structured task-state or blocker observations with explicit goal-state semantics.
 - `Belief`: requires non-empty `entity`, `slot`, and `value` after trimming, then one of: verified source, repeated evidence at or above threshold, or an explicitly trusted singleton source class. The current policy restricts trusted singleton belief promotion to `System` and `Tool` sources that meet the belief trust floor; high-trust `Chat` evidence still requires repetition unless it is verified.
-- `SelfModel`: requires non-empty `entity`, `slot`, and `value` after trimming, then either repeated stable evidence or an explicit durable preference or constraint statement from a verified source or a trusted `System` or `Tool` source.
+- `SelfModel`: requires non-empty `entity`, `slot`, and `value` after trimming, then either repeated stable evidence or an explicit durable preference or constraint statement from a verified source or a trusted `System` or `Tool` source. Singleton self-model promotion is limited to recognized durable slot categories rather than arbitrary preference-like text.
 - `Procedure`: requires non-empty `entity`, `slot`, `value`, and a `workflow_key` after trimming, plus either repeated successful workflow evidence or explicit system seeding.
 
 When durable promotion is denied but the observation still has useful structure or event semantics,
@@ -243,7 +243,8 @@ The audit trail is append-only and explicit. `MemoryController` emits events suc
 Promotion audit details explain which layer was chosen, the score and threshold, route basis such as
 `verified_source`, `trusted_source`, `repeated_evidence`, or `system_seeded`, and any fallback layer
 when durable promotion is denied. After the current hardening pass, `trusted_source` for belief and
-self-model singleton promotion means an allowed trusted source class, not just a large trust weight.
+self-model singleton promotion means an allowed trusted source class, not just a large trust weight;
+for self-model it also requires a recognized durable slot category rather than an arbitrary slot.
 
 Procedure lifecycle changes are also persisted as searchable trace entries with explicit
 `transition_reason` values such as `success`, `failure`, or `reconciliation`, so lifecycle history

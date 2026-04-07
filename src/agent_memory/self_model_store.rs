@@ -38,14 +38,22 @@ impl<'a, S: MemoryStore> SelfModelStore<'a, S> {
         let slot = memory.slot_non_empty().expect("validated slot");
         let value = memory.value_non_empty().expect("validated value");
 
-        let existing = self
-            .store
-            .list_memories_by_layer(MemoryLayer::SelfModel)?
-            .into_iter()
-            .filter(|candidate| candidate.has_required_structure_for(MemoryLayer::SelfModel))
-            .filter(|candidate| candidate.entity_non_empty() == Some(entity))
-            .filter(|candidate| candidate.slot_non_empty() == Some(slot))
-            .max_by(|left, right| left.stored_at.cmp(&right.stored_at));
+        let existing = {
+            let mut candidates: Vec<_> = self
+                .store
+                .list_memories_by_layer(MemoryLayer::SelfModel)?
+                .into_iter()
+                .filter(|candidate| candidate.has_required_structure_for(MemoryLayer::SelfModel))
+                .filter(|candidate| candidate.entity_non_empty() == Some(entity))
+                .filter(|candidate| candidate.slot_non_empty() == Some(slot))
+                .collect();
+            candidates.sort_by(|left, right| {
+                Self::status_priority(right)
+                    .cmp(&Self::status_priority(left))
+                    .then_with(|| right.stored_at.cmp(&left.stored_at))
+            });
+            candidates.into_iter().next()
+        };
 
         let mut self_model_memory = memory.clone();
         self_model_memory.internal_layer = Some(MemoryLayer::SelfModel);

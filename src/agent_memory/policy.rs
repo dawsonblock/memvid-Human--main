@@ -1,4 +1,4 @@
-use super::enums::{MemoryLayer, MemoryType, SourceType};
+use super::enums::{MemoryLayer, MemoryType, SelfModelKind, SourceType};
 use super::schemas::RetentionRule;
 
 const DAY_SECONDS: i64 = 86_400;
@@ -21,7 +21,6 @@ pub struct PolicySet {
     belief_stability_min_days: i64,
     trusted_belief_source_weight: f32,
     trusted_self_model_source_weight: f32,
-    trusted_procedure_source_weight: f32,
 }
 
 impl Default for PolicySet {
@@ -42,7 +41,6 @@ impl Default for PolicySet {
             belief_stability_min_days: 3,
             trusted_belief_source_weight: 0.8,
             trusted_self_model_source_weight: 0.9,
-            trusted_procedure_source_weight: 0.55,
         }
     }
 }
@@ -116,8 +114,16 @@ impl PolicySet {
     }
 
     #[must_use]
-    pub fn trusted_procedure_source_weight(&self) -> f32 {
-        self.trusted_procedure_source_weight
+    pub fn allows_singleton_self_model_kind(&self, kind: SelfModelKind) -> bool {
+        matches!(
+            kind,
+            SelfModelKind::Preference
+                | SelfModelKind::ResponseStyle
+                | SelfModelKind::ToolPreference
+                | SelfModelKind::ProjectNorm
+                | SelfModelKind::Constraint
+                | SelfModelKind::WorkPattern
+        )
     }
 
     #[must_use]

@@ -344,7 +344,7 @@ impl MemoryPromoter {
                 fallback_layer: "episode",
             };
         }
-        if Self::is_explicit_durable_self_model_statement(candidate)
+        if self.is_explicit_durable_self_model_statement(candidate)
             && self.policy.allows_singleton_self_model_from_trusted_source(
                 candidate.source.source_type,
                 candidate.source.trust_weight,
@@ -358,7 +358,7 @@ impl MemoryPromoter {
                 fallback_layer: "episode",
             };
         }
-        if context.verified_source && Self::is_explicit_durable_self_model_statement(candidate) {
+        if context.verified_source && self.is_explicit_durable_self_model_statement(candidate) {
             return DestinationEligibility {
                 allowed: true,
                 reason: "self-model promotion allowed for verified durable statement".to_string(),
@@ -496,8 +496,13 @@ impl MemoryPromoter {
             || goal_terms.iter().any(|term| raw.contains(term))
     }
 
-    fn is_explicit_durable_self_model_statement(candidate: &CandidateMemory) -> bool {
-        let slot = candidate.slot_non_empty().unwrap_or("");
+    fn is_explicit_durable_self_model_statement(&self, candidate: &CandidateMemory) -> bool {
+        let Some(slot) = candidate.slot_non_empty() else {
+            return false;
+        };
+        let Some(kind) = SelfModelKind::from_slot_strict(slot) else {
+            return false;
+        };
         let lower = format!(
             "{} {}",
             candidate.value_non_empty().unwrap_or(""),
@@ -514,15 +519,8 @@ impl MemoryPromoter {
             "style",
         ];
 
-        matches!(
-            SelfModelKind::from_slot(slot),
-            SelfModelKind::Preference
-                | SelfModelKind::ResponseStyle
-                | SelfModelKind::ToolPreference
-                | SelfModelKind::Constraint
-                | SelfModelKind::WorkPattern
-                | SelfModelKind::ProjectNorm
-        ) && durable_language.iter().any(|term| lower.contains(term))
+        self.policy.allows_singleton_self_model_kind(kind)
+            && durable_language.iter().any(|term| lower.contains(term))
     }
 
     fn workflow_key(candidate: &CandidateMemory) -> Option<&str> {
