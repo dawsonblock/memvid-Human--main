@@ -19,10 +19,15 @@ For most callers, the intended public path is:
 - build a `CandidateMemory`
 - ingest through `MemoryController`
 - retrieve through `RetrievalQuery`
-- tune thresholds through `PolicySet`
+- tune compatibility thresholds through `PolicySet`
+- inspect or supply protected governance through `PolicyProfile`
 
 Dedicated stores remain public because the crate tests and some advanced integrations need direct
 logical-state access, but controller-governed ingest is the canonical write path.
+
+`PolicyProfile` is protected governance state, not ordinary memory. It is layered alongside the
+compatibility-first `PolicySet` and is intended to hold hard constraints, soft weights, and
+machine-readable rejection reason codes outside normal episode ingest or retrieval paths.
 
 ## Layer Model
 
@@ -47,7 +52,18 @@ Public memory types map to internal storage layers as follows:
 
 ## Policy-Backed Thresholds
 
-`PolicySet` is the single semantic source for promotion, repetition, and stabilization knobs.
+`PolicySet` remains the compatibility-first surface for promotion, repetition, and stabilization
+knobs. `PolicyProfile` wraps those defaults into a versioned governance object with:
+
+- `HardConstraints` for fail-closed rules such as structured identity requirements, trusted
+  singleton promotion restrictions, protected self-model rules, and procedure creation guards
+- `SoftWeights` for explicit scoring inputs that later phases can use for explainable retrieval
+- `ReasonCode` values for machine-readable rejection audits
+
+Current ingest still preserves the existing `PolicySet` defaults, but the controller now records
+machine-readable rejection causes in addition to human-readable reasons.
+
+`PolicySet` remains the semantic source for promotion, repetition, and stabilization knobs.
 The default score is:
 
 ```text
@@ -111,6 +127,11 @@ When durable promotion is denied but the observation still has useful structure 
 the controller stores it as `Episode` evidence instead of treating it as current truth. This is the
 normal fallback for denied belief, self-model, and procedure promotion. Only low-scoring or
 unstructured leftovers fall all the way back to `Trace`.
+
+Every blocked durable promotion now emits both the existing `promotion` audit event and a dedicated
+`policy_rejected` audit event with a typed `reason_code`. The human-readable `reason` field is
+preserved for compatibility; the machine-readable code is the stable governance signal for tests
+and downstream tooling.
 
 Whitespace-only structured fields are treated as absent rather than as valid structure. Dangerous
 durable layers fail closed on those inputs instead of silently persisting empty-string entity, slot,

@@ -1,6 +1,7 @@
 mod common;
 
 use memvid_core::agent_memory::enums::{MemoryLayer, SourceType};
+use memvid_core::agent_memory::policy::ReasonCode;
 use memvid_core::agent_memory::self_model_store::SelfModelStore;
 
 use common::{candidate, controller, ts};
@@ -47,6 +48,20 @@ fn low_trust_fact_routes_to_episode_evidence_and_audits_why() {
     assert_eq!(
         promotion_event.details.get("fallback_layer").map(String::as_str),
         Some("episode")
+    );
+    assert_eq!(
+        promotion_event.details.get("reason_code").map(String::as_str),
+        Some(ReasonCode::EvidenceThresholdNotMet.as_str())
+    );
+
+    let rejection_event = sink
+        .events()
+        .into_iter()
+        .find(|event| event.action == "policy_rejected")
+        .expect("policy rejection event present");
+    assert_eq!(
+        rejection_event.details.get("reason_code").map(String::as_str),
+        Some(ReasonCode::EvidenceThresholdNotMet.as_str())
     );
 }
 
@@ -106,6 +121,10 @@ fn explicit_trusted_preference_routes_to_self_model_and_audits_basis() {
         promotion_event.details.get("fallback_layer").map(String::as_str),
         Some("episode")
     );
+    assert_eq!(
+        promotion_event.details.get("policy_version").map(String::as_str),
+        Some("1")
+    );
 }
 
 #[test]
@@ -160,6 +179,10 @@ fn trusted_unknown_slot_does_not_singleton_promote_to_self_model() {
         promotion_event.details.get("fallback_layer").map(String::as_str),
         Some("episode")
     );
+    assert_eq!(
+        promotion_event.details.get("reason_code").map(String::as_str),
+        Some(ReasonCode::ProtectedSelfModelRejected.as_str())
+    );
 }
 
 #[test]
@@ -208,6 +231,10 @@ fn untrusted_preference_routes_to_episode_evidence_and_audits_why() {
     assert_eq!(
         promotion_event.details.get("fallback_layer").map(String::as_str),
         Some("episode")
+    );
+    assert_eq!(
+        promotion_event.details.get("reason_code").map(String::as_str),
+        Some(ReasonCode::EvidenceThresholdNotMet.as_str())
     );
 }
 
@@ -266,6 +293,10 @@ fn unseeded_procedure_routes_to_episode_evidence_and_audits_why() {
         promotion_event.details.get("fallback_layer").map(String::as_str),
         Some("episode")
     );
+    assert_eq!(
+        promotion_event.details.get("reason_code").map(String::as_str),
+        Some(ReasonCode::ProcedureEvidenceRestricted.as_str())
+    );
 }
 
 #[test]
@@ -308,5 +339,19 @@ fn whitespace_only_belief_structure_falls_back_to_trace_and_never_persists_truth
     assert_eq!(
         promotion_event.details.get("fallback_layer").map(String::as_str),
         Some("trace")
+    );
+    assert_eq!(
+        promotion_event.details.get("reason_code").map(String::as_str),
+        Some(ReasonCode::StructuredIdentityRequired.as_str())
+    );
+
+    let rejection_event = sink
+        .events()
+        .into_iter()
+        .find(|event| event.action == "policy_rejected")
+        .expect("policy rejection event present");
+    assert_eq!(
+        rejection_event.details.get("reason_code").map(String::as_str),
+        Some(ReasonCode::StructuredIdentityRequired.as_str())
     );
 }

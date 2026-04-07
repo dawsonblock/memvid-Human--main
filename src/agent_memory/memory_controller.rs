@@ -14,6 +14,7 @@ use super::goal_state_store::GoalStateStore;
 use super::memory_classifier::MemoryClassifier;
 use super::memory_promoter::MemoryPromoter;
 use super::memory_retriever::MemoryRetriever;
+use super::policy::ReasonCode;
 use super::procedure_store::{ProcedureStatusTransition, ProcedureStore};
 use super::schemas::{
     AuditEvent, CandidateMemory, DurableMemory, PromotionContext, RetrievalHit, RetrievalQuery,
@@ -122,6 +123,9 @@ impl<S: MemoryStore> MemoryController<S> {
             query_text: None,
             details: promotion_details,
         });
+        if let Some(reason_code) = promotion.reason_code {
+            self.emit_policy_rejection(&classified, &promotion, reason_code);
+        }
 
         match promotion.decision {
             PromotionDecision::Reject => Ok(None),
@@ -513,6 +517,41 @@ impl<S: MemoryStore> MemoryController<S> {
                 self.store.put_trace(&memory.raw_text, trace_meta)
             }
         }
+    }
+
+    fn emit_policy_rejection(
+        &self,
+        candidate: &CandidateMemory,
+        promotion: &super::schemas::PromotionResult,
+        reason_code: ReasonCode,
+    ) {
+        let mut details = BTreeMap::from([
+            (
+                "target_layer".to_string(),
+                candidate.memory_layer().as_str().to_string(),
+            ),
+            (
+                "decision".to_string(),
+                format!("{:?}", promotion.decision).to_lowercase(),
+            ),
+            ("reason".to_string(), promotion.reason.clone()),
+            ("reason_code".to_string(), reason_code.as_str().to_string()),
+        ]);
+        for key in ["route_basis", "fallback_layer", "policy_version", "score_threshold"] {
+            if let Some(value) = promotion.details.get(key) {
+                details.insert(key.to_string(), value.clone());
+            }
+        }
+        self.audit.emit(AuditEvent {
+            event_id: String::new(),
+            occurred_at: self.clock.now(),
+            action: "policy_rejected".to_string(),
+            candidate_id: Some(candidate.candidate_id.clone()),
+            memory_id: None,
+            belief_id: None,
+            query_text: None,
+            details,
+        });
     }
 
     fn build_promotion_context(&mut self, candidate: &CandidateMemory) -> Result<PromotionContext> {

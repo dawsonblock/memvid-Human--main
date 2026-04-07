@@ -7,6 +7,7 @@ use super::enums::{
     BeliefStatus, GoalStatus, MemoryLayer, MemoryType, ProcedureStatus, PromotionDecision,
     QueryIntent, Scope, SelfModelKind, SourceType,
 };
+use super::policy::ReasonCode;
 
 fn trimmed_non_empty(value: &str) -> Option<&str> {
     let trimmed = value.trim();
@@ -634,6 +635,7 @@ pub struct PromotionResult {
     pub decision: PromotionDecision,
     pub score: f32,
     pub reason: String,
+    pub reason_code: Option<ReasonCode>,
     pub durable_memory: Option<DurableMemory>,
     pub details: BTreeMap<String, String>,
 }

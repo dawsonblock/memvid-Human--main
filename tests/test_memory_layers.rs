@@ -5,6 +5,7 @@ use memvid_core::agent_memory::enums::{
     BeliefStatus, GoalStatus, MemoryLayer, MemoryType, ProcedureStatus, SelfModelKind, SourceType,
 };
 use memvid_core::agent_memory::goal_state_store::GoalStateStore;
+use memvid_core::agent_memory::policy::{PolicyProfile, PolicySet};
 use memvid_core::agent_memory::schemas::{CandidateMemory, Provenance};
 
 use common::{candidate, controller, durable, ts};
@@ -47,6 +48,31 @@ fn public_memory_types_map_to_internal_layers() {
     assert_eq!(goal.memory_layer(), MemoryLayer::GoalState);
     assert_eq!(MemoryType::Episode.memory_layer(), MemoryLayer::Episode);
     assert_eq!(MemoryType::Trace.memory_layer(), MemoryLayer::Trace);
+}
+
+#[test]
+fn policy_profile_wraps_current_policy_defaults_without_changing_thresholds() {
+    let policy = PolicySet::default();
+    let profile = policy.policy_profile();
+
+    assert_eq!(profile.version(), 1);
+    assert_eq!(profile.reject_threshold(), policy.reject_threshold());
+    assert_eq!(
+        profile.store_trace_threshold(),
+        policy.store_trace_threshold()
+    );
+    assert_eq!(
+        profile.promote_threshold(MemoryLayer::Belief),
+        policy.promote_threshold(MemoryLayer::Belief)
+    );
+    assert_eq!(
+        profile.promote_threshold(MemoryLayer::SelfModel),
+        policy.promote_threshold(MemoryLayer::SelfModel)
+    );
+    assert!(profile.hard_constraints().require_non_empty_structured_identity);
+    assert!(profile.hard_constraints().protect_self_model_identity);
+    assert!(profile.soft_weights().content_match > 0.0);
+    assert_eq!(profile, PolicyProfile::default());
 }
 
 #[test]

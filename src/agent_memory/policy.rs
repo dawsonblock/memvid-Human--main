@@ -1,3 +1,9 @@
+pub mod policy_profile;
+pub mod reason_codes;
+
+pub use policy_profile::{HardConstraints, PolicyProfile, SoftWeights};
+pub use reason_codes::ReasonCode;
+
 use super::enums::{MemoryLayer, MemoryType, SelfModelKind, SourceType};
 use super::schemas::RetentionRule;
 
@@ -111,6 +117,11 @@ impl PolicySet {
     #[must_use]
     pub fn trusted_self_model_source_weight(&self) -> f32 {
         self.trusted_self_model_source_weight
+    }
+
+    #[must_use]
+    pub fn policy_profile(&self) -> PolicyProfile {
+        PolicyProfile::from_policy_set(self)
     }
 
     #[must_use]
