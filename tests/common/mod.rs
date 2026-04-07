@@ -92,6 +92,49 @@ pub fn durable(
     }
 }
 
+pub fn candidate_from_durable(memory: &DurableMemory) -> CandidateMemory {
+    CandidateMemory {
+        candidate_id: memory.candidate_id.clone(),
+        observed_at: memory.event_at.unwrap_or(memory.stored_at),
+        entity: (!memory.entity.is_empty()).then(|| memory.entity.clone()),
+        slot: (!memory.slot.is_empty()).then(|| memory.slot.clone()),
+        value: (!memory.value.is_empty()).then(|| memory.value.clone()),
+        raw_text: memory.raw_text.clone(),
+        source: memory.source.clone(),
+        memory_type: memory.memory_type,
+        confidence: memory.confidence,
+        salience: memory.salience,
+        scope: memory.scope,
+        ttl: memory.ttl,
+        event_at: memory.event_at,
+        valid_from: memory.valid_from,
+        valid_to: memory.valid_to,
+        internal_layer: memory.internal_layer,
+        tags: memory.tags.clone(),
+        metadata: memory.metadata.clone(),
+        is_retraction: memory.is_retraction,
+    }
+}
+
+pub fn ingest_durable(
+    controller: &mut MemoryController<InMemoryMemoryStore>,
+    memory: &DurableMemory,
+) -> Option<String> {
+    controller
+        .ingest(candidate_from_durable(memory))
+        .expect("ingest succeeds")
+}
+
+pub fn apply_durable(
+    controller: &mut MemoryController<InMemoryMemoryStore>,
+    memory: &DurableMemory,
+    supporting_episode_id: Option<&str>,
+) -> String {
+    controller
+        .apply_durable_memory(memory.clone(), supporting_episode_id)
+        .expect("durable memory applied")
+}
+
 pub fn controller(
     now: DateTime<Utc>,
 ) -> (MemoryController<InMemoryMemoryStore>, InMemoryAuditSink) {

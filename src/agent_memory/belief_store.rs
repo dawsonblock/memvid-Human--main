@@ -16,11 +16,7 @@ impl<'a, S: MemoryStore> BeliefStore<'a, S> {
         self.store.get_active_belief(entity, slot)
     }
 
-    pub fn create_from_memory(&mut self, belief: BeliefRecord) -> Result<()> {
-        self.store.update_belief(&belief)
-    }
-
-    pub fn save(&mut self, belief: &BeliefRecord) -> Result<()> {
+    pub(crate) fn save(&mut self, belief: &BeliefRecord) -> Result<()> {
         self.store.update_belief(belief)
     }
 

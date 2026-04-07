@@ -1,14 +1,13 @@
 mod common;
 
-use memvid_core::agent_memory::adapters::memvid_store::InMemoryMemoryStore;
 use memvid_core::agent_memory::enums::{GoalStatus, MemoryType, SourceType};
 use memvid_core::agent_memory::goal_state_store::GoalStateStore;
 
-use common::{durable, ts};
+use common::{apply_durable, controller, durable, ts};
 
 #[test]
 fn goal_state_store_persists_and_lists_active_goals() {
-    let mut store = InMemoryMemoryStore::default();
+    let (mut controller, _) = controller(ts(1_700_000_000));
     let goal_memory = durable(
         "project",
         "task_status",
@@ -20,15 +19,10 @@ fn goal_state_store_persists_and_lists_active_goals() {
         ts(1_700_000_000),
     );
 
-    let goal_id = {
-        let mut goal_store = GoalStateStore::new(&mut store);
-        goal_store
-            .save_memory(&goal_memory, Some("episode-1"))
-            .expect("goal stored")
-    };
+    let goal_id = apply_durable(&mut controller, &goal_memory, Some("episode-1"));
 
     let active_goals = {
-        let mut goal_store = GoalStateStore::new(&mut store);
+        let mut goal_store = GoalStateStore::new(controller.store_mut());
         goal_store.list_active().expect("active goals listed")
     };
 

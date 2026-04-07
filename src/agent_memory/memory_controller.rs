@@ -16,7 +16,7 @@ use super::memory_promoter::MemoryPromoter;
 use super::memory_retriever::MemoryRetriever;
 use super::procedure_store::{ProcedureStatusTransition, ProcedureStore};
 use super::schemas::{
-    AuditEvent, CandidateMemory, PromotionContext, RetrievalHit, RetrievalQuery,
+    AuditEvent, CandidateMemory, DurableMemory, PromotionContext, RetrievalHit, RetrievalQuery,
 };
 use super::self_model_store::SelfModelStore;
 
@@ -57,6 +57,7 @@ impl<S: MemoryStore> MemoryController<S> {
     }
 
     pub fn ingest(&mut self, candidate: CandidateMemory) -> Result<Option<String>> {
+        // This is the only allowed path for policy-bearing memory mutations.
         let classified = self.classifier.classify(candidate);
         self.audit.emit(AuditEvent {
             event_id: String::new(),
@@ -227,163 +228,13 @@ impl<S: MemoryStore> MemoryController<S> {
                     Some(episode_memory)
                 };
 
-                let memory_id = match memory_layer {
-                    MemoryLayer::Episode => {
-                        let episode_id = {
-                            let mut episode_store = EpisodeStore::new(&mut self.store);
-                            episode_store.save_memory(&memory)?
-                        };
-                        self.audit.emit(AuditEvent {
-                            event_id: String::new(),
-                            occurred_at: self.clock.now(),
-                            action: "episode_stored".to_string(),
-                            candidate_id: Some(classified.candidate_id.clone()),
-                            memory_id: Some(episode_id.clone()),
-                            belief_id: None,
-                            query_text: None,
-                            details: BTreeMap::from([(
-                                "memory_layer".to_string(),
-                                MemoryLayer::Episode.as_str().to_string(),
-                            )]),
-                        });
-                        episode_id
-                    }
-                    MemoryLayer::Belief => {
-                        let memory_id = self.store.put_memory(&memory)?;
-                        self.audit.emit(AuditEvent {
-                            event_id: String::new(),
-                            occurred_at: self.clock.now(),
-                            action: "memory_stored".to_string(),
-                            candidate_id: Some(classified.candidate_id.clone()),
-                            memory_id: Some(memory_id.clone()),
-                            belief_id: None,
-                            query_text: None,
-                            details: BTreeMap::from([
-                                ("entity".to_string(), memory.entity.clone()),
-                                ("slot".to_string(), memory.slot.clone()),
-                                (
-                                    "memory_layer".to_string(),
-                                    memory.memory_layer().as_str().to_string(),
-                                ),
-                            ]),
-                        });
-
-                        let mut belief_store = BeliefStore::new(&mut self.store);
-                        let existing = belief_store.get(&memory.entity, &memory.slot)?;
-                        let outcome =
-                            self.belief_updater
-                                .apply(existing, &memory, self.clock.as_ref());
-                        if let Some(prior) = outcome.prior_belief.as_ref() {
-                            belief_store.save(prior)?;
-                        }
-                        if let Some(current) = outcome.current_belief.as_ref() {
-                            belief_store.save(current)?;
-                            self.audit.emit(AuditEvent {
-                                event_id: String::new(),
-                                occurred_at: self.clock.now(),
-                                action: "belief_updated".to_string(),
-                                candidate_id: None,
-                                memory_id: Some(memory_id.clone()),
-                                belief_id: Some(current.belief_id.clone()),
-                                query_text: None,
-                                details: BTreeMap::from([
-                                    (
-                                        "action".to_string(),
-                                        format!("{:?}", outcome.action).to_lowercase(),
-                                    ),
-                                    (
-                                        "status".to_string(),
-                                        format!("{:?}", current.status).to_lowercase(),
-                                    ),
-                                ]),
-                            });
-                        }
-                        memory_id
-                    }
-                    MemoryLayer::GoalState => {
-                        let goal_id = {
-                            let mut goal_store = GoalStateStore::new(&mut self.store);
-                            goal_store.save_memory(
-                                &memory,
-                                episode_memory
-                                    .as_ref()
-                                    .map(|episode| episode.memory_id.as_str()),
-                            )?
-                        };
-                        self.audit.emit(AuditEvent {
-                            event_id: String::new(),
-                            occurred_at: self.clock.now(),
-                            action: "goal_state_stored".to_string(),
-                            candidate_id: Some(classified.candidate_id.clone()),
-                            memory_id: Some(goal_id.clone()),
-                            belief_id: None,
-                            query_text: None,
-                            details: BTreeMap::from([(
-                                "memory_layer".to_string(),
-                                MemoryLayer::GoalState.as_str().to_string(),
-                            )]),
-                        });
-                        goal_id
-                    }
-                    MemoryLayer::SelfModel => {
-                        let self_model_id = {
-                            let mut self_model_store = SelfModelStore::new(&mut self.store);
-                            self_model_store.save_memory(
-                                &memory,
-                                episode_memory
-                                    .as_ref()
-                                    .map(|episode| episode.memory_id.as_str()),
-                            )?
-                        };
-                        self.audit.emit(AuditEvent {
-                            event_id: String::new(),
-                            occurred_at: self.clock.now(),
-                            action: "self_model_stored".to_string(),
-                            candidate_id: Some(classified.candidate_id.clone()),
-                            memory_id: Some(self_model_id.clone()),
-                            belief_id: None,
-                            query_text: None,
-                            details: BTreeMap::from([(
-                                "memory_layer".to_string(),
-                                MemoryLayer::SelfModel.as_str().to_string(),
-                            )]),
-                        });
-                        self_model_id
-                    }
-                    MemoryLayer::Procedure => {
-                        let procedure_id = {
-                            let mut procedure_store = ProcedureStore::new(&mut self.store);
-                            procedure_store.save_memory(&memory)?
-                        };
-                        self.audit.emit(AuditEvent {
-                            event_id: String::new(),
-                            occurred_at: self.clock.now(),
-                            action: "procedure_stored".to_string(),
-                            candidate_id: Some(classified.candidate_id.clone()),
-                            memory_id: Some(procedure_id.clone()),
-                            belief_id: None,
-                            query_text: None,
-                            details: BTreeMap::from([(
-                                "memory_layer".to_string(),
-                                MemoryLayer::Procedure.as_str().to_string(),
-                            )]),
-                        });
-                        procedure_id
-                    }
-                    MemoryLayer::Trace => {
-                        let mut trace_meta = BTreeMap::from([(
-                            "memory_layer".to_string(),
-                            MemoryLayer::Trace.as_str().to_string(),
-                        )]);
-                        if !memory.entity.is_empty() {
-                            trace_meta.insert("entity".to_string(), memory.entity.clone());
-                        }
-                        if !memory.slot.is_empty() {
-                            trace_meta.insert("slot".to_string(), memory.slot.clone());
-                        }
-                        self.store.put_trace(&memory.raw_text, trace_meta)?
-                    }
-                };
+                let memory_id = self.persist_durable_memory(
+                    Some(classified.candidate_id.clone()),
+                    memory.clone(),
+                    episode_memory
+                        .as_ref()
+                        .map(|episode| episode.memory_id.as_str()),
+                )?;
 
                 let episode_for_consolidation = if memory_layer == MemoryLayer::Episode {
                     Some(&memory)
@@ -462,6 +313,16 @@ impl<S: MemoryStore> MemoryController<S> {
         }
     }
 
+    pub fn apply_durable_memory(
+        &mut self,
+        memory: DurableMemory,
+        supporting_episode_id: Option<&str>,
+    ) -> Result<String> {
+        let memory_id = self.persist_durable_memory(None, memory, supporting_episode_id)?;
+        self.reconcile_procedure_statuses(None)?;
+        Ok(memory_id)
+    }
+
     pub fn retrieve(&mut self, query: RetrievalQuery) -> Result<Vec<RetrievalHit>> {
         let hits = self
             .retriever
@@ -492,6 +353,166 @@ impl<S: MemoryStore> MemoryController<S> {
 
     pub fn store_mut(&mut self) -> &mut S {
         &mut self.store
+    }
+
+    fn persist_durable_memory(
+        &mut self,
+        candidate_id: Option<String>,
+        mut memory: DurableMemory,
+        supporting_episode_id: Option<&str>,
+    ) -> Result<String> {
+        let memory_layer = memory.memory_layer();
+        if let Some(episode_id) = supporting_episode_id {
+            memory = memory.with_supporting_episode(episode_id);
+        }
+
+        match memory_layer {
+            MemoryLayer::Episode => {
+                let episode_id = {
+                    let mut episode_store = EpisodeStore::new(&mut self.store);
+                    episode_store.save_memory(&memory)?
+                };
+                self.audit.emit(AuditEvent {
+                    event_id: String::new(),
+                    occurred_at: self.clock.now(),
+                    action: "episode_stored".to_string(),
+                    candidate_id,
+                    memory_id: Some(episode_id.clone()),
+                    belief_id: None,
+                    query_text: None,
+                    details: BTreeMap::from([(
+                        "memory_layer".to_string(),
+                        MemoryLayer::Episode.as_str().to_string(),
+                    )]),
+                });
+                Ok(episode_id)
+            }
+            MemoryLayer::Belief => {
+                let memory_id = self.store.put_memory(&memory)?;
+                self.audit.emit(AuditEvent {
+                    event_id: String::new(),
+                    occurred_at: self.clock.now(),
+                    action: "memory_stored".to_string(),
+                    candidate_id,
+                    memory_id: Some(memory_id.clone()),
+                    belief_id: None,
+                    query_text: None,
+                    details: BTreeMap::from([
+                        ("entity".to_string(), memory.entity.clone()),
+                        ("slot".to_string(), memory.slot.clone()),
+                        (
+                            "memory_layer".to_string(),
+                            memory.memory_layer().as_str().to_string(),
+                        ),
+                    ]),
+                });
+
+                let mut belief_store = BeliefStore::new(&mut self.store);
+                let existing = belief_store.get(&memory.entity, &memory.slot)?;
+                let outcome = self
+                    .belief_updater
+                    .apply(existing, &memory, self.clock.as_ref());
+                if let Some(prior) = outcome.prior_belief.as_ref() {
+                    belief_store.save(prior)?;
+                }
+                if let Some(current) = outcome.current_belief.as_ref() {
+                    belief_store.save(current)?;
+                    self.audit.emit(AuditEvent {
+                        event_id: String::new(),
+                        occurred_at: self.clock.now(),
+                        action: "belief_updated".to_string(),
+                        candidate_id: None,
+                        memory_id: Some(memory_id.clone()),
+                        belief_id: Some(current.belief_id.clone()),
+                        query_text: None,
+                        details: BTreeMap::from([
+                            (
+                                "action".to_string(),
+                                format!("{:?}", outcome.action).to_lowercase(),
+                            ),
+                            (
+                                "status".to_string(),
+                                format!("{:?}", current.status).to_lowercase(),
+                            ),
+                        ]),
+                    });
+                }
+                Ok(memory_id)
+            }
+            MemoryLayer::GoalState => {
+                let goal_id = {
+                    let mut goal_store = GoalStateStore::new(&mut self.store);
+                    goal_store.save_memory(&memory, supporting_episode_id)?
+                };
+                self.audit.emit(AuditEvent {
+                    event_id: String::new(),
+                    occurred_at: self.clock.now(),
+                    action: "goal_state_stored".to_string(),
+                    candidate_id,
+                    memory_id: Some(goal_id.clone()),
+                    belief_id: None,
+                    query_text: None,
+                    details: BTreeMap::from([(
+                        "memory_layer".to_string(),
+                        MemoryLayer::GoalState.as_str().to_string(),
+                    )]),
+                });
+                Ok(goal_id)
+            }
+            MemoryLayer::SelfModel => {
+                let self_model_id = {
+                    let mut self_model_store = SelfModelStore::new(&mut self.store);
+                    self_model_store.save_memory(&memory, supporting_episode_id)?
+                };
+                self.audit.emit(AuditEvent {
+                    event_id: String::new(),
+                    occurred_at: self.clock.now(),
+                    action: "self_model_stored".to_string(),
+                    candidate_id,
+                    memory_id: Some(self_model_id.clone()),
+                    belief_id: None,
+                    query_text: None,
+                    details: BTreeMap::from([(
+                        "memory_layer".to_string(),
+                        MemoryLayer::SelfModel.as_str().to_string(),
+                    )]),
+                });
+                Ok(self_model_id)
+            }
+            MemoryLayer::Procedure => {
+                let procedure_id = {
+                    let mut procedure_store = ProcedureStore::new(&mut self.store);
+                    procedure_store.save_memory(&memory)?
+                };
+                self.audit.emit(AuditEvent {
+                    event_id: String::new(),
+                    occurred_at: self.clock.now(),
+                    action: "procedure_stored".to_string(),
+                    candidate_id,
+                    memory_id: Some(procedure_id.clone()),
+                    belief_id: None,
+                    query_text: None,
+                    details: BTreeMap::from([(
+                        "memory_layer".to_string(),
+                        MemoryLayer::Procedure.as_str().to_string(),
+                    )]),
+                });
+                Ok(procedure_id)
+            }
+            MemoryLayer::Trace => {
+                let mut trace_meta = BTreeMap::from([(
+                    "memory_layer".to_string(),
+                    MemoryLayer::Trace.as_str().to_string(),
+                )]);
+                if !memory.entity.is_empty() {
+                    trace_meta.insert("entity".to_string(), memory.entity.clone());
+                }
+                if !memory.slot.is_empty() {
+                    trace_meta.insert("slot".to_string(), memory.slot.clone());
+                }
+                self.store.put_trace(&memory.raw_text, trace_meta)
+            }
+        }
     }
 
     fn build_promotion_context(&mut self, candidate: &CandidateMemory) -> Result<PromotionContext> {

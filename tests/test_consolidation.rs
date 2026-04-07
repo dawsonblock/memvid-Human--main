@@ -4,14 +4,12 @@ use memvid_core::agent_memory::adapters::memvid_store::{InMemoryMemoryStore, Mem
 use memvid_core::agent_memory::clock::FixedClock;
 use memvid_core::agent_memory::consolidation_engine::ConsolidationEngine;
 use memvid_core::agent_memory::enums::{MemoryLayer, MemoryType, SourceType};
-use memvid_core::agent_memory::goal_state_store::GoalStateStore;
-use memvid_core::agent_memory::self_model_store::SelfModelStore;
 
-use common::{durable, ts};
+use common::{apply_durable, controller, durable, ts};
 
 #[test]
 fn consolidation_records_repeated_self_model_preferences() {
-    let mut store = InMemoryMemoryStore::default();
+    let (mut controller, _) = controller(ts(1_700_000_120));
     let first = durable(
         "user",
         "response_style",
@@ -33,19 +31,12 @@ fn consolidation_records_repeated_self_model_preferences() {
         ts(1_700_000_060),
     );
 
-    {
-        let mut self_model_store = SelfModelStore::new(&mut store);
-        self_model_store
-            .save_memory(&first, Some("episode-1"))
-            .expect("first self-model stored");
-        self_model_store
-            .save_memory(&second, Some("episode-2"))
-            .expect("second self-model stored");
-    }
+    apply_durable(&mut controller, &first, Some("episode-1"));
+    apply_durable(&mut controller, &second, Some("episode-2"));
 
     let outcomes = ConsolidationEngine::default()
         .consolidate(
-            &mut store,
+            controller.store_mut(),
             None,
             Some(&second),
             &FixedClock::new(ts(1_700_000_120)),
@@ -106,7 +97,7 @@ fn consolidation_records_stable_belief_windows() {
 
 #[test]
 fn consolidation_records_recurring_blockers() {
-    let mut store = InMemoryMemoryStore::default();
+    let (mut controller, _) = controller(ts(1_700_000_000 + 2 * 86_400 + 60));
     let mut first = durable(
         "project",
         "task_status",
@@ -149,22 +140,13 @@ fn consolidation_records_recurring_blockers() {
         .metadata
         .insert("blocker_reason".to_string(), "ci_red".to_string());
 
-    {
-        let mut goal_store = GoalStateStore::new(&mut store);
-        goal_store
-            .save_memory(&first, None)
-            .expect("first goal stored");
-        goal_store
-            .save_memory(&second, None)
-            .expect("second goal stored");
-        goal_store
-            .save_memory(&third, None)
-            .expect("third goal stored");
-    }
+    apply_durable(&mut controller, &first, None);
+    apply_durable(&mut controller, &second, None);
+    apply_durable(&mut controller, &third, None);
 
     let outcomes = ConsolidationEngine::default()
         .consolidate(
-            &mut store,
+            controller.store_mut(),
             None,
             Some(&third),
             &FixedClock::new(ts(1_700_000_000 + 2 * 86_400 + 60)),
@@ -187,7 +169,7 @@ fn consolidation_records_recurring_blockers() {
 
 #[test]
 fn self_model_consolidation_is_threshold_based_idempotent_and_reinforcing() {
-    let mut store = InMemoryMemoryStore::default();
+    let (mut controller, _) = controller(ts(1_700_000_240));
     let first = durable(
         "user",
         "response_style",
@@ -219,19 +201,12 @@ fn self_model_consolidation_is_threshold_based_idempotent_and_reinforcing() {
         ts(1_700_000_120),
     );
 
-    {
-        let mut self_model_store = SelfModelStore::new(&mut store);
-        self_model_store
-            .save_memory(&first, Some("episode-1"))
-            .expect("first self-model stored");
-        self_model_store
-            .save_memory(&second, Some("episode-2"))
-            .expect("second self-model stored");
-    }
+    apply_durable(&mut controller, &first, Some("episode-1"));
+    apply_durable(&mut controller, &second, Some("episode-2"));
 
     let first_outcomes = ConsolidationEngine::default()
         .consolidate(
-            &mut store,
+            controller.store_mut(),
             None,
             Some(&second),
             &FixedClock::new(ts(1_700_000_180)),
@@ -248,7 +223,7 @@ fn self_model_consolidation_is_threshold_based_idempotent_and_reinforcing() {
 
     let rerun_outcomes = ConsolidationEngine::default()
         .consolidate(
-            &mut store,
+            controller.store_mut(),
             None,
             Some(&second),
             &FixedClock::new(ts(1_700_000_181)),
@@ -256,16 +231,11 @@ fn self_model_consolidation_is_threshold_based_idempotent_and_reinforcing() {
         .expect("rerun consolidation succeeds");
     assert!(rerun_outcomes.is_empty());
 
-    {
-        let mut self_model_store = SelfModelStore::new(&mut store);
-        self_model_store
-            .save_memory(&third, Some("episode-3"))
-            .expect("third self-model stored");
-    }
+    apply_durable(&mut controller, &third, Some("episode-3"));
 
     let reinforcement_outcomes = ConsolidationEngine::default()
         .consolidate(
-            &mut store,
+            controller.store_mut(),
             None,
             Some(&third),
             &FixedClock::new(ts(1_700_000_240)),
@@ -287,7 +257,7 @@ fn self_model_consolidation_is_threshold_based_idempotent_and_reinforcing() {
 
 #[test]
 fn blocker_consolidation_uses_at_least_threshold_not_exact_count() {
-    let mut store = InMemoryMemoryStore::default();
+    let (mut controller, _) = controller(ts(1_700_000_000 + (4 * 86_400)));
     for offset in 0..4 {
         let mut goal = durable(
             "project",
@@ -301,11 +271,11 @@ fn blocker_consolidation_uses_at_least_threshold_not_exact_count() {
         );
         goal.metadata
             .insert("blocker_reason".to_string(), "ci_red".to_string());
-        let mut goal_store = GoalStateStore::new(&mut store);
-        goal_store.save_memory(&goal, None).expect("goal stored");
+        apply_durable(&mut controller, &goal, None);
     }
 
-    let latest = store
+    let latest = controller
+        .store_mut()
         .list_memories_by_layer(MemoryLayer::GoalState)
         .expect("goals listed")
         .into_iter()
@@ -313,7 +283,7 @@ fn blocker_consolidation_uses_at_least_threshold_not_exact_count() {
         .expect("latest goal exists");
     let outcomes = ConsolidationEngine::default()
         .consolidate(
-            &mut store,
+            controller.store_mut(),
             None,
             Some(&latest),
             &FixedClock::new(ts(1_700_000_000 + (4 * 86_400))),

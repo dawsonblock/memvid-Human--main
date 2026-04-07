@@ -72,7 +72,7 @@ impl<'a, S: MemoryStore> ProcedureStore<'a, S> {
         Self { store }
     }
 
-    pub fn save_memory(&mut self, memory: &DurableMemory) -> Result<String> {
+    pub(crate) fn save_memory(&mut self, memory: &DurableMemory) -> Result<String> {
         if memory.memory_layer() != MemoryLayer::Procedure {
             return Err(AgentMemoryError::InvalidCandidate {
                 reason: "procedure store can only persist procedure-layer memory".to_string(),
@@ -173,7 +173,7 @@ impl<'a, S: MemoryStore> ProcedureStore<'a, S> {
         }))
     }
 
-    pub fn upsert_success(
+    pub(crate) fn upsert_success(
         &mut self,
         workflow_key: &str,
         description: &str,
@@ -208,7 +208,7 @@ impl<'a, S: MemoryStore> ProcedureStore<'a, S> {
         self.persist_record_outcome(existing.as_ref(), workflow_key, record, now)
     }
 
-    pub fn record_failure(
+    pub(crate) fn record_failure(
         &mut self,
         workflow_key: &str,
         learned_from_memory_ids: &[String],
@@ -239,7 +239,7 @@ impl<'a, S: MemoryStore> ProcedureStore<'a, S> {
             .map(Some)
     }
 
-    pub fn sync_all_effective_statuses(
+    pub(crate) fn sync_all_effective_statuses(
         &mut self,
         now: DateTime<Utc>,
     ) -> Result<Vec<ProcedureStatusTransition>> {

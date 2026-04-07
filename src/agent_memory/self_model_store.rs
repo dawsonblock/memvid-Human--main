@@ -17,7 +17,7 @@ impl<'a, S: MemoryStore> SelfModelStore<'a, S> {
         Self { store }
     }
 
-    pub fn save_memory(
+    pub(crate) fn save_memory(
         &mut self,
         memory: &DurableMemory,
         supporting_episode_id: Option<&str>,

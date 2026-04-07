@@ -1,17 +1,17 @@
 mod common;
 
+use memvid_core::agent_memory::adapters::memvid_store::MemoryStore;
 use memvid_core::agent_memory::clock::FixedClock;
 use memvid_core::agent_memory::consolidation_engine::ConsolidationEngine;
 use memvid_core::agent_memory::enums::MemoryLayer;
-use memvid_core::agent_memory::adapters::memvid_store::{InMemoryMemoryStore, MemoryStore};
 use memvid_core::agent_memory::enums::{BeliefStatus, MemoryType, SelfModelKind, SourceType};
 use memvid_core::agent_memory::self_model_store::SelfModelStore;
 
-use common::{candidate, controller, durable, ts};
+use common::{apply_durable, candidate, controller, durable, ts};
 
 #[test]
 fn repeated_stable_preference_reinforces_one_logical_self_model_entry() {
-    let mut store = InMemoryMemoryStore::default();
+    let (mut controller, _) = controller(ts(1_700_000_100));
     let first = durable(
         "user",
         "response_style",
@@ -33,25 +33,18 @@ fn repeated_stable_preference_reinforces_one_logical_self_model_entry() {
         ts(1_700_000_100),
     );
 
-    {
-        let mut self_model_store = SelfModelStore::new(&mut store);
-        self_model_store
-            .save_memory(&first, Some("episode-1"))
-            .expect("first self-model stored");
-        self_model_store
-            .save_memory(&second, Some("episode-2"))
-            .expect("reinforced self-model stored");
-    }
+    apply_durable(&mut controller, &first, Some("episode-1"));
+    apply_durable(&mut controller, &second, Some("episode-2"));
 
     let latest = {
-        let mut self_model_store = SelfModelStore::new(&mut store);
+        let mut self_model_store = SelfModelStore::new(controller.store_mut());
         self_model_store
             .get_latest_for_entity_slot("user", "response_style")
             .expect("latest self-model loaded")
             .expect("latest self-model exists")
     };
     let matching_records = {
-        let mut self_model_store = SelfModelStore::new(&mut store);
+        let mut self_model_store = SelfModelStore::new(controller.store_mut());
         self_model_store
             .matching_values("user", "response_style", "concise")
             .expect("matching self-model records listed")
@@ -161,7 +154,7 @@ fn explicit_trusted_preference_statement_promotes_directly_to_self_model() {
 
 #[test]
 fn rerunning_same_self_model_stabilization_evidence_is_idempotent() {
-    let mut store = InMemoryMemoryStore::default();
+    let (mut controller, _) = controller(ts(1_700_000_120));
     let first = durable(
         "user",
         "response_style",
@@ -183,19 +176,12 @@ fn rerunning_same_self_model_stabilization_evidence_is_idempotent() {
         ts(1_700_000_060),
     );
 
-    {
-        let mut self_model_store = SelfModelStore::new(&mut store);
-        self_model_store
-            .save_memory(&first, Some("episode-1"))
-            .expect("first self-model stored");
-        self_model_store
-            .save_memory(&second, Some("episode-2"))
-            .expect("second self-model stored");
-    }
+    apply_durable(&mut controller, &first, Some("episode-1"));
+    apply_durable(&mut controller, &second, Some("episode-2"));
 
     let first_outcomes = ConsolidationEngine::default()
         .consolidate(
-            &mut store,
+            controller.store_mut(),
             None,
             Some(&second),
             &FixedClock::new(ts(1_700_000_120)),
@@ -209,7 +195,7 @@ fn rerunning_same_self_model_stabilization_evidence_is_idempotent() {
 
     let rerun_outcomes = ConsolidationEngine::default()
         .consolidate(
-            &mut store,
+            controller.store_mut(),
             None,
             Some(&second),
             &FixedClock::new(ts(1_700_000_121)),
@@ -220,7 +206,7 @@ fn rerunning_same_self_model_stabilization_evidence_is_idempotent() {
 
 #[test]
 fn stronger_contradictory_preference_updates_the_same_logical_trait() {
-    let mut store = InMemoryMemoryStore::default();
+    let (mut controller, _) = controller(ts(1_700_000_100));
     let first = durable(
         "user",
         "response_style",
@@ -242,18 +228,11 @@ fn stronger_contradictory_preference_updates_the_same_logical_trait() {
         ts(1_700_000_100),
     );
 
-    {
-        let mut self_model_store = SelfModelStore::new(&mut store);
-        self_model_store
-            .save_memory(&first, Some("episode-1"))
-            .expect("first self-model stored");
-        self_model_store
-            .save_memory(&second, Some("episode-2"))
-            .expect("updated self-model stored");
-    }
+    apply_durable(&mut controller, &first, Some("episode-1"));
+    apply_durable(&mut controller, &second, Some("episode-2"));
 
     let latest = {
-        let mut self_model_store = SelfModelStore::new(&mut store);
+        let mut self_model_store = SelfModelStore::new(controller.store_mut());
         self_model_store
             .get_latest_for_entity_slot("user", "response_style")
             .expect("latest self-model loaded")
@@ -274,7 +253,7 @@ fn stronger_contradictory_preference_updates_the_same_logical_trait() {
 
 #[test]
 fn weaker_contradictory_preference_is_disputed_without_replacing_active_trait() {
-    let mut store = InMemoryMemoryStore::default();
+    let (mut controller, _) = controller(ts(1_700_000_100));
     let first = durable(
         "user",
         "response_style",
@@ -296,25 +275,18 @@ fn weaker_contradictory_preference_is_disputed_without_replacing_active_trait() 
         ts(1_700_000_100),
     );
 
-    {
-        let mut self_model_store = SelfModelStore::new(&mut store);
-        self_model_store
-            .save_memory(&first, Some("episode-1"))
-            .expect("first self-model stored");
-        self_model_store
-            .save_memory(&second, Some("episode-2"))
-            .expect("disputed self-model stored");
-    }
+    apply_durable(&mut controller, &first, Some("episode-1"));
+    apply_durable(&mut controller, &second, Some("episode-2"));
 
     let latest = {
-        let mut self_model_store = SelfModelStore::new(&mut store);
+        let mut self_model_store = SelfModelStore::new(controller.store_mut());
         self_model_store
             .get_latest_for_entity_slot("user", "response_style")
             .expect("latest self-model loaded")
             .expect("latest self-model exists")
     };
     let all_records = {
-        let mut self_model_store = SelfModelStore::new(&mut store);
+        let mut self_model_store = SelfModelStore::new(controller.store_mut());
         self_model_store
             .list_for_entity("user")
             .expect("self-model records listed")
@@ -328,7 +300,7 @@ fn weaker_contradictory_preference_is_disputed_without_replacing_active_trait() 
 
 #[test]
 fn repeated_contradiction_churn_preserves_one_effective_active_trait() {
-    let mut store = InMemoryMemoryStore::default();
+    let (mut controller, _) = controller(ts(1_700_000_100));
     let stable = durable(
         "user",
         "response_style",
@@ -340,12 +312,7 @@ fn repeated_contradiction_churn_preserves_one_effective_active_trait() {
         ts(1_700_000_000),
     );
 
-    {
-        let mut self_model_store = SelfModelStore::new(&mut store);
-        self_model_store
-            .save_memory(&stable, Some("episode-1"))
-            .expect("stable trait stored");
-    }
+    apply_durable(&mut controller, &stable, Some("episode-1"));
 
     for (index, value) in ["verbose", "narrative", "chatty"].into_iter().enumerate() {
         let contradictory = durable(
@@ -358,27 +325,25 @@ fn repeated_contradiction_churn_preserves_one_effective_active_trait() {
             0.55,
             ts(1_700_000_100 + index as i64),
         );
-        let mut self_model_store = SelfModelStore::new(&mut store);
-        self_model_store
-            .save_memory(&contradictory, Some(&format!("episode-{}", index + 2)))
-            .expect("contradictory trait stored");
+        let episode_id = format!("episode-{}", index + 2);
+        apply_durable(&mut controller, &contradictory, Some(&episode_id));
     }
 
     let latest = {
-        let mut self_model_store = SelfModelStore::new(&mut store);
+        let mut self_model_store = SelfModelStore::new(controller.store_mut());
         self_model_store
             .get_latest_for_entity_slot("user", "response_style")
             .expect("latest self-model loaded")
             .expect("latest self-model exists")
     };
     let all_records = {
-        let mut self_model_store = SelfModelStore::new(&mut store);
+        let mut self_model_store = SelfModelStore::new(controller.store_mut());
         self_model_store
             .list_for_entity("user")
             .expect("self-model records listed")
     };
     let latest_records = {
-        let mut self_model_store = SelfModelStore::new(&mut store);
+        let mut self_model_store = SelfModelStore::new(controller.store_mut());
         self_model_store
             .list_latest_for_entity("user")
             .expect("latest self-model entries listed")
@@ -409,7 +374,7 @@ fn repeated_contradiction_churn_preserves_one_effective_active_trait() {
 
 #[test]
 fn self_model_store_rejects_blank_structure_and_latest_valid_trait_survives_bypass_row() {
-    let mut store = InMemoryMemoryStore::default();
+    let (mut controller, _) = controller(ts(1_700_000_020));
     let invalid = durable(
         "user",
         "response_style",
@@ -420,10 +385,7 @@ fn self_model_store_rejects_blank_structure_and_latest_valid_trait_survives_bypa
         0.75,
         ts(1_700_000_000),
     );
-    {
-        let mut self_model_store = SelfModelStore::new(&mut store);
-        assert!(self_model_store.save_memory(&invalid, None).is_err());
-    }
+    assert!(controller.apply_durable_memory(invalid, None).is_err());
 
     let valid = durable(
         "user",
@@ -435,18 +397,21 @@ fn self_model_store_rejects_blank_structure_and_latest_valid_trait_survives_bypa
         0.75,
         ts(1_700_000_010),
     );
-    store.put_memory(&valid).expect("valid self-model stored");
+    controller
+        .apply_durable_memory(valid.clone(), None)
+        .expect("valid self-model stored");
 
     let mut bypass_invalid = valid.clone();
     bypass_invalid.memory_id = "memory-user-response_style-invalid".to_string();
     bypass_invalid.stored_at = ts(1_700_000_020);
     bypass_invalid.value = "   ".to_string();
-    store
+    controller
+        .store_mut()
         .put_memory(&bypass_invalid)
         .expect("invalid bypass row stored");
 
     let latest = {
-        let mut self_model_store = SelfModelStore::new(&mut store);
+        let mut self_model_store = SelfModelStore::new(controller.store_mut());
         self_model_store
             .get_latest_for_entity_slot("user", "response_style")
             .expect("latest self-model loaded")

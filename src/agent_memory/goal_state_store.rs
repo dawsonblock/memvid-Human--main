@@ -13,7 +13,7 @@ impl<'a, S: MemoryStore> GoalStateStore<'a, S> {
         Self { store }
     }
 
-    pub fn save_memory(
+    pub(crate) fn save_memory(
         &mut self,
         memory: &DurableMemory,
         supporting_episode_id: Option<&str>,
