@@ -565,6 +565,10 @@ impl MemoryStore for InMemoryMemoryStore {
             .collect())
     }
 
+    fn list_memories_by_layer(&mut self, layer: MemoryLayer) -> Result<Vec<DurableMemory>> {
+        Ok(latest_memories_by_id(self.list_memory_versions_by_layer(layer)?))
+    }
+
     fn list_memories_for_belief(&mut self, entity: &str, slot: &str) -> Result<Vec<DurableMemory>> {
         Ok(self
             .list_memories_by_layer(MemoryLayer::Belief)?
@@ -1312,7 +1316,7 @@ impl MemoryStore for MemvidStore {
 
     fn list_memories_for_belief(&mut self, entity: &str, slot: &str) -> Result<Vec<DurableMemory>> {
         Ok(self
-            .list_memories_by_layer(MemoryLayer::Belief)?
+            .list_memory_versions_by_layer(MemoryLayer::Belief)?
             .into_iter()
             .filter(|memory| memory.entity == entity && memory.slot == slot)
             .collect())

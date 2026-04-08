@@ -1247,10 +1247,10 @@ impl<S: MemoryStore> MemoryController<S> {
 
             context.goal_state_evidence_count =
                 if candidate.memory_layer() == MemoryLayer::GoalState {
-                    let mut goal_store = GoalStateStore::new(&mut self.store);
-                    goal_store
-                        .list_all_memories()?
+                    self.store
+                        .list_memory_versions_by_layer(MemoryLayer::GoalState)?
                         .into_iter()
+                        .filter(|memory| memory.has_required_structure_for(MemoryLayer::GoalState))
                         .filter(|memory| memory.entity == entity)
                         .filter(|memory| memory.slot == slot)
                         .filter(|memory| memory.value == value)

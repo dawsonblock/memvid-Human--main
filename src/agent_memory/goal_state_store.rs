@@ -127,8 +127,12 @@ impl<'a, S: MemoryStore> GoalStateStore<'a, S> {
         blocker_key: &str,
     ) -> Result<Vec<GoalRecord>> {
         Ok(self
-            .list_for_entity(entity)?
+            .store
+            .list_memory_versions_by_layer(MemoryLayer::GoalState)?
             .into_iter()
+            .filter(|memory| memory.has_required_structure_for(MemoryLayer::GoalState))
+            .filter_map(|memory| memory.to_goal_record())
+            .filter(|record| record.entity == entity)
             .filter(|record| record.slot == slot)
             .filter(|record| {
                 Self::blocker_key(record).is_some_and(|existing| existing == blocker_key)

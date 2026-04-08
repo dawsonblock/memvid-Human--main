@@ -236,8 +236,10 @@ impl<'a, S: MemoryStore> SelfModelStore<'a, S> {
             .store
             .list_memory_versions_by_layer(MemoryLayer::SelfModel)?
             .into_iter()
+            .filter(|memory| memory.has_required_structure_for(MemoryLayer::SelfModel))
+            .filter(|memory| memory.entity_non_empty() == Some(entity))
+            .filter(|memory| memory.slot == slot && memory.value == value)
             .filter_map(|memory| memory.to_self_model_record())
-            .filter(|record| record.entity == entity)
             .filter(|record| record.slot == slot && record.value == value)
             .collect())
     }
