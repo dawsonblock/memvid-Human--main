@@ -273,8 +273,9 @@ fn dedup_search_hits(hits: Vec<RetrievalHit>) -> Vec<RetrievalHit> {
         };
         match deduped.get(&identity) {
             Some(existing)
-                if existing.score > hit.score
-                    || (existing.score == hit.score && existing.timestamp >= hit.timestamp) => {}
+                if existing.score.total_cmp(&hit.score).is_gt()
+                    || (existing.score.total_cmp(&hit.score).is_eq()
+                        && existing.timestamp >= hit.timestamp) => {}
             _ => {
                 deduped.insert(identity, hit);
             }
@@ -372,7 +373,7 @@ impl InMemoryMemoryStore {
         if let Some((accessed_at, retrieval_count)) = self.access_touches.get(&memory.memory_id)
             && memory
                 .last_accessed_at()
-                .is_none_or(|existing| accessed_at.to_owned() > existing)
+                .is_none_or(|existing| *accessed_at > existing)
         {
             memory
                 .metadata
@@ -535,7 +536,7 @@ impl MemoryStore for InMemoryMemoryStore {
                 scope: query.scope,
                 source: metadata
                     .get("source_type")
-                    .and_then(|value| Some(parse_source_type(Some(value)))),
+                    .map(|value| parse_source_type(Some(value))),
                 from_belief: false,
                 expired: false,
                 metadata: metadata.clone(),
@@ -547,12 +548,12 @@ impl MemoryStore for InMemoryMemoryStore {
     }
 
     fn list_memories_by_layer(&mut self, layer: MemoryLayer) -> Result<Vec<DurableMemory>> {
-        Ok(latest_memories_by_id(
-            self.list_memory_versions_by_layer(layer)?,
+        Ok(
+            latest_memories_by_id(self.list_memory_versions_by_layer(layer)?)
+                .into_iter()
+                .map(|memory| self.apply_access_touch(memory))
+                .collect(),
         )
-        .into_iter()
-        .map(|memory| self.apply_access_touch(memory))
-        .collect())
     }
 
     fn list_memory_versions_by_layer(&mut self, layer: MemoryLayer) -> Result<Vec<DurableMemory>> {
@@ -607,7 +608,7 @@ impl MemvidStore {
 
     fn latest_access_touch(&mut self, memory_id: &str) -> Result<Option<AccessTouch>> {
         if let Some(touch) = self.access_touch_cache.get(memory_id) {
-            return Ok(touch.clone());
+            return Ok(*touch);
         }
 
         let mut latest = None;
@@ -698,10 +699,7 @@ impl MemvidStore {
                 .cloned()
                 .unwrap_or_default(),
             raw_text,
-            memory_type: {
-                let memory_type = parse_memory_type(extra_metadata.get("agent_memory_type"));
-                memory_type
-            },
+            memory_type: parse_memory_type(extra_metadata.get("agent_memory_type")),
             confidence: extra_metadata
                 .get("agent_confidence")
                 .and_then(|value| value.parse::<f32>().ok())
@@ -940,7 +938,12 @@ impl MemoryStore for MemvidStore {
                     ..PutOptions::default()
                 },
             )?;
-            pending.push((memory_id.clone(), accessed_at.to_owned(), touched.retrieval_count(), uri));
+            pending.push((
+                memory_id.clone(),
+                accessed_at.to_owned(),
+                touched.retrieval_count(),
+                uri,
+            ));
         }
 
         if pending.is_empty() {
@@ -949,14 +952,14 @@ impl MemoryStore for MemvidStore {
 
         self.memvid.commit()?;
 
-        for (memory_id, accessed_at, retrieval_count, uri) in pending {
-            let frame_id = self.frame_id_for_uri(&uri)?;
+        for (memory_id, accessed_at, _retrieval_count, uri) in &pending {
+            let frame_id = self.frame_id_for_uri(uri)?;
             let card = MemoryCardBuilder::new()
                 .kind(MemoryKind::Other)
                 .entity(access_entity())
                 .slot(memory_id.clone())
                 .value(accessed_at.to_rfc3339())
-                .source(frame_id, Some(uri))
+                .source(frame_id, Some(uri.clone()))
                 .engine("agent_memory", "1")
                 .document_date(accessed_at.timestamp())
                 .build(0)
@@ -964,9 +967,11 @@ impl MemoryStore for MemvidStore {
                     reason: err.to_string(),
                 })?;
             self.memvid.put_memory_card(card)?;
-            self.cache_access_touch(memory_id, Some((accessed_at, retrieval_count)));
         }
         self.memvid.commit()?;
+        for (memory_id, accessed_at, retrieval_count, _) in pending {
+            self.cache_access_touch(memory_id, Some((accessed_at, retrieval_count)));
+        }
         Ok(())
     }
 

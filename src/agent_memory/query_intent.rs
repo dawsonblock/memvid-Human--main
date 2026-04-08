@@ -1,3 +1,8 @@
+//! Convenience text-to-intent helpers for obvious retrieval cases.
+//!
+//! Typed `RetrievalQuery` construction remains the authoritative path when a caller needs exact
+//! retrieval semantics. The helpers in this module are intentionally small rule-based shorthands.
+
 use super::enums::QueryIntent;
 use super::schemas::RetrievalQuery;
 
@@ -42,6 +47,10 @@ impl QueryIntentDetector {
 }
 
 impl RetrievalQuery {
+    /// Convenience constructor for obvious text-only queries.
+    ///
+    /// This is a small rule-based wrapper around `QueryIntentDetector`; callers that care about
+    /// exact query semantics should build `RetrievalQuery` explicitly.
     #[must_use]
     pub fn from_text(query_text: impl Into<String>) -> Self {
         let query_text = query_text.into();

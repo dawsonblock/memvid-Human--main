@@ -16,12 +16,11 @@ use super::errors::{AgentMemoryError, Result};
 use super::goal_state_store::GoalStateStore;
 use super::memory_classifier::MemoryClassifier;
 use super::memory_compactor::MemoryCompactor;
-use super::memory_promoter::MemoryPromoter;
 use super::memory_decay::MemoryDecay;
+use super::memory_promoter::MemoryPromoter;
 use super::memory_retriever::MemoryRetriever;
 use super::policy::ReasonCode;
 use super::procedure_store::{ProcedureStatusTransition, ProcedureStore};
-use super::retention::RetentionManager;
 use super::schemas::{
     AuditEvent, BeliefRecord, CandidateMemory, DurableMemory, OutcomeFeedback, PromotionContext,
     RetrievalHit, RetrievalQuery,
@@ -445,10 +444,15 @@ impl<S: MemoryStore> MemoryController<S> {
         Ok(hits)
     }
 
+    /// Convenience wrapper for obvious text-only queries.
+    ///
+    /// Typed `RetrievalQuery` remains the authoritative path when a caller needs exact retrieval
+    /// semantics.
     pub fn retrieve_text(&mut self, query_text: impl Into<String>) -> Result<Vec<RetrievalHit>> {
         self.retrieve(RetrievalQuery::from_text(query_text))
     }
 
+    /// Lists the current durable memories that governed maintenance can act on.
     pub fn list_current_durable_memories(&mut self) -> Result<Vec<DurableMemory>> {
         let mut memories = Vec::new();
         for layer in [
@@ -470,10 +474,14 @@ impl<S: MemoryStore> MemoryController<S> {
         Ok(memories)
     }
 
+    /// Runs the supported governed-memory maintenance flow.
     pub fn run_maintenance(&mut self) -> Result<MemoryMaintenanceReport> {
         let durable_memories = self.list_current_durable_memories()?;
-        let expired_ids = MemoryDecay::new(RetentionManager::new(self.promoter.policy().clone()))
-            .run(&mut self.store, &durable_memories, self.clock.now())?;
+        let expired_ids = MemoryDecay::from_policy(self.promoter.policy().clone()).run(
+            &mut self.store,
+            &durable_memories,
+            self.clock.now(),
+        )?;
         let compactor = MemoryCompactor;
 
         Ok(MemoryMaintenanceReport {
@@ -659,7 +667,7 @@ impl<S: MemoryStore> MemoryController<S> {
             }
 
             touched.push(memory_id.to_string());
-            touches.push((memory_id.to_string(), accessed_at.to_owned()));
+            touches.push((memory_id.to_string(), accessed_at));
         }
 
         if !touches.is_empty() {
@@ -866,7 +874,7 @@ impl<S: MemoryStore> MemoryController<S> {
         );
         details.insert(
             "decision".to_string(),
-            format!("{:?}", decision).to_lowercase(),
+            format!("{decision:?}").to_lowercase(),
         );
         details.insert("reason".to_string(), reason);
         details.insert("reason_code".to_string(), reason_code.as_str().to_string());
@@ -1019,7 +1027,9 @@ impl<S: MemoryStore> MemoryController<S> {
                 });
             }
             BeliefAction::Update if outcome.prior_belief.is_some() => {
-                let prior = outcome.prior_belief.as_ref().expect("prior belief present");
+                let Some(prior) = outcome.prior_belief.as_ref() else {
+                    return;
+                };
                 let mut details = BTreeMap::from([
                     ("entity".to_string(), current.entity.clone()),
                     ("slot".to_string(), current.slot.clone()),

@@ -203,3 +203,97 @@ fn memvid_adapter_keeps_ingest_time_stable_across_access_and_feedback_updates() 
         Some(stored_at.to_rfc3339().as_str())
     );
 }
+
+#[test]
+fn memvid_adapter_batch_touch_path_updates_effective_access_metadata() {
+    let dir = tempdir().expect("tempdir");
+    let path = dir.path().join("agent-memory-batch-touch.mv2");
+    let memvid = Memvid::create(&path).expect("memvid created");
+    let mut store = MemvidStore::new(memvid);
+
+    let first = durable(
+        "user",
+        "favorite_editor",
+        "vim",
+        "The user prefers vim for editing",
+        MemoryType::Preference,
+        SourceType::Chat,
+        0.75,
+        ts(1_700_000_000),
+    );
+    let second = durable(
+        "user",
+        "favorite_shell",
+        "fish",
+        "The user prefers fish for shell work",
+        MemoryType::Preference,
+        SourceType::Chat,
+        0.75,
+        ts(1_700_000_010),
+    );
+    store.put_memory(&first).expect("first memory stored");
+    store.put_memory(&second).expect("second memory stored");
+
+    let first_touch = ts(1_700_000_100);
+    let second_touch = ts(1_700_000_110);
+    let first_touch_again = ts(1_700_000_120);
+    store
+        .touch_memory_accesses(&[
+            (first.memory_id.clone(), first_touch),
+            (second.memory_id.clone(), second_touch),
+        ])
+        .expect("batch touch stored");
+    store
+        .touch_memory_accesses(&[(first.memory_id.clone(), first_touch_again)])
+        .expect("second batch touch stored");
+
+    let first_latest = store
+        .get_memory(&first.memory_id)
+        .expect("first lookup succeeds")
+        .expect("first memory exists");
+    let second_latest = store
+        .get_memory(&second.memory_id)
+        .expect("second lookup succeeds")
+        .expect("second memory exists");
+
+    assert_eq!(first_latest.retrieval_count(), 2);
+    assert_eq!(first_latest.last_accessed_at(), Some(first_touch_again));
+    assert_eq!(second_latest.retrieval_count(), 1);
+    assert_eq!(second_latest.last_accessed_at(), Some(second_touch));
+
+    let hits = store
+        .search(&RetrievalQuery {
+            query_text: "user prefers".to_string(),
+            intent: QueryIntent::PreferenceLookup,
+            entity: Some("user".to_string()),
+            slot: None,
+            scope: None,
+            top_k: 5,
+            as_of: None,
+            include_expired: false,
+        })
+        .expect("search works");
+    let first_hit = hits
+        .iter()
+        .find(|hit| hit.memory_id.as_deref() == Some(first.memory_id.as_str()))
+        .expect("first hit present");
+    let second_hit = hits
+        .iter()
+        .find(|hit| hit.memory_id.as_deref() == Some(second.memory_id.as_str()))
+        .expect("second hit present");
+
+    assert_eq!(
+        first_hit
+            .metadata
+            .get("retrieval_count")
+            .map(String::as_str),
+        Some("2")
+    );
+    assert_eq!(
+        second_hit
+            .metadata
+            .get("retrieval_count")
+            .map(String::as_str),
+        Some("1")
+    );
+}
