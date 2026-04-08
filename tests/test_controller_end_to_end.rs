@@ -1,8 +1,26 @@
 mod common;
 
+use std::collections::{BTreeMap, HashMap};
+use std::sync::Arc;
+
+use chrono::{DateTime, Utc};
+use memvid_core::agent_memory::adapters::memvid_store::MemoryStore;
+use memvid_core::agent_memory::audit::{AuditLogger, InMemoryAuditSink};
+use memvid_core::agent_memory::belief_updater::BeliefUpdater;
+use memvid_core::agent_memory::clock::FixedClock;
 use memvid_core::agent_memory::enums::OutcomeFeedbackKind;
 use memvid_core::agent_memory::enums::{MemoryType, QueryIntent, SourceType};
-use memvid_core::agent_memory::schemas::{OutcomeFeedback, RetrievalQuery};
+use memvid_core::agent_memory::errors::Result;
+use memvid_core::agent_memory::memory_classifier::MemoryClassifier;
+use memvid_core::agent_memory::memory_controller::MemoryController;
+use memvid_core::agent_memory::memory_promoter::MemoryPromoter;
+use memvid_core::agent_memory::memory_retriever::MemoryRetriever;
+use memvid_core::agent_memory::policy::PolicySet;
+use memvid_core::agent_memory::ranker::Ranker;
+use memvid_core::agent_memory::retention::RetentionManager;
+use memvid_core::agent_memory::schemas::{
+    BeliefRecord, DurableMemory, OutcomeFeedback, RetrievalHit, RetrievalQuery,
+};
 
 use common::{apply_durable, candidate, controller, durable, ts};
 
@@ -179,13 +197,21 @@ fn retrieval_touches_returned_memories_and_persists_access_metadata() {
         })
         .expect("retrieval succeeds");
 
-    let latest = controller
+    let stored = controller
         .store()
         .memories()
         .iter()
-        .find(|stored| stored.memory_id == memory_id)
+        .find(|candidate| candidate.memory_id == memory_id)
+        .expect("stored memory present")
+        .clone();
+    let latest = controller
+        .store_mut()
+        .get_memory(&memory_id)
+        .expect("lookup succeeds")
         .expect("touched memory present");
     assert_eq!(controller.store().memories().len(), 1);
+    assert_eq!(stored.stored_at, stored_at);
+    assert_eq!(stored.version_timestamp(), stored_at);
     assert_eq!(latest.stored_at, stored_at);
     assert_eq!(latest.version_timestamp(), now);
     assert_eq!(
@@ -473,5 +499,226 @@ fn outcome_feedback_updates_belief_by_id_and_improves_effective_confidence() {
             .get("target_layer")
             .map(String::as_str),
         Some("belief")
+    );
+}
+
+#[derive(Debug, Clone, Default)]
+struct CountingTouchStore {
+    memories: HashMap<String, DurableMemory>,
+    hits: Vec<RetrievalHit>,
+    batch_calls: usize,
+    single_calls: usize,
+    commit_like_operations: usize,
+    last_batch_ids: Vec<String>,
+}
+
+impl CountingTouchStore {
+    fn with_hits(memories: Vec<DurableMemory>, hits: Vec<RetrievalHit>) -> Self {
+        Self {
+            memories: memories
+                .into_iter()
+                .map(|memory| (memory.memory_id.clone(), memory))
+                .collect(),
+            hits,
+            ..Self::default()
+        }
+    }
+}
+
+impl MemoryStore for CountingTouchStore {
+    fn put_trace(
+        &mut self,
+        _raw_text: &str,
+        _metadata: BTreeMap<String, String>,
+    ) -> Result<String> {
+        Ok("trace".to_string())
+    }
+
+    fn put_memory(&mut self, memory: &DurableMemory) -> Result<String> {
+        self.memories
+            .insert(memory.memory_id.clone(), memory.clone());
+        Ok(memory.memory_id.clone())
+    }
+
+    fn touch_memory_access(&mut self, _memory_id: &str, _accessed_at: DateTime<Utc>) -> Result<()> {
+        self.single_calls += 1;
+        Ok(())
+    }
+
+    fn touch_memory_accesses(&mut self, touches: &[(String, DateTime<Utc>)]) -> Result<()> {
+        self.batch_calls += 1;
+        self.commit_like_operations += usize::from(!touches.is_empty());
+        self.last_batch_ids = touches
+            .iter()
+            .map(|(memory_id, _)| memory_id.clone())
+            .collect();
+        Ok(())
+    }
+
+    fn update_belief(&mut self, _belief: &BeliefRecord) -> Result<()> {
+        Ok(())
+    }
+
+    fn get_active_belief(&mut self, _entity: &str, _slot: &str) -> Result<Option<BeliefRecord>> {
+        Ok(None)
+    }
+
+    fn get_current_belief(&mut self, _entity: &str, _slot: &str) -> Result<Option<BeliefRecord>> {
+        Ok(None)
+    }
+
+    fn get_belief_by_id(&mut self, _belief_id: &str) -> Result<Option<BeliefRecord>> {
+        Ok(None)
+    }
+
+    fn get_memory(&mut self, memory_id: &str) -> Result<Option<DurableMemory>> {
+        Ok(self.memories.get(memory_id).cloned())
+    }
+
+    fn search(&mut self, _query: &RetrievalQuery) -> Result<Vec<RetrievalHit>> {
+        Ok(self.hits.clone())
+    }
+
+    fn list_memory_versions_by_layer(
+        &mut self,
+        layer: memvid_core::agent_memory::enums::MemoryLayer,
+    ) -> Result<Vec<DurableMemory>> {
+        Ok(self
+            .memories
+            .values()
+            .filter(|memory| memory.memory_layer() == layer)
+            .cloned()
+            .collect())
+    }
+
+    fn list_memories_by_layer(
+        &mut self,
+        layer: memvid_core::agent_memory::enums::MemoryLayer,
+    ) -> Result<Vec<DurableMemory>> {
+        self.list_memory_versions_by_layer(layer)
+    }
+
+    fn list_memories_for_belief(
+        &mut self,
+        _entity: &str,
+        _slot: &str,
+    ) -> Result<Vec<DurableMemory>> {
+        Ok(Vec::new())
+    }
+
+    fn expire_memory(&mut self, _memory_id: &str) -> Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn retrieval_batches_access_touches_once_per_operation() {
+    let now = ts(1_700_000_180);
+    let sink = InMemoryAuditSink::default();
+    let clock = Arc::new(FixedClock::new(now));
+    let policy = PolicySet::default();
+    let first = durable(
+        "user",
+        "favorite_editor",
+        "vim",
+        "The user prefers vim for editing",
+        MemoryType::Preference,
+        SourceType::Chat,
+        0.75,
+        ts(1_700_000_000),
+    );
+    let second = durable(
+        "user",
+        "favorite_shell",
+        "fish",
+        "The user prefers fish for shell work",
+        MemoryType::Preference,
+        SourceType::Chat,
+        0.75,
+        ts(1_700_000_010),
+    );
+    let hits = vec![
+        RetrievalHit {
+            memory_id: Some(first.memory_id.clone()),
+            belief_id: None,
+            entity: Some(first.entity.clone()),
+            slot: Some(first.slot.clone()),
+            value: Some(first.value.clone()),
+            text: first.raw_text.clone(),
+            memory_layer: Some(first.memory_layer()),
+            memory_type: Some(first.memory_type),
+            score: 0.9,
+            timestamp: first.event_timestamp(),
+            scope: Some(first.scope),
+            source: Some(first.source.source_type),
+            from_belief: false,
+            expired: false,
+            metadata: BTreeMap::new(),
+        },
+        RetrievalHit {
+            memory_id: Some(second.memory_id.clone()),
+            belief_id: None,
+            entity: Some(second.entity.clone()),
+            slot: Some(second.slot.clone()),
+            value: Some(second.value.clone()),
+            text: second.raw_text.clone(),
+            memory_layer: Some(second.memory_layer()),
+            memory_type: Some(second.memory_type),
+            score: 0.8,
+            timestamp: second.event_timestamp(),
+            scope: Some(second.scope),
+            source: Some(second.source.source_type),
+            from_belief: false,
+            expired: false,
+            metadata: BTreeMap::new(),
+        },
+        RetrievalHit {
+            memory_id: Some("trace:1".to_string()),
+            belief_id: None,
+            entity: None,
+            slot: None,
+            value: None,
+            text: "trace".to_string(),
+            memory_layer: Some(memvid_core::agent_memory::enums::MemoryLayer::Trace),
+            memory_type: Some(MemoryType::Trace),
+            score: 0.2,
+            timestamp: now,
+            scope: None,
+            source: None,
+            from_belief: false,
+            expired: false,
+            metadata: BTreeMap::new(),
+        },
+    ];
+    let store = CountingTouchStore::with_hits(vec![first.clone(), second.clone()], hits);
+    let mut controller = MemoryController::new(
+        store,
+        clock.clone(),
+        AuditLogger::new(clock.clone(), Arc::new(sink)),
+        MemoryClassifier,
+        MemoryPromoter::new(policy.clone()),
+        BeliefUpdater,
+        MemoryRetriever::new(Ranker, RetentionManager::new(policy)),
+    );
+
+    controller
+        .retrieve(RetrievalQuery {
+            query_text: "preferred tools".to_string(),
+            intent: QueryIntent::SemanticBackground,
+            entity: None,
+            slot: None,
+            scope: None,
+            top_k: 5,
+            as_of: None,
+            include_expired: false,
+        })
+        .expect("retrieval succeeds");
+
+    assert_eq!(controller.store().batch_calls, 1);
+    assert_eq!(controller.store().single_calls, 0);
+    assert_eq!(controller.store().commit_like_operations, 1);
+    assert_eq!(
+        controller.store().last_batch_ids,
+        vec![first.memory_id, second.memory_id]
     );
 }

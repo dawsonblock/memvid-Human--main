@@ -19,11 +19,19 @@ const BELIEF_PREFIX: &str = "__agent_memory_belief__";
 const EXPIRY_PREFIX: &str = "__agent_memory_expiry__";
 const ACCESS_PREFIX: &str = "__agent_memory_access__";
 
+type AccessTouch = (DateTime<Utc>, u32);
+
 /// Narrow governed-memory store abstraction.
 pub trait MemoryStore {
     fn put_trace(&mut self, raw_text: &str, metadata: BTreeMap<String, String>) -> Result<String>;
     fn put_memory(&mut self, memory: &DurableMemory) -> Result<String>;
     fn touch_memory_access(&mut self, memory_id: &str, accessed_at: DateTime<Utc>) -> Result<()>;
+    fn touch_memory_accesses(&mut self, touches: &[(String, DateTime<Utc>)]) -> Result<()> {
+        for (memory_id, accessed_at) in touches {
+            self.touch_memory_access(memory_id, accessed_at.to_owned())?;
+        }
+        Ok(())
+    }
     fn update_belief(&mut self, belief: &BeliefRecord) -> Result<()>;
     fn get_active_belief(&mut self, entity: &str, slot: &str) -> Result<Option<BeliefRecord>>;
     fn get_current_belief(&mut self, entity: &str, slot: &str) -> Result<Option<BeliefRecord>>;
@@ -265,8 +273,9 @@ fn dedup_search_hits(hits: Vec<RetrievalHit>) -> Vec<RetrievalHit> {
         };
         match deduped.get(&identity) {
             Some(existing)
-                if existing.score > hit.score
-                    || (existing.score == hit.score && existing.timestamp >= hit.timestamp) => {}
+                if existing.score.total_cmp(&hit.score).is_gt()
+                    || (existing.score.total_cmp(&hit.score).is_eq()
+                        && existing.timestamp >= hit.timestamp) => {}
             _ => {
                 deduped.insert(identity, hit);
             }
@@ -281,6 +290,26 @@ fn dedup_search_hits(hits: Vec<RetrievalHit>) -> Vec<RetrievalHit> {
             .then_with(|| right.timestamp.cmp(&left.timestamp))
     });
     hits
+}
+
+fn aggregate_batch_touches(
+    touches: &[(String, DateTime<Utc>)],
+) -> Vec<(String, DateTime<Utc>, u32)> {
+    let mut aggregated: Vec<(String, DateTime<Utc>, u32)> = Vec::new();
+    let mut index_by_memory_id: HashMap<&str, usize> = HashMap::new();
+
+    for (memory_id, accessed_at) in touches {
+        if let Some(index) = index_by_memory_id.get(memory_id.as_str()).copied() {
+            let (_, latest_accessed_at, occurrences) = &mut aggregated[index];
+            *latest_accessed_at = (*latest_accessed_at).max(*accessed_at);
+            *occurrences = occurrences.saturating_add(1);
+        } else {
+            index_by_memory_id.insert(memory_id.as_str(), aggregated.len());
+            aggregated.push((memory_id.clone(), *accessed_at, 1));
+        }
+    }
+
+    aggregated
 }
 
 fn belief_entity(entity: &str) -> String {
@@ -330,6 +359,7 @@ pub struct InMemoryMemoryStore {
     memories: Vec<DurableMemory>,
     beliefs: HashMap<(String, String), BeliefRecord>,
     expired: HashSet<String>,
+    access_touches: HashMap<String, AccessTouch>,
 }
 
 impl InMemoryMemoryStore {
@@ -347,6 +377,34 @@ impl InMemoryMemoryStore {
     pub fn beliefs(&self) -> &HashMap<(String, String), BeliefRecord> {
         &self.beliefs
     }
+
+    fn latest_stored_memory(&self, memory_id: &str) -> Option<DurableMemory> {
+        latest_memories_by_id(
+            self.memories
+                .iter()
+                .filter(|memory| memory.memory_id == memory_id)
+                .cloned(),
+        )
+        .into_iter()
+        .next()
+    }
+
+    fn apply_access_touch(&self, mut memory: DurableMemory) -> DurableMemory {
+        if let Some((accessed_at, retrieval_count)) = self.access_touches.get(&memory.memory_id)
+            && memory
+                .last_accessed_at()
+                .is_none_or(|existing| *accessed_at > existing)
+        {
+            memory
+                .metadata
+                .insert("retrieval_count".to_string(), retrieval_count.to_string());
+            memory
+                .metadata
+                .insert("last_accessed_at".to_string(), accessed_at.to_rfc3339());
+            memory.updated_at = Some(memory.version_timestamp().max(accessed_at.to_owned()));
+        }
+        memory
+    }
 }
 
 impl MemoryStore for InMemoryMemoryStore {
@@ -363,24 +421,28 @@ impl MemoryStore for InMemoryMemoryStore {
     }
 
     fn touch_memory_access(&mut self, memory_id: &str, accessed_at: DateTime<Utc>) -> Result<()> {
-        let latest_index = self
-            .memories
-            .iter()
-            .enumerate()
-            .filter(|(_, memory)| memory.memory_id == memory_id)
-            .fold(None, |latest, (index, memory)| match latest {
-                Some((latest_index, latest_memory)) if !memory_is_newer(memory, latest_memory) => {
-                    Some((latest_index, latest_memory))
-                }
-                _ => Some((index, memory)),
-            })
-            .map(|(index, _)| index);
+        self.touch_memory_accesses(&[(memory_id.to_string(), accessed_at)])
+    }
 
-        if let Some(index) = latest_index {
-            let updated = self.memories[index]
-                .clone()
-                .with_retrieval_access(accessed_at);
-            self.memories[index] = updated;
+    fn touch_memory_accesses(&mut self, touches: &[(String, DateTime<Utc>)]) -> Result<()> {
+        for (memory_id, accessed_at, occurrences) in aggregate_batch_touches(touches) {
+            let Some(memory) = self.get_memory(&memory_id)? else {
+                continue;
+            };
+            let mut touched = memory;
+            touched.metadata.insert(
+                "retrieval_count".to_string(),
+                touched
+                    .retrieval_count()
+                    .saturating_add(occurrences)
+                    .to_string(),
+            );
+            touched
+                .metadata
+                .insert("last_accessed_at".to_string(), accessed_at.to_rfc3339());
+            touched.updated_at = Some(touched.version_timestamp().max(accessed_at));
+            self.access_touches
+                .insert(memory_id, (accessed_at, touched.retrieval_count()));
         }
 
         Ok(())
@@ -416,19 +478,17 @@ impl MemoryStore for InMemoryMemoryStore {
     }
 
     fn get_memory(&mut self, memory_id: &str) -> Result<Option<DurableMemory>> {
-        Ok(latest_memories_by_id(
-            self.memories
-                .iter()
-                .filter(|memory| memory.memory_id == memory_id)
-                .cloned(),
-        )
-        .into_iter()
-        .next())
+        Ok(self
+            .latest_stored_memory(memory_id)
+            .map(|memory| self.apply_access_touch(memory)))
     }
 
     fn search(&mut self, query: &RetrievalQuery) -> Result<Vec<RetrievalHit>> {
         let mut hits = Vec::new();
-        for memory in latest_memories_by_id(self.memories.clone()) {
+        for memory in latest_memories_by_id(self.memories.clone())
+            .into_iter()
+            .map(|memory| self.apply_access_touch(memory))
+        {
             if let Some(scope) = query.scope
                 && memory.scope != scope
             {
@@ -505,7 +565,7 @@ impl MemoryStore for InMemoryMemoryStore {
                 scope: query.scope,
                 source: metadata
                     .get("source_type")
-                    .and_then(|value| Some(parse_source_type(Some(value)))),
+                    .map(|value| parse_source_type(Some(value))),
                 from_belief: false,
                 expired: false,
                 metadata: metadata.clone(),
@@ -514,6 +574,15 @@ impl MemoryStore for InMemoryMemoryStore {
         let mut hits = dedup_search_hits(hits);
         hits.truncate(query.top_k.saturating_mul(4));
         Ok(hits)
+    }
+
+    fn list_memories_by_layer(&mut self, layer: MemoryLayer) -> Result<Vec<DurableMemory>> {
+        Ok(
+            latest_memories_by_id(self.list_memory_versions_by_layer(layer)?)
+                .into_iter()
+                .map(|memory| self.apply_access_touch(memory))
+                .collect(),
+        )
     }
 
     fn list_memory_versions_by_layer(&mut self, layer: MemoryLayer) -> Result<Vec<DurableMemory>> {
@@ -525,20 +594,11 @@ impl MemoryStore for InMemoryMemoryStore {
             .collect())
     }
 
-    fn list_memories_by_layer(&mut self, layer: MemoryLayer) -> Result<Vec<DurableMemory>> {
-        Ok(latest_memories_by_id(self.list_memory_versions_by_layer(layer)?))
-    }
-
     fn list_memories_for_belief(&mut self, entity: &str, slot: &str) -> Result<Vec<DurableMemory>> {
         Ok(self
-            .memories
-            .iter()
-            .filter(|memory| {
-                memory.memory_layer() == MemoryLayer::Belief
-                    && memory.entity == entity
-                    && memory.slot == slot
-            })
-            .cloned()
+            .list_memories_by_layer(MemoryLayer::Belief)?
+            .into_iter()
+            .filter(|memory| memory.entity == entity && memory.slot == slot)
             .collect())
     }
 
@@ -551,12 +611,16 @@ impl MemoryStore for InMemoryMemoryStore {
 /// Real adapter over memvid frame + memories APIs.
 pub struct MemvidStore {
     memvid: Memvid,
+    access_touch_cache: HashMap<String, Option<AccessTouch>>,
 }
 
 impl MemvidStore {
     #[must_use]
     pub fn new(memvid: Memvid) -> Self {
-        Self { memvid }
+        Self {
+            memvid,
+            access_touch_cache: HashMap::new(),
+        }
     }
 
     fn is_expired(&self, memory_id: &str) -> bool {
@@ -567,7 +631,15 @@ impl MemvidStore {
             .any(|card| !card.is_retracted())
     }
 
-    fn latest_access_touch(&mut self, memory_id: &str) -> Result<Option<(DateTime<Utc>, u32)>> {
+    fn cache_access_touch(&mut self, memory_id: String, touch: Option<AccessTouch>) {
+        self.access_touch_cache.insert(memory_id, touch);
+    }
+
+    fn latest_access_touch(&mut self, memory_id: &str) -> Result<Option<AccessTouch>> {
+        if let Some(touch) = self.access_touch_cache.get(memory_id) {
+            return Ok(*touch);
+        }
+
         let mut latest = None;
         for card in self.memvid.memories().get_cards(access_entity(), memory_id) {
             if card.is_retracted() {
@@ -591,6 +663,7 @@ impl MemvidStore {
                 latest = Some((accessed_at, retrieval_count));
             }
         }
+        self.cache_access_touch(memory_id.to_string(), latest);
         Ok(latest)
     }
 
@@ -655,10 +728,7 @@ impl MemvidStore {
                 .cloned()
                 .unwrap_or_default(),
             raw_text,
-            memory_type: {
-                let memory_type = parse_memory_type(extra_metadata.get("agent_memory_type"));
-                memory_type
-            },
+            memory_type: parse_memory_type(extra_metadata.get("agent_memory_type")),
             confidence: extra_metadata
                 .get("agent_confidence")
                 .and_then(|value| value.parse::<f32>().ok())
@@ -766,6 +836,15 @@ impl MemvidStore {
     fn frame_id_for_uri(&self, uri: &str) -> Result<u64> {
         Ok(self.memvid.frame_by_uri(uri)?.id)
     }
+
+    fn access_touch_uri(memory_id: &str, accessed_at: DateTime<Utc>) -> String {
+        format!(
+            "mv2://agent-memory/access/{memory_id}/{}",
+            accessed_at
+                .timestamp_nanos_opt()
+                .unwrap_or_else(|| accessed_at.timestamp_micros())
+        )
+    }
 }
 
 impl MemoryStore for MemvidStore {
@@ -853,54 +932,70 @@ impl MemoryStore for MemvidStore {
     }
 
     fn touch_memory_access(&mut self, memory_id: &str, accessed_at: DateTime<Utc>) -> Result<()> {
-        let Some(memory) = self.get_memory(memory_id)? else {
+        self.touch_memory_accesses(&[(memory_id.to_string(), accessed_at)])
+    }
+
+    fn touch_memory_accesses(&mut self, touches: &[(String, DateTime<Utc>)]) -> Result<()> {
+        let mut pending = Vec::new();
+
+        for (memory_id, accessed_at, occurrences) in aggregate_batch_touches(touches) {
+            let Some(memory) = self.get_memory(&memory_id)? else {
+                continue;
+            };
+            let retrieval_count = memory.retrieval_count().saturating_add(occurrences);
+            let uri = Self::access_touch_uri(&memory_id, accessed_at);
+
+            self.memvid.put_bytes_with_options(
+                b"access_touch",
+                PutOptions {
+                    timestamp: Some(accessed_at.timestamp()),
+                    track: Some(TRACK_SYSTEM.to_string()),
+                    kind: Some("agent_memory_access_touch".to_string()),
+                    uri: Some(uri.clone()),
+                    search_text: Some(format!("access touch {memory_id}")),
+                    extra_metadata: BTreeMap::from([
+                        ("agent_memory_id".to_string(), memory_id.clone()),
+                        (
+                            "agent_last_accessed_at".to_string(),
+                            accessed_at.to_rfc3339(),
+                        ),
+                        (
+                            "agent_retrieval_count".to_string(),
+                            retrieval_count.to_string(),
+                        ),
+                    ]),
+                    ..PutOptions::default()
+                },
+            )?;
+            pending.push((memory_id, accessed_at, retrieval_count, uri));
+        }
+
+        if pending.is_empty() {
             return Ok(());
-        };
-        let touched = memory.with_retrieval_access(accessed_at);
-        let uri = format!(
-            "mv2://agent-memory/access/{memory_id}/{}",
-            accessed_at
-                .timestamp_nanos_opt()
-                .unwrap_or_else(|| accessed_at.timestamp_micros())
-        );
-        self.memvid.put_bytes_with_options(
-            b"access_touch",
-            PutOptions {
-                timestamp: Some(accessed_at.timestamp()),
-                track: Some(TRACK_SYSTEM.to_string()),
-                kind: Some("agent_memory_access_touch".to_string()),
-                uri: Some(uri.clone()),
-                search_text: Some(format!("access touch {memory_id}")),
-                extra_metadata: BTreeMap::from([
-                    ("agent_memory_id".to_string(), memory_id.to_string()),
-                    (
-                        "agent_last_accessed_at".to_string(),
-                        accessed_at.to_rfc3339(),
-                    ),
-                    (
-                        "agent_retrieval_count".to_string(),
-                        touched.retrieval_count().to_string(),
-                    ),
-                ]),
-                ..PutOptions::default()
-            },
-        )?;
+        }
+
         self.memvid.commit()?;
-        let frame_id = self.frame_id_for_uri(&uri)?;
-        let card = MemoryCardBuilder::new()
-            .kind(MemoryKind::Other)
-            .entity(access_entity())
-            .slot(memory_id.to_string())
-            .value(accessed_at.to_rfc3339())
-            .source(frame_id, Some(uri))
-            .engine("agent_memory", "1")
-            .document_date(accessed_at.timestamp())
-            .build(0)
-            .map_err(|err| AgentMemoryError::Store {
-                reason: err.to_string(),
-            })?;
-        self.memvid.put_memory_card(card)?;
+
+        for (memory_id, accessed_at, _retrieval_count, uri) in &pending {
+            let frame_id = self.frame_id_for_uri(uri)?;
+            let card = MemoryCardBuilder::new()
+                .kind(MemoryKind::Other)
+                .entity(access_entity())
+                .slot(memory_id.clone())
+                .value(accessed_at.to_rfc3339())
+                .source(frame_id, Some(uri.clone()))
+                .engine("agent_memory", "1")
+                .document_date(accessed_at.timestamp())
+                .build(0)
+                .map_err(|err| AgentMemoryError::Store {
+                    reason: err.to_string(),
+                })?;
+            self.memvid.put_memory_card(card)?;
+        }
         self.memvid.commit()?;
+        for (memory_id, accessed_at, retrieval_count, _) in pending {
+            self.cache_access_touch(memory_id, Some((accessed_at, retrieval_count)));
+        }
         Ok(())
     }
 

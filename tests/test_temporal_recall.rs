@@ -96,9 +96,16 @@ fn retrieval_touch_does_not_move_historical_visibility_window() {
         .memories()
         .iter()
         .find(|memory| memory.memory_id == memory_id)
-        .expect("memory stored");
+        .expect("memory stored")
+        .clone();
+    let effective = controller
+        .store_mut()
+        .get_memory(&memory_id)
+        .expect("lookup succeeds")
+        .expect("memory available");
     assert_eq!(stored.stored_at, ingested_at);
-    assert_eq!(stored.version_timestamp(), accessed_at);
+    assert_eq!(stored.version_timestamp(), ingested_at);
+    assert_eq!(effective.version_timestamp(), accessed_at);
 
     let historical_hits = controller
         .retrieve(RetrievalQuery {
@@ -122,6 +129,56 @@ fn retrieval_touch_does_not_move_historical_visibility_window() {
             .first()
             .and_then(|hit| hit.metadata.get("stored_at"))
             .map(String::as_str),
+        Some(ingested_at.to_rfc3339().as_str())
+    );
+}
+
+#[test]
+fn multiple_access_touches_preserve_historical_visibility() {
+    let mut store = InMemoryMemoryStore::default();
+    let ingested_at = ts(1_700_000_000);
+    let first_access = ts(1_700_050_000);
+    let second_access = ts(1_700_100_000);
+    let memory = durable(
+        "user",
+        "timezone",
+        "UTC+1",
+        "The user usually works in UTC+1",
+        MemoryType::Fact,
+        SourceType::Chat,
+        0.8,
+        ingested_at,
+    );
+    store.put_memory(&memory).expect("memory stored");
+    store
+        .touch_memory_accesses(&[
+            (memory.memory_id.clone(), first_access),
+            (memory.memory_id.clone(), second_access),
+        ])
+        .expect("touches stored");
+
+    let retriever = MemoryRetriever::new(Ranker, RetentionManager::new(PolicySet::default()));
+    let hits = retriever
+        .retrieve(
+            &mut store,
+            &RetrievalQuery {
+                query_text: "what timezone did the user use earlier".to_string(),
+                intent: QueryIntent::HistoricalFact,
+                entity: Some("user".to_string()),
+                slot: Some("timezone".to_string()),
+                scope: None,
+                top_k: 1,
+                as_of: Some(ts(1_700_010_000)),
+                include_expired: false,
+            },
+            &FixedClock::new(ts(1_700_200_000)),
+        )
+        .expect("historical retrieval works");
+
+    let hit = hits.first().expect("historical hit exists");
+    assert_eq!(hit.value.as_deref(), Some("UTC+1"));
+    assert_eq!(
+        hit.metadata.get("stored_at").map(String::as_str),
         Some(ingested_at.to_rfc3339().as_str())
     );
 }

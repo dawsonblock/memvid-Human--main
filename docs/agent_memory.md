@@ -27,8 +27,8 @@ logical-state access, but controller-governed ingest is the canonical write path
 
 Typed retrieval through `RetrievalQuery` remains the canonical read path. For obvious text-only
 queries, `MemoryController::retrieve_text(...)` and `RetrievalQuery::from_text(...)` provide a
-small rule-based convenience wrapper around `QueryIntentDetector`; they do not replace the typed
-contract.
+small rule-based convenience wrapper around `QueryIntentDetector`; they are not the authoritative
+semantic router and do not replace the typed contract.
 
 `PolicyProfile` is protected governance state, not ordinary memory. It is layered alongside the
 compatibility-first `PolicySet` and is intended to hold hard constraints, soft weights, and
@@ -360,15 +360,19 @@ without letting read touches move historical visibility.
 
 Access touches no longer write a fresh durable memory body. The store keeps retrieval metadata on a
 dedicated access-touch path so `retrieval_count`, `last_accessed_at`, and effective salience can
-advance without creating a new durable content version on every read.
+advance without creating a new durable content version or per-hit commit cycle on every read.
 
 ## Maintenance Status
 
-Governed memory currently has one live maintenance helper and one explicit stub:
+`MemoryController::run_maintenance()` is the explicit maintenance surface. It:
 
-- `MemoryDecay` is a callable helper that applies retention policy when a caller explicitly runs it.
-- `MemoryCompactor` is not live; `Memvid` owns low-level storage compaction and governed memory does
-  not currently add a separate logical compaction pass.
+- lists the current durable memories that governed maintenance can act on
+- runs `MemoryDecay`
+- returns the expired ids
+- reports `MemoryCompactor` status as unsupported
+
+`MemoryCompactor` is still an explicit stub; `Memvid` owns low-level storage compaction and
+governed memory does not currently add a separate logical compaction pass.
 
 There is no hidden background maintenance loop in `MemoryController`.
 
