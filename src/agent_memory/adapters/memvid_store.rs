@@ -4,7 +4,9 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use crate::Memvid;
-use crate::agent_memory::enums::{BeliefStatus, MemoryLayer, MemoryType, QueryIntent, Scope, SourceType};
+use crate::agent_memory::enums::{
+    BeliefStatus, MemoryLayer, MemoryType, QueryIntent, Scope, SourceType,
+};
 use crate::agent_memory::errors::{AgentMemoryError, Result};
 use crate::agent_memory::schemas::{BeliefRecord, DurableMemory, RetrievalHit, RetrievalQuery};
 use crate::types::{AclEnforcementMode, MemoryCardBuilder, MemoryKind, PutOptions, SearchRequest};
@@ -28,6 +30,7 @@ pub trait MemoryStore {
     fn get_belief_by_id(&mut self, belief_id: &str) -> Result<Option<BeliefRecord>>;
     fn get_memory(&mut self, memory_id: &str) -> Result<Option<DurableMemory>>;
     fn search(&mut self, query: &RetrievalQuery) -> Result<Vec<RetrievalHit>>;
+    fn list_memory_versions_by_layer(&mut self, layer: MemoryLayer) -> Result<Vec<DurableMemory>>;
     fn list_memories_by_layer(&mut self, layer: MemoryLayer) -> Result<Vec<DurableMemory>>;
     fn list_memories_for_belief(&mut self, entity: &str, slot: &str) -> Result<Vec<DurableMemory>>;
     fn expire_memory(&mut self, memory_id: &str) -> Result<()>;
@@ -208,7 +211,10 @@ fn retrieval_metadata(memory: &DurableMemory) -> BTreeMap<String, String> {
     );
     metadata.insert(
         "event_at".to_string(),
-        memory.event_at.unwrap_or(memory.event_timestamp()).to_rfc3339(),
+        memory
+            .event_at
+            .unwrap_or(memory.event_timestamp())
+            .to_rfc3339(),
     );
     if let Some(valid_from) = memory.valid_from {
         metadata.insert("valid_from".to_string(), valid_from.to_rfc3339());
@@ -244,7 +250,11 @@ fn hit_identity(hit: &RetrievalHit) -> Option<String> {
     hit.memory_id
         .as_ref()
         .map(|memory_id| format!("memory:{memory_id}"))
-        .or_else(|| hit.belief_id.as_ref().map(|belief_id| format!("belief:{belief_id}")))
+        .or_else(|| {
+            hit.belief_id
+                .as_ref()
+                .map(|belief_id| format!("belief:{belief_id}"))
+        })
 }
 
 fn dedup_search_hits(hits: Vec<RetrievalHit>) -> Vec<RetrievalHit> {
@@ -359,9 +369,7 @@ impl MemoryStore for InMemoryMemoryStore {
             .enumerate()
             .filter(|(_, memory)| memory.memory_id == memory_id)
             .fold(None, |latest, (index, memory)| match latest {
-                Some((latest_index, latest_memory))
-                    if !memory_is_newer(memory, latest_memory) =>
-                {
+                Some((latest_index, latest_memory)) if !memory_is_newer(memory, latest_memory) => {
                     Some((latest_index, latest_memory))
                 }
                 _ => Some((index, memory)),
@@ -510,11 +518,17 @@ impl MemoryStore for InMemoryMemoryStore {
 
     fn list_memories_by_layer(&mut self, layer: MemoryLayer) -> Result<Vec<DurableMemory>> {
         Ok(latest_memories_by_id(
-            self.memories
-                .iter()
-                .filter(|memory| memory.memory_layer() == layer)
-                .cloned(),
+            self.list_memory_versions_by_layer(layer)?,
         ))
+    }
+
+    fn list_memory_versions_by_layer(&mut self, layer: MemoryLayer) -> Result<Vec<DurableMemory>> {
+        Ok(self
+            .memories
+            .iter()
+            .filter(|memory| memory.memory_layer() == layer)
+            .cloned()
+            .collect())
     }
 
     fn list_memories_for_belief(&mut self, entity: &str, slot: &str) -> Result<Vec<DurableMemory>> {
@@ -555,17 +569,16 @@ impl MemvidStore {
             .any(|card| !card.is_retracted())
     }
 
-    fn latest_access_touch(
-        &mut self,
-        memory_id: &str,
-    ) -> Result<Option<(DateTime<Utc>, u32)>> {
+    fn latest_access_touch(&mut self, memory_id: &str) -> Result<Option<(DateTime<Utc>, u32)>> {
         let mut latest = None;
         for card in self.memvid.memories().get_cards(access_entity(), memory_id) {
             if card.is_retracted() {
                 continue;
             }
             let frame = self.memvid.frame_by_id(card.source_frame_id)?;
-            let Some(accessed_at) = parse_datetime(frame.extra_metadata.get("agent_last_accessed_at"))? else {
+            let Some(accessed_at) =
+                parse_datetime(frame.extra_metadata.get("agent_last_accessed_at"))?
+            else {
                 continue;
             };
             let retrieval_count = frame
@@ -589,14 +602,12 @@ impl MemvidStore {
                 .last_accessed_at()
                 .is_none_or(|existing| accessed_at > existing)
             {
-                memory.metadata.insert(
-                    "retrieval_count".to_string(),
-                    retrieval_count.to_string(),
-                );
-                memory.metadata.insert(
-                    "last_accessed_at".to_string(),
-                    accessed_at.to_rfc3339(),
-                );
+                memory
+                    .metadata
+                    .insert("retrieval_count".to_string(), retrieval_count.to_string());
+                memory
+                    .metadata
+                    .insert("last_accessed_at".to_string(), accessed_at.to_rfc3339());
                 memory.updated_at = Some(memory.version_timestamp().max(accessed_at));
             }
         }
@@ -850,7 +861,9 @@ impl MemoryStore for MemvidStore {
         let touched = memory.with_retrieval_access(accessed_at);
         let uri = format!(
             "mv2://agent-memory/access/{memory_id}/{}",
-            accessed_at.timestamp_nanos_opt().unwrap_or_else(|| accessed_at.timestamp_micros())
+            accessed_at
+                .timestamp_nanos_opt()
+                .unwrap_or_else(|| accessed_at.timestamp_micros())
         );
         self.memvid.put_bytes_with_options(
             b"access_touch",
@@ -995,7 +1008,10 @@ impl MemoryStore for MemvidStore {
                 continue;
             }
             let timestamp = card.effective_timestamp();
-            if latest.as_ref().is_none_or(|(current_timestamp, _)| timestamp > *current_timestamp) {
+            if latest
+                .as_ref()
+                .is_none_or(|(current_timestamp, _)| timestamp > *current_timestamp)
+            {
                 latest = Some((timestamp, belief));
             }
         }
@@ -1011,10 +1027,16 @@ impl MemoryStore for MemvidStore {
                 continue;
             }
             let frame = self.memvid.frame_by_id(card.source_frame_id)?;
-            if frame.extra_metadata.get("agent_memory_id").map(String::as_str) != Some(memory_id) {
+            if frame
+                .extra_metadata
+                .get("agent_memory_id")
+                .map(String::as_str)
+                != Some(memory_id)
+            {
                 continue;
             }
-            let memory = self.build_durable_from_frame(card.source_frame_id, &frame.extra_metadata)?;
+            let memory =
+                self.build_durable_from_frame(card.source_frame_id, &frame.extra_metadata)?;
             if latest
                 .as_ref()
                 .is_none_or(|existing| memory_is_newer(&memory, existing))
@@ -1068,10 +1090,13 @@ impl MemoryStore for MemvidStore {
                     .unwrap_or_else(|| query.as_of.unwrap_or_else(Utc::now));
                 if let Some(as_of) = query.as_of
                     && match query.intent {
-                        QueryIntent::HistoricalFact | QueryIntent::EpisodicRecall => as_of_anchor > as_of,
-                        _ => parse_datetime(extra.get("agent_stored_at"))?
-                            .unwrap_or(as_of_anchor)
-                            > as_of,
+                        QueryIntent::HistoricalFact | QueryIntent::EpisodicRecall => {
+                            as_of_anchor > as_of
+                        }
+                        _ => {
+                            parse_datetime(extra.get("agent_stored_at"))?.unwrap_or(as_of_anchor)
+                                > as_of
+                        }
                     }
                 {
                     continue;
@@ -1087,7 +1112,10 @@ impl MemoryStore for MemvidStore {
                     slot: extra.get("agent_slot").cloned(),
                     value: extra.get("agent_value").cloned(),
                     text: hit.chunk_text.unwrap_or(hit.text),
-                    memory_layer: Some(parse_memory_layer(extra.get("agent_memory_layer"), memory_type)),
+                    memory_layer: Some(parse_memory_layer(
+                        extra.get("agent_memory_layer"),
+                        memory_type,
+                    )),
                     memory_type: Some(memory_type),
                     score: hit.score.unwrap_or(0.1),
                     timestamp,
@@ -1138,18 +1166,14 @@ impl MemoryStore for MemvidStore {
                                 "last_accessed_at".to_string(),
                                 last_accessed_at.to_rfc3339(),
                             );
-                            metadata.insert(
-                                "retrieval_count".to_string(),
-                                retrieval_count.to_string(),
-                            );
+                            metadata
+                                .insert("retrieval_count".to_string(), retrieval_count.to_string());
                             let version_timestamp = parse_datetime(extra.get("agent_updated_at"))?
                                 .or(parse_datetime(extra.get("agent_stored_at"))?)
                                 .unwrap_or(last_accessed_at)
                                 .max(last_accessed_at);
-                            metadata.insert(
-                                "updated_at".to_string(),
-                                version_timestamp.to_rfc3339(),
-                            );
+                            metadata
+                                .insert("updated_at".to_string(), version_timestamp.to_rfc3339());
                         }
                         if let Some(valid_from) = extra.get("agent_valid_from") {
                             metadata.insert("valid_from".to_string(), valid_from.clone());
@@ -1191,6 +1215,13 @@ impl MemoryStore for MemvidStore {
     }
 
     fn list_memories_by_layer(&mut self, layer: MemoryLayer) -> Result<Vec<DurableMemory>> {
+        latest_memories_by_id(self.list_memory_versions_by_layer(layer)?)
+            .into_iter()
+            .map(|memory| self.apply_access_touch(memory))
+            .collect()
+    }
+
+    fn list_memory_versions_by_layer(&mut self, layer: MemoryLayer) -> Result<Vec<DurableMemory>> {
         let cards: Vec<_> = self.memvid.memories().cards().to_vec();
         let mut memories = Vec::new();
         for card in &cards {
@@ -1207,10 +1238,7 @@ impl MemoryStore for MemvidStore {
                 memories.push(memory);
             }
         }
-        latest_memories_by_id(memories)
-            .into_iter()
-            .map(|memory| self.apply_access_touch(memory))
-            .collect()
+        Ok(memories)
     }
 
     fn list_memories_for_belief(&mut self, entity: &str, slot: &str) -> Result<Vec<DurableMemory>> {

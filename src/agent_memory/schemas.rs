@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 
 use super::enums::{
     BeliefStatus, BeliefViewStatus, GoalStatus, MemoryLayer, MemoryType, OutcomeFeedbackKind,
-    ProcedureStatus, PromotionDecision, QueryIntent, Scope, SelfModelKind,
-    SelfModelStabilityClass, SelfModelUpdateRequirement, SourceType,
+    ProcedureStatus, PromotionDecision, QueryIntent, Scope, SelfModelKind, SelfModelStabilityClass,
+    SelfModelUpdateRequirement, SourceType,
 };
 use super::policy::ReasonCode;
 
@@ -256,10 +256,8 @@ impl DurableMemory {
             RETRIEVAL_COUNT_KEY.to_string(),
             self.retrieval_count().saturating_add(1).to_string(),
         );
-        self.metadata.insert(
-            LAST_ACCESSED_AT_KEY.to_string(),
-            accessed_at.to_rfc3339(),
-        );
+        self.metadata
+            .insert(LAST_ACCESSED_AT_KEY.to_string(), accessed_at.to_rfc3339());
         self.updated_at = Some(accessed_at);
         self
     }
@@ -330,10 +328,8 @@ impl DurableMemory {
                 );
             }
         }
-        self.metadata.insert(
-            LAST_OUTCOME_AT_KEY.to_string(),
-            observed_at.to_rfc3339(),
-        );
+        self.metadata
+            .insert(LAST_OUTCOME_AT_KEY.to_string(), observed_at.to_rfc3339());
         self.metadata.insert(
             LAST_FEEDBACK_OUTCOME_KEY.to_string(),
             outcome.as_str().to_string(),
@@ -746,7 +742,10 @@ pub struct BeliefRecord {
 impl BeliefRecord {
     #[must_use]
     pub fn strongest_source_weight(&self) -> f32 {
-        self.source_weights.values().copied().fold(0.0_f32, f32::max)
+        self.source_weights
+            .values()
+            .copied()
+            .fold(0.0_f32, f32::max)
     }
 
     #[must_use]

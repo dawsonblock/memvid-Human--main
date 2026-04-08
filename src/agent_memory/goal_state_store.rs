@@ -25,8 +25,7 @@ impl<'a, S: MemoryStore> GoalStateStore<'a, S> {
         }
         if !memory.has_required_structure_for(MemoryLayer::GoalState) {
             return Err(AgentMemoryError::InvalidCandidate {
-                reason: "goal-state store requires non-empty entity, slot, and value"
-                    .to_string(),
+                reason: "goal-state store requires non-empty entity, slot, and value".to_string(),
             });
         }
 

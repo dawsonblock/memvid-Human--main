@@ -285,8 +285,13 @@ The subsystem provides a **six-layer bounded memory architecture**:
 | `Procedure` | Learned procedural knowledge with lifecycle governance |
 
 Ingest is done through `MemoryController::ingest(candidate)`, which classifies, promotes, and
-audits every memory candidate before storage. See [docs/agent_memory.md](docs/agent_memory.md)
-for details.
+audits every memory candidate before storage. Typed retrieval through `RetrievalQuery` remains the
+canonical read path; `MemoryController::retrieve_text(...)` and `RetrievalQuery::from_text(...)`
+are convenience wrappers for obvious text-only queries. Durable memories now preserve immutable
+ingest time separately from mutable update/access time, and read touches update access metadata
+without writing a fresh durable content body. `MemoryDecay` is an explicit helper, while
+`MemoryCompactor` remains an unsupported governed-memory stub. See
+[docs/agent_memory.md](docs/agent_memory.md) for details.
 
 ---
 

@@ -3,9 +3,7 @@ use std::collections::HashSet;
 use chrono::{DateTime, Utc};
 
 use super::adapters::memvid_store::MemoryStore;
-use super::enums::{
-    BeliefStatus, MemoryLayer, SelfModelKind, SelfModelStabilityClass,
-};
+use super::enums::{BeliefStatus, MemoryLayer, SelfModelKind, SelfModelStabilityClass};
 use super::errors::{AgentMemoryError, Result};
 use super::schemas::{DurableMemory, SelfModelRecord};
 
@@ -31,8 +29,7 @@ impl<'a, S: MemoryStore> SelfModelStore<'a, S> {
         }
         if !memory.has_required_structure_for(MemoryLayer::SelfModel) {
             return Err(AgentMemoryError::InvalidCandidate {
-                reason: "self-model store requires non-empty entity, slot, and value"
-                    .to_string(),
+                reason: "self-model store requires non-empty entity, slot, and value".to_string(),
             });
         }
 
@@ -63,10 +60,9 @@ impl<'a, S: MemoryStore> SelfModelStore<'a, S> {
         self_model_memory.slot = slot.to_string();
         self_model_memory.value = value.to_string();
         let kind = SelfModelKind::from_slot(&self_model_memory.slot);
-        self_model_memory.metadata.insert(
-            "self_model_kind".to_string(),
-            kind.as_str().to_string(),
-        );
+        self_model_memory
+            .metadata
+            .insert("self_model_kind".to_string(), kind.as_str().to_string());
         self_model_memory.metadata.insert(
             "self_model_stability_class".to_string(),
             kind.stability_class().as_str().to_string(),
@@ -87,7 +83,9 @@ impl<'a, S: MemoryStore> SelfModelStore<'a, S> {
         if let Some(existing_memory) = existing {
             let mut supporting_ids = Self::supporting_ids(&existing_memory);
             if let Some(episode_id) = supporting_episode_id
-                && !supporting_ids.iter().any(|existing_id| existing_id == episode_id)
+                && !supporting_ids
+                    .iter()
+                    .any(|existing_id| existing_id == episode_id)
             {
                 supporting_ids.push(episode_id.to_string());
             }
@@ -101,7 +99,8 @@ impl<'a, S: MemoryStore> SelfModelStore<'a, S> {
                     + 1;
                 self_model_memory.memory_id = existing_memory.memory_id.clone();
                 self_model_memory.stored_at = existing_memory.stored_at;
-                self_model_memory.confidence = self_model_memory.confidence.max(existing_memory.confidence);
+                self_model_memory.confidence =
+                    self_model_memory.confidence.max(existing_memory.confidence);
                 self_model_memory.metadata.insert(
                     "reinforcement_count".to_string(),
                     reinforcement_count.to_string(),
@@ -119,15 +118,16 @@ impl<'a, S: MemoryStore> SelfModelStore<'a, S> {
                     kind.stability_class().as_str().to_string(),
                 );
             } else {
-                let new_strength = self_model_memory.confidence + self_model_memory.source.trust_weight;
-                let existing_strength = existing_memory.confidence + existing_memory.source.trust_weight;
+                let new_strength =
+                    self_model_memory.confidence + self_model_memory.source.trust_weight;
+                let existing_strength =
+                    existing_memory.confidence + existing_memory.source.trust_weight;
                 let forced_update = self_model_memory
                     .metadata
                     .contains_key("stable_directive_update_path");
-                self_model_memory.metadata.insert(
-                    "prior_value".to_string(),
-                    existing_memory.value.clone(),
-                );
+                self_model_memory
+                    .metadata
+                    .insert("prior_value".to_string(), existing_memory.value.clone());
                 self_model_memory.metadata.insert(
                     "conflict_observed_at".to_string(),
                     self_model_memory.version_timestamp().to_rfc3339(),
@@ -233,8 +233,11 @@ impl<'a, S: MemoryStore> SelfModelStore<'a, S> {
         }
 
         Ok(self
-            .list_for_entity(entity)?
+            .store
+            .list_memory_versions_by_layer(MemoryLayer::SelfModel)?
             .into_iter()
+            .filter_map(|memory| memory.to_self_model_record())
+            .filter(|record| record.entity == entity)
             .filter(|record| record.slot == slot && record.value == value)
             .collect())
     }

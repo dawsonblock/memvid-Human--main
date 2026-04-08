@@ -5,8 +5,8 @@ use memvid_core::agent_memory::clock::FixedClock;
 use memvid_core::agent_memory::consolidation_engine::ConsolidationEngine;
 use memvid_core::agent_memory::enums::MemoryLayer;
 use memvid_core::agent_memory::enums::{
-    BeliefStatus, MemoryType, SelfModelKind, SelfModelStabilityClass,
-    SelfModelUpdateRequirement, SourceType,
+    BeliefStatus, MemoryType, SelfModelKind, SelfModelStabilityClass, SelfModelUpdateRequirement,
+    SourceType,
 };
 use memvid_core::agent_memory::policy::ReasonCode;
 use memvid_core::agent_memory::self_model_store::SelfModelStore;
@@ -67,7 +67,10 @@ fn repeated_stable_preference_reinforces_one_logical_self_model_entry() {
     assert_eq!(latest.value, "concise");
     assert_eq!(latest.memory_id, first.memory_id);
     assert_eq!(
-        latest.metadata.get("reinforcement_count").map(String::as_str),
+        latest
+            .metadata
+            .get("reinforcement_count")
+            .map(String::as_str),
         Some("2")
     );
     assert_eq!(matching_records.len(), 2);
@@ -155,11 +158,17 @@ fn explicit_trusted_preference_statement_promotes_directly_to_self_model() {
         .find(|event| event.action == "promotion")
         .expect("promotion audit event present");
     assert_eq!(
-        promotion_event.details.get("route_basis").map(String::as_str),
+        promotion_event
+            .details
+            .get("route_basis")
+            .map(String::as_str),
         Some("trusted_source")
     );
     assert_eq!(
-        promotion_event.details.get("target_layer").map(String::as_str),
+        promotion_event
+            .details
+            .get("target_layer")
+            .map(String::as_str),
         Some("self_model")
     );
 }
@@ -201,7 +210,11 @@ fn rerunning_same_self_model_stabilization_evidence_is_idempotent() {
         .expect("consolidation succeeds");
     assert!(first_outcomes.iter().any(|outcome| {
         outcome.record.target_layer == MemoryLayer::SelfModel
-            && outcome.record.metadata.get("consolidation_action").map(String::as_str)
+            && outcome
+                .record
+                .metadata
+                .get("consolidation_action")
+                .map(String::as_str)
                 == Some("promotion")
     }));
 
@@ -305,9 +318,11 @@ fn weaker_contradictory_preference_is_disputed_without_replacing_active_trait() 
     };
 
     assert_eq!(latest.value, "concise");
-    assert!(all_records.iter().any(|record| {
-        record.value == "verbose" && record.status == BeliefStatus::Disputed
-    }));
+    assert!(
+        all_records
+            .iter()
+            .any(|record| { record.value == "verbose" && record.status == BeliefStatus::Disputed })
+    );
 }
 
 #[test]
@@ -379,9 +394,15 @@ fn repeated_contradiction_churn_preserves_one_effective_active_trait() {
             .count(),
         1
     );
-    assert!(all_records.iter().filter(|record| {
-        record.slot == "response_style" && record.status == BeliefStatus::Disputed
-    }).count() >= 1);
+    assert!(
+        all_records
+            .iter()
+            .filter(|record| {
+                record.slot == "response_style" && record.status == BeliefStatus::Disputed
+            })
+            .count()
+            >= 1
+    );
 }
 
 #[test]
@@ -465,9 +486,11 @@ fn stable_directive_resists_weak_overwrite_and_records_policy_rejection() {
     let error = controller
         .apply_durable_memory(weak_conflict, None)
         .expect_err("weak stable overwrite rejected");
-    assert!(error
-        .to_string()
-        .contains("stable directives require a trusted update path or corroborated evidence"));
+    assert!(
+        error
+            .to_string()
+            .contains("stable directives require a trusted update path or corroborated evidence")
+    );
 
     let latest = {
         let mut self_model_store = SelfModelStore::new(controller.store_mut());
@@ -489,7 +512,10 @@ fn stable_directive_resists_weak_overwrite_and_records_policy_rejection() {
         .find(|event| event.action == "policy_rejected")
         .expect("policy rejection event present");
     assert_eq!(
-        rejection_event.details.get("reason_code").map(String::as_str),
+        rejection_event
+            .details
+            .get("reason_code")
+            .map(String::as_str),
         Some(ReasonCode::StableDirectiveUpdateRejected.as_str())
     );
 }
@@ -539,7 +565,10 @@ fn stable_directive_can_update_through_trusted_path() {
         SelfModelStabilityClass::StableDirective
     );
     assert_eq!(
-        latest.metadata.get("stable_directive_update_path").map(String::as_str),
+        latest
+            .metadata
+            .get("stable_directive_update_path")
+            .map(String::as_str),
         Some("trusted_source")
     );
 }

@@ -105,9 +105,8 @@ impl BeliefUpdater {
                     if current.status == BeliefStatus::Disputed {
                         current.status = BeliefStatus::Active;
                         if let Some(last_contradiction_at) = current.last_contradiction_at {
-                            current.time_to_last_resolution_seconds = Some(
-                                (now.timestamp() - last_contradiction_at.timestamp()).max(0),
-                            );
+                            current.time_to_last_resolution_seconds =
+                                Some((now.timestamp() - last_contradiction_at.timestamp()).max(0));
                         }
                         current.last_contradiction_at = None;
                     }
@@ -147,9 +146,7 @@ impl BeliefUpdater {
                         last_contradiction_at: None,
                         time_to_last_resolution_seconds: current
                             .last_contradiction_at
-                            .map(|observed_at| {
-                                (now.timestamp() - observed_at.timestamp()).max(0)
-                            }),
+                            .map(|observed_at| (now.timestamp() - observed_at.timestamp()).max(0)),
                         positive_outcome_count: 0,
                         negative_outcome_count: 0,
                         last_outcome_at: None,
@@ -170,7 +167,8 @@ impl BeliefUpdater {
                     observed_new_conflict = true;
                 }
                 if observed_new_conflict {
-                    current.contradictions_observed = current.contradictions_observed.saturating_add(1);
+                    current.contradictions_observed =
+                        current.contradictions_observed.saturating_add(1);
                 }
                 current.last_contradiction_at = Some(now);
                 current.time_to_last_resolution_seconds = None;

@@ -114,9 +114,7 @@ fn retrieval_touch_does_not_move_historical_visibility_window() {
         .expect("historical retrieval succeeds");
 
     assert_eq!(
-        historical_hits
-            .first()
-            .and_then(|hit| hit.value.as_deref()),
+        historical_hits.first().and_then(|hit| hit.value.as_deref()),
         Some("UTC+1")
     );
     assert_eq!(

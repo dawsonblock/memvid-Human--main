@@ -159,9 +159,15 @@ impl<'a, S: MemoryStore> ProcedureStore<'a, S> {
             .to_string();
         let mut procedure_memory = memory.clone();
         procedure_memory.internal_layer = Some(MemoryLayer::Procedure);
-        procedure_memory.entity = memory.entity_non_empty().expect("validated entity").to_string();
+        procedure_memory.entity = memory
+            .entity_non_empty()
+            .expect("validated entity")
+            .to_string();
         procedure_memory.slot = memory.slot_non_empty().expect("validated slot").to_string();
-        procedure_memory.value = memory.value_non_empty().expect("validated value").to_string();
+        procedure_memory.value = memory
+            .value_non_empty()
+            .expect("validated value")
+            .to_string();
         procedure_memory
             .metadata
             .insert("workflow_key".to_string(), workflow_key.clone());
@@ -246,9 +252,10 @@ impl<'a, S: MemoryStore> ProcedureStore<'a, S> {
             return Ok(None);
         }
 
-        Ok(self.list_all()?.into_iter().find(|record| {
-            workflow_key_for(record) == workflow_key
-        }))
+        Ok(self
+            .list_all()?
+            .into_iter()
+            .find(|record| workflow_key_for(record) == workflow_key))
     }
 
     pub(crate) fn upsert_success(

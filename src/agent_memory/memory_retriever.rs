@@ -3,8 +3,8 @@ use std::collections::HashSet;
 use super::adapters::memvid_store::MemoryStore;
 use super::clock::Clock;
 use super::enums::{
-    BeliefStatus, BeliefViewStatus, MemoryLayer, MemoryType, ProcedureStatus, QueryIntent,
-    Scope, SourceType,
+    BeliefStatus, BeliefViewStatus, MemoryLayer, MemoryType, ProcedureStatus, QueryIntent, Scope,
+    SourceType,
 };
 use super::episode_store::EpisodeStore;
 use super::errors::Result;
@@ -13,8 +13,7 @@ use super::procedure_store::{ProcedureStore, effective_procedure_status};
 use super::ranker::{
     Ranker, SCORE_SIGNAL_CONTENT_MATCH_KEY, SCORE_SIGNAL_CONTRADICTION_KEY,
     SCORE_SIGNAL_EVIDENCE_STRENGTH_KEY, SCORE_SIGNAL_GOAL_RELEVANCE_KEY,
-    SCORE_SIGNAL_PROCEDURE_SUCCESS_KEY, SCORE_SIGNAL_SALIENCE_KEY,
-    SCORE_SIGNAL_SELF_RELEVANCE_KEY,
+    SCORE_SIGNAL_PROCEDURE_SUCCESS_KEY, SCORE_SIGNAL_SALIENCE_KEY, SCORE_SIGNAL_SELF_RELEVANCE_KEY,
 };
 use super::retention::RetentionManager;
 use super::schemas::{BeliefRecord, DurableMemory, ProcedureRecord, RetrievalHit, RetrievalQuery};
@@ -97,9 +96,12 @@ impl MemoryRetriever {
         }
 
         let policy_profile = self.retention.policy_profile();
-        let ranked = self
-            .ranker
-            .rerank_with_weights(filtered, query.intent, now, policy_profile.soft_weights());
+        let ranked = self.ranker.rerank_with_weights(
+            filtered,
+            query.intent,
+            now,
+            policy_profile.soft_weights(),
+        );
         let mut deduped = self.dedup_hits(ranked);
         deduped.truncate(query.top_k);
         Ok(deduped)
@@ -149,11 +151,13 @@ impl MemoryRetriever {
             .filter(|memory| memory.value == belief.current_value)
             .cloned()
             .collect();
-        supporting_memories.sort_by(|left, right| right.event_timestamp().cmp(&left.event_timestamp()));
+        supporting_memories
+            .sort_by(|left, right| right.event_timestamp().cmp(&left.event_timestamp()));
 
         for memory in supporting_memories.iter().take(CURRENT_FACT_SUPPORT_LIMIT) {
             let mut hit = self.hit_from_memory_with_role(memory, query, now, "support_evidence");
-            hit.metadata.insert("belief_relation".to_string(), "supporting".to_string());
+            hit.metadata
+                .insert("belief_relation".to_string(), "supporting".to_string());
             hits.push(hit);
         }
 
@@ -166,13 +170,10 @@ impl MemoryRetriever {
                 .take(CURRENT_FACT_SUPPORT_LIMIT)
             {
                 let memory = Self::episode_record_to_memory(record);
-                let mut hit = self.hit_from_memory_with_role(
-                    &memory,
-                    query,
-                    now,
-                    "support_evidence",
-                );
-                hit.metadata.insert("belief_relation".to_string(), "supporting".to_string());
+                let mut hit =
+                    self.hit_from_memory_with_role(&memory, query, now, "support_evidence");
+                hit.metadata
+                    .insert("belief_relation".to_string(), "supporting".to_string());
                 hits.push(hit);
             }
         }
@@ -185,8 +186,10 @@ impl MemoryRetriever {
             opposing_memories
                 .sort_by(|left, right| right.event_timestamp().cmp(&left.event_timestamp()));
             for memory in opposing_memories.iter().take(CURRENT_FACT_SUPPORT_LIMIT) {
-                let mut hit = self.hit_from_memory_with_role(memory, query, now, "support_evidence");
-                hit.metadata.insert("belief_relation".to_string(), "opposing".to_string());
+                let mut hit =
+                    self.hit_from_memory_with_role(memory, query, now, "support_evidence");
+                hit.metadata
+                    .insert("belief_relation".to_string(), "opposing".to_string());
                 hits.push(hit);
             }
         }
@@ -223,14 +226,10 @@ impl MemoryRetriever {
                 .into_iter()
                 .filter(|memory| memory.event_timestamp() <= as_of)
                 .collect();
-            state_memories.sort_by(|left, right| right.event_timestamp().cmp(&left.event_timestamp()));
+            state_memories
+                .sort_by(|left, right| right.event_timestamp().cmp(&left.event_timestamp()));
             for memory in state_memories.into_iter().take(HISTORY_STATE_LIMIT) {
-                hits.push(self.hit_from_memory_with_role(
-                    &memory,
-                    query,
-                    now,
-                    "support_evidence",
-                ));
+                hits.push(self.hit_from_memory_with_role(&memory, query, now, "support_evidence"));
             }
         }
 
@@ -247,7 +246,10 @@ impl MemoryRetriever {
         now: chrono::DateTime<chrono::Utc>,
     ) -> Result<Vec<RetrievalHit>> {
         let direct_memories = self.preference_direct_memories(store, query)?;
-        let direct_ids: HashSet<_> = direct_memories.iter().map(|memory| memory.memory_id.clone()).collect();
+        let direct_ids: HashSet<_> = direct_memories
+            .iter()
+            .map(|memory| memory.memory_id.clone())
+            .collect();
         let mut hits: Vec<_> = direct_memories
             .iter()
             .map(|memory| self.hit_from_memory_with_role(memory, query, now, "direct_answer"))
@@ -308,7 +310,8 @@ impl MemoryRetriever {
             .filter(|memory| !direct_ids.contains(&memory.memory_id))
             .filter(|memory| query.slot.as_deref().is_none_or(|slot| memory.slot == slot))
             .collect();
-        support_memories.sort_by(|left, right| right.event_timestamp().cmp(&left.event_timestamp()));
+        support_memories
+            .sort_by(|left, right| right.event_timestamp().cmp(&left.event_timestamp()));
 
         let mut hits = Vec::new();
         for memory in support_memories.iter().take(PREFERENCE_SUPPORT_LIMIT) {
@@ -324,12 +327,7 @@ impl MemoryRetriever {
                 .take(PREFERENCE_SUPPORT_LIMIT)
             {
                 let memory = Self::episode_record_to_memory(record);
-                hits.push(self.hit_from_memory_with_role(
-                    &memory,
-                    query,
-                    now,
-                    "support_evidence",
-                ));
+                hits.push(self.hit_from_memory_with_role(&memory, query, now, "support_evidence"));
             }
         }
 
@@ -358,7 +356,8 @@ impl MemoryRetriever {
                 .filter(|memory| query.slot.as_deref().is_none_or(|slot| memory.slot == slot))
                 .collect()
         };
-        goal_memories.sort_by(|left, right| Self::goal_sort_key(right).cmp(&Self::goal_sort_key(left)));
+        goal_memories
+            .sort_by(|left, right| Self::goal_sort_key(right).cmp(&Self::goal_sort_key(left)));
         for memory in &goal_memories {
             hits.push(self.hit_from_memory_with_role(memory, query, now, "direct_answer"));
         }
@@ -381,7 +380,11 @@ impl MemoryRetriever {
         task_context: &TaskContext,
     ) -> Result<Vec<RetrievalHit>> {
         let mut hits = Vec::new();
-        let supporting_episode_ids: Vec<_> = task_context.supporting_episode_ids.iter().cloned().collect();
+        let supporting_episode_ids: Vec<_> = task_context
+            .supporting_episode_ids
+            .iter()
+            .cloned()
+            .collect();
         if !supporting_episode_ids.is_empty() {
             let mut episode_store = EpisodeStore::new(store);
             for record in episode_store
@@ -496,18 +499,20 @@ impl MemoryRetriever {
 
         let mut episode_store = EpisodeStore::new(store);
         for memory in episode_store
-            .list_recent_memories(query.top_k.saturating_mul(4).max(PROCEDURE_HELP_EPISODE_LIMIT))?
+            .list_recent_memories(
+                query
+                    .top_k
+                    .saturating_mul(4)
+                    .max(PROCEDURE_HELP_EPISODE_LIMIT),
+            )?
             .into_iter()
-            .filter(|memory| Self::is_success_outcome(memory.metadata.get("outcome").map(String::as_str)))
+            .filter(|memory| {
+                Self::is_success_outcome(memory.metadata.get("outcome").map(String::as_str))
+            })
             .filter(|memory| Self::episode_matches_procedural_help(memory, query, &workflow_keys))
             .take(PROCEDURE_HELP_EPISODE_LIMIT)
         {
-            hits.push(self.hit_from_memory_with_role(
-                &memory,
-                query,
-                now,
-                "support_evidence",
-            ));
+            hits.push(self.hit_from_memory_with_role(&memory, query, now, "support_evidence"));
         }
 
         if hits.len() < query.top_k {
@@ -592,7 +597,10 @@ impl MemoryRetriever {
                 "opposing_memory_count".to_string(),
                 belief.opposing_memory_ids.len().to_string(),
             ),
-            ("belief_status".to_string(), belief.status.as_str().to_string()),
+            (
+                "belief_status".to_string(),
+                belief.status.as_str().to_string(),
+            ),
             (
                 "belief_retrieval_status".to_string(),
                 belief.view_status().as_str().to_string(),
@@ -710,21 +718,29 @@ impl MemoryRetriever {
             memory.source.trust_weight.to_string(),
         );
         metadata.insert("confidence".to_string(), memory.confidence.to_string());
-        metadata.insert("salience".to_string(), retention.decayed_salience.to_string());
+        metadata.insert(
+            "salience".to_string(),
+            retention.decayed_salience.to_string(),
+        );
         metadata.insert("stored_at".to_string(), memory.stored_at.to_rfc3339());
         metadata.insert(
             "updated_at".to_string(),
             memory.version_timestamp().to_rfc3339(),
         );
-        metadata.insert("event_at".to_string(), memory.event_timestamp().to_rfc3339());
+        metadata.insert(
+            "event_at".to_string(),
+            memory.event_timestamp().to_rfc3339(),
+        );
         if let Some(record) = memory.to_procedure_record() {
             metadata.insert(
                 "procedure_status".to_string(),
                 effective_procedure_status(&record).as_str().to_string(),
             );
         }
-        let goal_relevance = Self::goal_relevance_signal(memory.memory_layer(), &metadata, query.intent);
-        let procedure_success = Self::procedure_success_signal(memory.to_procedure_record().as_ref());
+        let goal_relevance =
+            Self::goal_relevance_signal(memory.memory_layer(), &metadata, query.intent);
+        let procedure_success =
+            Self::procedure_success_signal(memory.to_procedure_record().as_ref());
         Self::set_score_signal(
             &mut metadata,
             SCORE_SIGNAL_CONTENT_MATCH_KEY,
@@ -932,10 +948,7 @@ impl MemoryRetriever {
     }
 
     fn belief_alignment_score(belief: &BeliefRecord, query: &RetrievalQuery) -> f32 {
-        let haystack = format!(
-            "{} {} {}",
-            belief.entity, belief.slot, belief.current_value
-        );
+        let haystack = format!("{} {} {}", belief.entity, belief.slot, belief.current_value);
         let lexical = Self::lexical_overlap(&haystack, &query.query_text);
         let slot_bonus = query
             .slot
@@ -974,7 +987,11 @@ impl MemoryRetriever {
             Self::self_relevance_signal(layer, query.intent, role)
         });
         let procedure_success = Self::procedure_success_signal_from_metadata(&hit.metadata);
-        let contradiction_signal = match hit.metadata.get("belief_retrieval_status").map(String::as_str) {
+        let contradiction_signal = match hit
+            .metadata
+            .get("belief_retrieval_status")
+            .map(String::as_str)
+        {
             Some("contested") => 1.0,
             Some("superseded") => 1.6,
             Some("retracted") => 2.0,
@@ -983,11 +1000,27 @@ impl MemoryRetriever {
 
         hit.metadata
             .insert("salience".to_string(), salience.to_string());
-        Self::set_score_signal(&mut hit.metadata, SCORE_SIGNAL_CONTENT_MATCH_KEY, content_signal);
-        Self::set_score_signal(&mut hit.metadata, SCORE_SIGNAL_EVIDENCE_STRENGTH_KEY, confidence);
+        Self::set_score_signal(
+            &mut hit.metadata,
+            SCORE_SIGNAL_CONTENT_MATCH_KEY,
+            content_signal,
+        );
+        Self::set_score_signal(
+            &mut hit.metadata,
+            SCORE_SIGNAL_EVIDENCE_STRENGTH_KEY,
+            confidence,
+        );
         Self::set_score_signal(&mut hit.metadata, SCORE_SIGNAL_SALIENCE_KEY, salience);
-        Self::set_score_signal(&mut hit.metadata, SCORE_SIGNAL_GOAL_RELEVANCE_KEY, goal_relevance);
-        Self::set_score_signal(&mut hit.metadata, SCORE_SIGNAL_SELF_RELEVANCE_KEY, self_relevance);
+        Self::set_score_signal(
+            &mut hit.metadata,
+            SCORE_SIGNAL_GOAL_RELEVANCE_KEY,
+            goal_relevance,
+        );
+        Self::set_score_signal(
+            &mut hit.metadata,
+            SCORE_SIGNAL_SELF_RELEVANCE_KEY,
+            self_relevance,
+        );
         Self::set_score_signal(
             &mut hit.metadata,
             SCORE_SIGNAL_PROCEDURE_SUCCESS_KEY,
@@ -1000,11 +1033,7 @@ impl MemoryRetriever {
         );
     }
 
-    fn search_hit_salience(
-        &self,
-        hit: &RetrievalHit,
-        now: chrono::DateTime<chrono::Utc>,
-    ) -> f32 {
+    fn search_hit_salience(&self, hit: &RetrievalHit, now: chrono::DateTime<chrono::Utc>) -> f32 {
         let base_salience = hit
             .metadata
             .get("salience")
@@ -1023,7 +1052,8 @@ impl MemoryRetriever {
         let synthetic = DurableMemory {
             memory_id: hit.memory_id.clone().unwrap_or_default(),
             candidate_id: String::new(),
-            stored_at: Self::parse_hit_timestamp(hit.metadata.get("stored_at")).unwrap_or(hit.timestamp),
+            stored_at: Self::parse_hit_timestamp(hit.metadata.get("stored_at"))
+                .unwrap_or(hit.timestamp),
             updated_at: Some(
                 Self::parse_hit_timestamp(hit.metadata.get("updated_at"))
                     .or_else(|| Self::parse_hit_timestamp(hit.metadata.get("stored_at")))
@@ -1053,11 +1083,7 @@ impl MemoryRetriever {
                         .map(Self::parse_source_type)
                         .unwrap_or(SourceType::Chat)
                 }),
-                source_id: hit
-                    .metadata
-                    .get("source_id")
-                    .cloned()
-                    .unwrap_or_default(),
+                source_id: hit.metadata.get("source_id").cloned().unwrap_or_default(),
                 source_label: None,
                 observed_by: None,
                 trust_weight: hit
@@ -1106,12 +1132,14 @@ impl MemoryRetriever {
         let slot_bonus = query
             .slot
             .as_deref()
-            .is_some_and(|slot| hit.slot.as_deref() == Some(slot)) as u8 as f32
+            .is_some_and(|slot| hit.slot.as_deref() == Some(slot)) as u8
+            as f32
             * 0.45;
         let entity_bonus = query
             .entity
             .as_deref()
-            .is_some_and(|entity| hit.entity.as_deref() == Some(entity)) as u8 as f32
+            .is_some_and(|entity| hit.entity.as_deref() == Some(entity))
+            as u8 as f32
             * 0.2;
         lexical + slot_bonus + entity_bonus
     }
@@ -1127,9 +1155,9 @@ impl MemoryRetriever {
 
         match memory_layer {
             MemoryLayer::GoalState => match metadata.get("goal_status").map(String::as_str) {
-                Some("blocked") | Some("waiting_on_user") | Some("waiting_on_system") => 1.0,
+                Some("blocked" | "waiting_on_user" | "waiting_on_system") => 1.0,
                 Some("active") => 0.7,
-                Some("completed") | Some("inactive") => -0.5,
+                Some("completed" | "inactive") => -0.5,
                 _ => 0.6,
             },
             _ => 0.0,
@@ -1330,7 +1358,10 @@ impl MemoryRetriever {
         task_context: &TaskContext,
         query: &RetrievalQuery,
     ) -> bool {
-        if task_context.supporting_episode_ids.contains(&memory.memory_id) {
+        if task_context
+            .supporting_episode_ids
+            .contains(&memory.memory_id)
+        {
             return true;
         }
 
@@ -1364,20 +1395,32 @@ impl MemoryRetriever {
     ) -> bool {
         if let Some(workflow_key) = memory.metadata.get("workflow_key")
             && (workflow_keys.contains(&workflow_key.to_lowercase())
-                || query.query_text.to_lowercase().contains(&workflow_key.to_lowercase()))
+                || query
+                    .query_text
+                    .to_lowercase()
+                    .contains(&workflow_key.to_lowercase()))
         {
             return true;
         }
 
-        query.slot.as_deref().is_some_and(|slot| memory.slot.eq_ignore_ascii_case(slot))
-            || memory
-                .tags
-                .iter()
-                .any(|tag| query.query_text.to_lowercase().contains(&tag.to_lowercase()))
+        query
+            .slot
+            .as_deref()
+            .is_some_and(|slot| memory.slot.eq_ignore_ascii_case(slot))
+            || memory.tags.iter().any(|tag| {
+                query
+                    .query_text
+                    .to_lowercase()
+                    .contains(&tag.to_lowercase())
+            })
     }
 
     fn goal_sort_key(memory: &DurableMemory) -> (u8, chrono::DateTime<chrono::Utc>) {
-        let status = memory.metadata.get("goal_status").map(String::as_str).unwrap_or("active");
+        let status = memory
+            .metadata
+            .get("goal_status")
+            .map(String::as_str)
+            .unwrap_or("active");
         let priority = match status {
             "blocked" | "waiting_on_user" | "waiting_on_system" => 3,
             "active" => 2,

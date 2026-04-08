@@ -26,12 +26,16 @@ pub(crate) const SCORE_COMPONENT_GOAL_RELEVANCE_KEY: &str = "score_component_goa
 pub(crate) const SCORE_COMPONENT_SELF_RELEVANCE_KEY: &str = "score_component_self_relevance";
 pub(crate) const SCORE_COMPONENT_SALIENCE_KEY: &str = "score_component_salience";
 pub(crate) const SCORE_COMPONENT_EVIDENCE_STRENGTH_KEY: &str = "score_component_evidence_strength";
-pub(crate) const SCORE_COMPONENT_CONTRADICTION_PENALTY_KEY: &str = "score_component_contradiction_penalty";
+pub(crate) const SCORE_COMPONENT_CONTRADICTION_PENALTY_KEY: &str =
+    "score_component_contradiction_penalty";
 pub(crate) const SCORE_COMPONENT_RECENCY_KEY: &str = "score_component_recency";
 pub(crate) const SCORE_COMPONENT_PROCEDURE_SUCCESS_KEY: &str = "score_component_procedure_success";
-pub(crate) const SCORE_COMPONENT_GOAL_STATUS_PRIORITY_KEY: &str = "score_component_goal_status_priority";
-pub(crate) const SCORE_COMPONENT_LIFECYCLE_HISTORY_BONUS_KEY: &str = "score_component_lifecycle_history_bonus";
-pub(crate) const SCORE_COMPONENT_PROCEDURE_LIFECYCLE_PENALTY_KEY: &str = "score_component_procedure_lifecycle_penalty";
+pub(crate) const SCORE_COMPONENT_GOAL_STATUS_PRIORITY_KEY: &str =
+    "score_component_goal_status_priority";
+pub(crate) const SCORE_COMPONENT_LIFECYCLE_HISTORY_BONUS_KEY: &str =
+    "score_component_lifecycle_history_bonus";
+pub(crate) const SCORE_COMPONENT_PROCEDURE_LIFECYCLE_PENALTY_KEY: &str =
+    "score_component_procedure_lifecycle_penalty";
 pub(crate) const SCORE_COMPONENT_EXPIRY_PENALTY_KEY: &str = "score_component_expiry_penalty";
 pub(crate) const SCORE_COMPONENT_TOTAL_KEY: &str = "score_component_total";
 pub(crate) const SCORE_SIGNAL_CONTENT_MATCH_KEY: &str = "score_signal_content_match";
@@ -89,13 +93,19 @@ impl ScoreBreakdown {
             (SCORE_COMPONENT_GOAL_RELEVANCE_KEY, self.goal_relevance),
             (SCORE_COMPONENT_SELF_RELEVANCE_KEY, self.self_relevance),
             (SCORE_COMPONENT_SALIENCE_KEY, self.salience),
-            (SCORE_COMPONENT_EVIDENCE_STRENGTH_KEY, self.evidence_strength),
+            (
+                SCORE_COMPONENT_EVIDENCE_STRENGTH_KEY,
+                self.evidence_strength,
+            ),
             (
                 SCORE_COMPONENT_CONTRADICTION_PENALTY_KEY,
                 self.contradiction_penalty,
             ),
             (SCORE_COMPONENT_RECENCY_KEY, self.recency),
-            (SCORE_COMPONENT_PROCEDURE_SUCCESS_KEY, self.procedure_success),
+            (
+                SCORE_COMPONENT_PROCEDURE_SUCCESS_KEY,
+                self.procedure_success,
+            ),
             (
                 SCORE_COMPONENT_GOAL_STATUS_PRIORITY_KEY,
                 self.goal_status_priority,
@@ -177,8 +187,7 @@ impl Ranker {
             self_relevance: Self::self_relevance_signal(hit)
                 * weights.self_relevance
                 * SELF_RELEVANCE_SCALE,
-            salience: Self::signal_value(hit, SCORE_SIGNAL_SALIENCE_KEY)
-                .unwrap_or(0.0)
+            salience: Self::signal_value(hit, SCORE_SIGNAL_SALIENCE_KEY).unwrap_or(0.0)
                 * weights.salience
                 * SALIENCE_SCALE,
             evidence_strength: Self::signal_value(hit, SCORE_SIGNAL_EVIDENCE_STRENGTH_KEY)
@@ -265,9 +274,9 @@ impl Ranker {
 
     fn goal_state_priority_bonus(hit: &RetrievalHit) -> f32 {
         match hit.metadata.get("goal_status").map(String::as_str) {
-            Some("blocked") | Some("waiting_on_user") | Some("waiting_on_system") => 0.8,
+            Some("blocked" | "waiting_on_user" | "waiting_on_system") => 0.8,
             Some("active") => 0.35,
-            Some("completed") | Some("inactive") => -1.2,
+            Some("completed" | "inactive") => -1.2,
             _ => 0.0,
         }
     }
@@ -309,7 +318,11 @@ impl Ranker {
 
     fn contradiction_signal(hit: &RetrievalHit) -> f32 {
         Self::signal_value(hit, SCORE_SIGNAL_CONTRADICTION_KEY).unwrap_or_else(|| {
-            match hit.metadata.get("belief_retrieval_status").map(String::as_str) {
+            match hit
+                .metadata
+                .get("belief_retrieval_status")
+                .map(String::as_str)
+            {
                 Some("contested") => 1.0,
                 Some("superseded") => 1.6,
                 Some("retracted") => 2.0,
@@ -342,7 +355,9 @@ impl Ranker {
     }
 
     fn signal_value(hit: &RetrievalHit, key: &str) -> Option<f32> {
-        hit.metadata.get(key).and_then(|value| value.parse::<f32>().ok())
+        hit.metadata
+            .get(key)
+            .and_then(|value| value.parse::<f32>().ok())
     }
 
     fn record_breakdown(hit: &mut RetrievalHit, intent: QueryIntent, breakdown: ScoreBreakdown) {
@@ -421,9 +436,7 @@ impl Ranker {
         if summary.is_empty() {
             format!("{role} {layer} hit for {intent_label}")
         } else {
-            format!(
-                "{role} {layer} hit for {intent_label}; strongest factors: {summary}"
-            )
+            format!("{role} {layer} hit for {intent_label}; strongest factors: {summary}")
         }
     }
 }

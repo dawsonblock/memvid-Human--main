@@ -5,12 +5,12 @@ mod common;
 use memvid_core::Memvid;
 use memvid_core::agent_memory::adapters::memvid_store::{MemoryStore, MemvidStore};
 use memvid_core::agent_memory::clock::FixedClock;
+use memvid_core::agent_memory::enums::OutcomeFeedbackKind;
 use memvid_core::agent_memory::enums::{BeliefStatus, MemoryType, QueryIntent, SourceType};
 use memvid_core::agent_memory::memory_retriever::MemoryRetriever;
 use memvid_core::agent_memory::policy::PolicySet;
 use memvid_core::agent_memory::ranker::Ranker;
 use memvid_core::agent_memory::retention::RetentionManager;
-use memvid_core::agent_memory::enums::OutcomeFeedbackKind;
 use memvid_core::agent_memory::schemas::{BeliefRecord, RetrievalQuery};
 use tempfile::tempdir;
 
@@ -164,7 +164,8 @@ fn memvid_adapter_keeps_ingest_time_stable_across_access_and_feedback_updates() 
     assert_eq!(touched.version_timestamp(), accessed_at);
     assert_eq!(touched.retrieval_count(), 1);
     assert_eq!(
-        store.list_memories_by_layer(touched.memory_layer())
+        store
+            .list_memories_by_layer(touched.memory_layer())
             .expect("list succeeds")
             .len(),
         1

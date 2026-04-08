@@ -30,9 +30,9 @@ pub fn effective_source_weight(
 
     let corroboration_boost = (corroborating_evidence_count as f32 * CORROBORATION_BOOST_PER_MATCH)
         .min(CORROBORATION_BOOST_CAP);
-    let contradiction_penalty =
-        (contradictory_evidence_count as f32 * CONTRADICTION_PENALTY_PER_MATCH)
-            .min(CONTRADICTION_PENALTY_CAP);
+    let contradiction_penalty = (contradictory_evidence_count as f32
+        * CONTRADICTION_PENALTY_PER_MATCH)
+        .min(CONTRADICTION_PENALTY_CAP);
 
     (base_weight + corroboration_boost - contradiction_penalty).clamp(0.0, 1.0)
 }

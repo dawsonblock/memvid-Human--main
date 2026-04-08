@@ -78,10 +78,12 @@ fn repeated_successful_workflows_promote_into_procedure_memory() {
     assert!(first_outcomes.is_empty());
     {
         let mut procedure_store = ProcedureStore::new(&mut store);
-        assert!(procedure_store
-            .get_by_workflow_key("repo_review")
-            .expect("procedure lookup succeeds")
-            .is_none());
+        assert!(
+            procedure_store
+                .get_by_workflow_key("repo_review")
+                .expect("procedure lookup succeeds")
+                .is_none()
+        );
     }
 
     {
@@ -144,9 +146,7 @@ fn task_state_query_downranks_cooling_down_procedures_and_filters_retired_ones()
         1,
         ts(1_700_000_000),
     );
-    store
-        .put_memory(&active)
-        .expect("active procedure stored");
+    store.put_memory(&active).expect("active procedure stored");
     let mut cooling = procedure_memory(
         "procedure-cooling",
         ProcedureStatus::CoolingDown,
@@ -633,7 +633,9 @@ fn newer_invalid_procedure_row_does_not_hide_valid_existing_workflow() {
     invalid
         .metadata
         .insert("procedure_name".to_string(), "   ".to_string());
-    store.put_memory(&invalid).expect("invalid procedure stored");
+    store
+        .put_memory(&invalid)
+        .expect("invalid procedure stored");
 
     let procedure = {
         let mut procedure_store = ProcedureStore::new(&mut store);
