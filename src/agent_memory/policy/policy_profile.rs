@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-use super::PolicySet;
 use super::super::enums::{MemoryLayer, SourceType};
+use super::PolicySet;
 
 /// Protected governance profile layered on top of the compatibility-first `PolicySet`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -152,7 +152,8 @@ impl PolicyProfile {
 
     #[must_use]
     pub const fn stable_directive_requires_trusted_update_path(&self) -> bool {
-        self.constraints.stable_directive_requires_trusted_update_path
+        self.constraints
+            .stable_directive_requires_trusted_update_path
     }
 
     #[must_use]
@@ -176,7 +177,8 @@ impl PolicyProfile {
         source_type: SourceType,
         trust_weight: f32,
     ) -> bool {
-        self.constraints.prohibit_untrusted_singleton_belief_promotion
+        self.constraints
+            .prohibit_untrusted_singleton_belief_promotion
             && matches!(source_type, SourceType::System | SourceType::Tool)
             && trust_weight >= self.constraints.trusted_belief_source_weight
     }

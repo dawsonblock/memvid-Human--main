@@ -1,7 +1,7 @@
 mod common;
 
-use memvid_core::agent_memory::enums::{MemoryType, QueryIntent, SourceType};
 use memvid_core::agent_memory::enums::OutcomeFeedbackKind;
+use memvid_core::agent_memory::enums::{MemoryType, QueryIntent, SourceType};
 use memvid_core::agent_memory::schemas::{OutcomeFeedback, RetrievalQuery};
 
 use common::{apply_durable, candidate, controller, durable, ts};
@@ -34,10 +34,7 @@ fn ingest_low_trust_fact_preserves_episode_evidence_without_promoting_truth() {
         .find(|event| event.action == "promotion")
         .expect("promotion audit event present");
     assert_eq!(
-        promotion_event
-            .details
-            .get("reason")
-            .map(String::as_str),
+        promotion_event.details.get("reason").map(String::as_str),
         Some("belief promotion requires repeated evidence, verified source, or trusted source")
     );
     assert_eq!(
@@ -152,6 +149,7 @@ fn ingest_verified_fact_promotes_belief_and_audits_route() {
 
 #[test]
 fn retrieval_touches_returned_memories_and_persists_access_metadata() {
+    let stored_at = ts(1_700_000_000);
     let now = ts(1_700_000_100);
     let (mut controller, sink) = controller(now);
     let memory = durable(
@@ -162,10 +160,11 @@ fn retrieval_touches_returned_memories_and_persists_access_metadata() {
         MemoryType::Preference,
         SourceType::Chat,
         0.75,
-        ts(1_700_000_000),
+        stored_at,
     );
 
     let memory_id = apply_durable(&mut controller, &memory, None);
+    assert_eq!(controller.store().memories().len(), 1);
 
     controller
         .retrieve(RetrievalQuery {
@@ -184,9 +183,11 @@ fn retrieval_touches_returned_memories_and_persists_access_metadata() {
         .store()
         .memories()
         .iter()
-        .rev()
         .find(|stored| stored.memory_id == memory_id)
         .expect("touched memory present");
+    assert_eq!(controller.store().memories().len(), 1);
+    assert_eq!(latest.stored_at, stored_at);
+    assert_eq!(latest.version_timestamp(), now);
     assert_eq!(
         latest.metadata.get("retrieval_count").map(String::as_str),
         Some("1")
@@ -219,6 +220,7 @@ fn retrieval_touches_returned_memories_and_persists_access_metadata() {
 
 #[test]
 fn outcome_feedback_updates_generic_memory_metadata() {
+    let stored_at = ts(1_700_000_000);
     let now = ts(1_700_000_120);
     let (mut controller, sink) = controller(now);
     let memory = durable(
@@ -229,7 +231,7 @@ fn outcome_feedback_updates_generic_memory_metadata() {
         MemoryType::Preference,
         SourceType::Chat,
         0.75,
-        ts(1_700_000_000),
+        stored_at,
     );
     let memory_id = apply_durable(&mut controller, &memory, None);
 
@@ -254,6 +256,8 @@ fn outcome_feedback_updates_generic_memory_metadata() {
         .rev()
         .find(|stored| stored.memory_id == memory_id)
         .expect("feedback memory present");
+    assert_eq!(latest.stored_at, stored_at);
+    assert_eq!(latest.version_timestamp(), now);
     assert_eq!(
         latest
             .metadata
@@ -279,10 +283,7 @@ fn outcome_feedback_updates_generic_memory_metadata() {
         Some(memory_id.as_str())
     );
     assert_eq!(
-        feedback_event
-            .details
-            .get("outcome")
-            .map(String::as_str),
+        feedback_event.details.get("outcome").map(String::as_str),
         Some("positive")
     );
 }
@@ -356,9 +357,21 @@ fn negative_feedback_can_cool_down_a_procedure() {
         Some("cooling_down")
     );
 
-    let actions: Vec<_> = sink.events().into_iter().map(|event| event.action).collect();
-    assert!(actions.iter().any(|action| action == "outcome_feedback_recorded"));
-    assert!(actions.iter().any(|action| action == "procedure_status_changed"));
+    let actions: Vec<_> = sink
+        .events()
+        .into_iter()
+        .map(|event| event.action)
+        .collect();
+    assert!(
+        actions
+            .iter()
+            .any(|action| action == "outcome_feedback_recorded")
+    );
+    assert!(
+        actions
+            .iter()
+            .any(|action| action == "procedure_status_changed")
+    );
 }
 
 #[test]

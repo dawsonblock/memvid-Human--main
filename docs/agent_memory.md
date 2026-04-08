@@ -25,6 +25,11 @@ For most callers, the intended public path is:
 Dedicated stores remain public because the crate tests and some advanced integrations need direct
 logical-state access, but controller-governed ingest is the canonical write path.
 
+Typed retrieval through `RetrievalQuery` remains the canonical read path. For obvious text-only
+queries, `MemoryController::retrieve_text(...)` and `RetrievalQuery::from_text(...)` provide a
+small rule-based convenience wrapper around `QueryIntentDetector`; they do not replace the typed
+contract.
+
 `PolicyProfile` is protected governance state, not ordinary memory. It is layered alongside the
 compatibility-first `PolicySet` and is intended to hold hard constraints, soft weights, and
 machine-readable rejection reason codes outside normal episode ingest or retrieval paths.
@@ -313,10 +318,12 @@ structural bonuses remain explicit to preserve answer-first routing:
 Phase 5 keeps that explanation contract intact while making salience maintenance dynamic.
 The controller now records bounded access metadata on returned durable memories using
 `retrieval_count` and `last_accessed_at`, and retention folds those signals back into the
-effective salience used by ranking. The visible score surface stays the same: the `salience`
+effective salience used by ranking. Read touches do not rewrite immutable ingest time: durable
+memories now keep `stored_at` as ingest chronology, `updated_at` as mutable version/activity time,
+and event/history time separately. The visible score surface stays the same: the `salience`
 component now reflects both write-time salience and bounded repeated-recall boosts.
 
-Phase 6 extends that same controller-owned maintenance path with explicit outcome feedback.
+Phase 6 extends that same controller-owned retrieval and feedback path with explicit outcome feedback.
 External callers can now attach positive or negative feedback to a durable memory id or
 procedure workflow key, procedure feedback reuses the existing lifecycle and success/failure
 counts instead of creating a parallel score path, and generic durable memories feed feedback
@@ -344,11 +351,26 @@ Durable memories are written with agent-prefixed metadata for:
 - memory layer and memory type
 - source id, source type, and source weight
 - confidence and salience
-- stored, event, and validity timestamps
+- stored, updated, event, and validity timestamps
 - arbitrary workflow, support, and layer-specific metadata
 
 On read, those fields are reconstructed into `DurableMemory` and `RetrievalHit`. Query time is not
-injected as if it were memory time; retrieval uses persisted stored and event timestamps.
+injected as if it were memory time; retrieval uses persisted ingest, update, and event timestamps
+without letting read touches move historical visibility.
+
+Access touches no longer write a fresh durable memory body. The store keeps retrieval metadata on a
+dedicated access-touch path so `retrieval_count`, `last_accessed_at`, and effective salience can
+advance without creating a new durable content version on every read.
+
+## Maintenance Status
+
+Governed memory currently has one live maintenance helper and one explicit stub:
+
+- `MemoryDecay` is a callable helper that applies retention policy when a caller explicitly runs it.
+- `MemoryCompactor` is not live; `Memvid` owns low-level storage compaction and governed memory does
+  not currently add a separate logical compaction pass.
+
+There is no hidden background maintenance loop in `MemoryController`.
 
 The audit trail is append-only and explicit. `MemoryController` emits events such as:
 

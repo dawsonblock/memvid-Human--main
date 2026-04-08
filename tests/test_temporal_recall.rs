@@ -9,7 +9,7 @@ use memvid_core::agent_memory::ranker::Ranker;
 use memvid_core::agent_memory::retention::RetentionManager;
 use memvid_core::agent_memory::schemas::RetrievalQuery;
 
-use common::{durable, ts};
+use common::{apply_durable, controller, durable, ts};
 
 #[test]
 fn historical_query_as_of_time_returns_past_value_rather_than_current_belief() {
@@ -58,5 +58,70 @@ fn historical_query_as_of_time_returns_past_value_rather_than_current_belief() {
     assert_eq!(
         hits.first().and_then(|hit| hit.value.as_deref()),
         Some("Berlin")
+    );
+}
+
+#[test]
+fn retrieval_touch_does_not_move_historical_visibility_window() {
+    let ingested_at = ts(1_700_000_000);
+    let accessed_at = ts(1_700_100_000);
+    let (mut controller, _) = controller(accessed_at);
+    let memory = durable(
+        "user",
+        "timezone",
+        "UTC+1",
+        "The user usually works in UTC+1",
+        MemoryType::Fact,
+        SourceType::Chat,
+        0.8,
+        ingested_at,
+    );
+    let memory_id = apply_durable(&mut controller, &memory, None);
+
+    controller
+        .retrieve(RetrievalQuery {
+            query_text: "what timezone does the user use".to_string(),
+            intent: QueryIntent::CurrentFact,
+            entity: Some("user".to_string()),
+            slot: Some("timezone".to_string()),
+            scope: None,
+            top_k: 1,
+            as_of: None,
+            include_expired: false,
+        })
+        .expect("retrieval succeeds");
+
+    let stored = controller
+        .store()
+        .memories()
+        .iter()
+        .find(|memory| memory.memory_id == memory_id)
+        .expect("memory stored");
+    assert_eq!(stored.stored_at, ingested_at);
+    assert_eq!(stored.version_timestamp(), accessed_at);
+
+    let historical_hits = controller
+        .retrieve(RetrievalQuery {
+            query_text: "what timezone did the user use as of earlier".to_string(),
+            intent: QueryIntent::HistoricalFact,
+            entity: Some("user".to_string()),
+            slot: Some("timezone".to_string()),
+            scope: None,
+            top_k: 1,
+            as_of: Some(ts(1_700_050_000)),
+            include_expired: false,
+        })
+        .expect("historical retrieval succeeds");
+
+    assert_eq!(
+        historical_hits.first().and_then(|hit| hit.value.as_deref()),
+        Some("UTC+1")
+    );
+    assert_eq!(
+        historical_hits
+            .first()
+            .and_then(|hit| hit.metadata.get("stored_at"))
+            .map(String::as_str),
+        Some(ingested_at.to_rfc3339().as_str())
     );
 }

@@ -26,9 +26,21 @@ pub fn candidate(entity: &str, slot: &str, value: &str, raw_text: &str) -> Candi
     CandidateMemory {
         candidate_id: format!("candidate-{entity}-{slot}-{value}"),
         observed_at: ts(1_700_000_000),
-        entity: if entity.is_empty() { None } else { Some(entity.to_string()) },
-        slot: if slot.is_empty() { None } else { Some(slot.to_string()) },
-        value: if value.is_empty() { None } else { Some(value.to_string()) },
+        entity: if entity.is_empty() {
+            None
+        } else {
+            Some(entity.to_string())
+        },
+        slot: if slot.is_empty() {
+            None
+        } else {
+            Some(slot.to_string())
+        },
+        value: if value.is_empty() {
+            None
+        } else {
+            Some(value.to_string())
+        },
         raw_text: raw_text.to_string(),
         source: Provenance {
             source_type: SourceType::Chat,
@@ -66,6 +78,7 @@ pub fn durable(
         memory_id: format!("memory-{entity}-{slot}-{value}-{}", stored_at.timestamp()),
         candidate_id: format!("candidate-{entity}-{slot}-{value}"),
         stored_at,
+        updated_at: Some(stored_at),
         entity: entity.to_string(),
         slot: slot.to_string(),
         value: value.to_string(),

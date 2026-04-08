@@ -5,7 +5,7 @@ use super::errors::Result;
 use super::retention::RetentionManager;
 use super::schemas::DurableMemory;
 
-/// Applies retention rules to durable memories.
+/// Applies retention rules to durable memories when a caller explicitly runs maintenance.
 #[derive(Debug, Clone)]
 pub struct MemoryDecay {
     retention: RetentionManager,

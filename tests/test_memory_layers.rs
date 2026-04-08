@@ -70,7 +70,11 @@ fn policy_profile_wraps_current_policy_defaults_without_changing_thresholds() {
         profile.promote_threshold(MemoryLayer::SelfModel),
         policy.promote_threshold(MemoryLayer::SelfModel)
     );
-    assert!(profile.hard_constraints().require_non_empty_structured_identity);
+    assert!(
+        profile
+            .hard_constraints()
+            .require_non_empty_structured_identity
+    );
     assert!(profile.hard_constraints().protect_self_model_identity);
     assert!(profile.soft_weights().content_match > 0.0);
     assert_eq!(profile, PolicyProfile::default());
@@ -289,7 +293,10 @@ fn low_trust_fact_is_preserved_as_episode_not_current_truth() {
 
     assert_eq!(controller.store().beliefs().len(), 0);
     assert_eq!(controller.store().memories().len(), 1);
-    assert_eq!(controller.store().memories()[0].memory_layer(), MemoryLayer::Episode);
+    assert_eq!(
+        controller.store().memories()[0].memory_layer(),
+        MemoryLayer::Episode
+    );
 }
 
 #[test]
@@ -345,21 +352,27 @@ fn clear_goal_state_promotes_more_easily_than_self_model_or_belief() {
 
     assert!(!goal_id.is_empty());
     assert!(!self_model_id.is_empty());
-    assert!(controller
-        .store()
-        .memories()
-        .iter()
-        .any(|memory| memory.memory_layer() == MemoryLayer::GoalState));
-    assert!(controller
-        .store()
-        .memories()
-        .iter()
-        .any(|memory| memory.memory_layer() == MemoryLayer::Episode));
-    assert!(!controller
-        .store()
-        .memories()
-        .iter()
-        .any(|memory| memory.memory_layer() == MemoryLayer::SelfModel));
+    assert!(
+        controller
+            .store()
+            .memories()
+            .iter()
+            .any(|memory| memory.memory_layer() == MemoryLayer::GoalState)
+    );
+    assert!(
+        controller
+            .store()
+            .memories()
+            .iter()
+            .any(|memory| memory.memory_layer() == MemoryLayer::Episode)
+    );
+    assert!(
+        !controller
+            .store()
+            .memories()
+            .iter()
+            .any(|memory| memory.memory_layer() == MemoryLayer::SelfModel)
+    );
 }
 
 #[test]
@@ -381,7 +394,9 @@ fn newer_invalid_goal_state_row_does_not_hide_older_valid_active_goal() {
     invalid_goal.memory_id = "goal-invalid".to_string();
     invalid_goal.stored_at = ts(1_700_000_100);
     invalid_goal.value = "   ".to_string();
-    store.put_memory(&invalid_goal).expect("invalid goal stored");
+    store
+        .put_memory(&invalid_goal)
+        .expect("invalid goal stored");
 
     let active_goals = {
         let mut goal_store = GoalStateStore::new(&mut store);
@@ -430,11 +445,13 @@ fn procedure_requires_system_seed_or_repeated_evidence() {
         .ingest(unseeded)
         .expect("unseeded ingest succeeds")
         .expect("evidence stored");
-    assert!(!controller
-        .store()
-        .memories()
-        .iter()
-        .any(|memory| memory.memory_layer() == MemoryLayer::Procedure));
+    assert!(
+        !controller
+            .store()
+            .memories()
+            .iter()
+            .any(|memory| memory.memory_layer() == MemoryLayer::Procedure)
+    );
 
     let seeded = CandidateMemory {
         candidate_id: "seeded-procedure".to_string(),
@@ -471,9 +488,11 @@ fn procedure_requires_system_seed_or_repeated_evidence() {
         .expect("seeded ingest succeeds")
         .expect("procedure stored");
 
-    assert!(controller
-        .store()
-        .memories()
-        .iter()
-        .any(|memory| memory.memory_layer() == MemoryLayer::Procedure));
+    assert!(
+        controller
+            .store()
+            .memories()
+            .iter()
+            .any(|memory| memory.memory_layer() == MemoryLayer::Procedure)
+    );
 }

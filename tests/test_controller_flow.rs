@@ -38,19 +38,31 @@ fn low_trust_fact_routes_to_episode_evidence_and_audits_why() {
         .find(|event| event.action == "promotion")
         .expect("promotion event present");
     assert_eq!(
-        promotion_event.details.get("target_layer").map(String::as_str),
+        promotion_event
+            .details
+            .get("target_layer")
+            .map(String::as_str),
         Some("belief")
     );
     assert_eq!(
-        promotion_event.details.get("route_basis").map(String::as_str),
+        promotion_event
+            .details
+            .get("route_basis")
+            .map(String::as_str),
         Some("insufficient_evidence")
     );
     assert_eq!(
-        promotion_event.details.get("fallback_layer").map(String::as_str),
+        promotion_event
+            .details
+            .get("fallback_layer")
+            .map(String::as_str),
         Some("episode")
     );
     assert_eq!(
-        promotion_event.details.get("reason_code").map(String::as_str),
+        promotion_event
+            .details
+            .get("reason_code")
+            .map(String::as_str),
         Some(ReasonCode::EvidenceThresholdNotMet.as_str())
     );
 
@@ -60,7 +72,10 @@ fn low_trust_fact_routes_to_episode_evidence_and_audits_why() {
         .find(|event| event.action == "policy_rejected")
         .expect("policy rejection event present");
     assert_eq!(
-        rejection_event.details.get("reason_code").map(String::as_str),
+        rejection_event
+            .details
+            .get("reason_code")
+            .map(String::as_str),
         Some(ReasonCode::EvidenceThresholdNotMet.as_str())
     );
 }
@@ -93,16 +108,20 @@ fn explicit_trusted_preference_routes_to_self_model_and_audits_basis() {
 
     assert_eq!(memory_id, self_model.memory_id);
     assert_eq!(self_model.value, "vim");
-    assert!(controller
-        .store()
-        .memories()
-        .iter()
-        .any(|memory| memory.memory_layer() == MemoryLayer::Episode));
-    assert!(controller
-        .store()
-        .memories()
-        .iter()
-        .any(|memory| memory.memory_layer() == MemoryLayer::SelfModel));
+    assert!(
+        controller
+            .store()
+            .memories()
+            .iter()
+            .any(|memory| memory.memory_layer() == MemoryLayer::Episode)
+    );
+    assert!(
+        controller
+            .store()
+            .memories()
+            .iter()
+            .any(|memory| memory.memory_layer() == MemoryLayer::SelfModel)
+    );
 
     let promotion_event = sink
         .events()
@@ -110,19 +129,31 @@ fn explicit_trusted_preference_routes_to_self_model_and_audits_basis() {
         .find(|event| event.action == "promotion")
         .expect("promotion event present");
     assert_eq!(
-        promotion_event.details.get("target_layer").map(String::as_str),
+        promotion_event
+            .details
+            .get("target_layer")
+            .map(String::as_str),
         Some("self_model")
     );
     assert_eq!(
-        promotion_event.details.get("route_basis").map(String::as_str),
+        promotion_event
+            .details
+            .get("route_basis")
+            .map(String::as_str),
         Some("trusted_source")
     );
     assert_eq!(
-        promotion_event.details.get("fallback_layer").map(String::as_str),
+        promotion_event
+            .details
+            .get("fallback_layer")
+            .map(String::as_str),
         Some("episode")
     );
     assert_eq!(
-        promotion_event.details.get("policy_version").map(String::as_str),
+        promotion_event
+            .details
+            .get("policy_version")
+            .map(String::as_str),
         Some("1")
     );
 }
@@ -147,11 +178,13 @@ fn trusted_unknown_slot_does_not_singleton_promote_to_self_model() {
         .expect("episode evidence stored");
 
     assert!(!memory_id.is_empty());
-    assert!(!controller
-        .store()
-        .memories()
-        .iter()
-        .any(|memory| memory.memory_layer() == MemoryLayer::SelfModel));
+    assert!(
+        !controller
+            .store()
+            .memories()
+            .iter()
+            .any(|memory| memory.memory_layer() == MemoryLayer::SelfModel)
+    );
     assert_eq!(
         controller
             .store()
@@ -168,19 +201,31 @@ fn trusted_unknown_slot_does_not_singleton_promote_to_self_model() {
         .find(|event| event.action == "promotion")
         .expect("promotion event present");
     assert_eq!(
-        promotion_event.details.get("target_layer").map(String::as_str),
+        promotion_event
+            .details
+            .get("target_layer")
+            .map(String::as_str),
         Some("self_model")
     );
     assert_eq!(
-        promotion_event.details.get("route_basis").map(String::as_str),
+        promotion_event
+            .details
+            .get("route_basis")
+            .map(String::as_str),
         Some("insufficient_evidence")
     );
     assert_eq!(
-        promotion_event.details.get("fallback_layer").map(String::as_str),
+        promotion_event
+            .details
+            .get("fallback_layer")
+            .map(String::as_str),
         Some("episode")
     );
     assert_eq!(
-        promotion_event.details.get("reason_code").map(String::as_str),
+        promotion_event
+            .details
+            .get("reason_code")
+            .map(String::as_str),
         Some(ReasonCode::ProtectedSelfModelRejected.as_str())
     );
 }
@@ -200,11 +245,13 @@ fn untrusted_preference_routes_to_episode_evidence_and_audits_why() {
         .expect("episode evidence stored");
 
     assert!(!memory_id.is_empty());
-    assert!(!controller
-        .store()
-        .memories()
-        .iter()
-        .any(|memory| memory.memory_layer() == MemoryLayer::SelfModel));
+    assert!(
+        !controller
+            .store()
+            .memories()
+            .iter()
+            .any(|memory| memory.memory_layer() == MemoryLayer::SelfModel)
+    );
     assert_eq!(
         controller
             .store()
@@ -221,19 +268,31 @@ fn untrusted_preference_routes_to_episode_evidence_and_audits_why() {
         .find(|event| event.action == "promotion")
         .expect("promotion event present");
     assert_eq!(
-        promotion_event.details.get("target_layer").map(String::as_str),
+        promotion_event
+            .details
+            .get("target_layer")
+            .map(String::as_str),
         Some("self_model")
     );
     assert_eq!(
-        promotion_event.details.get("route_basis").map(String::as_str),
+        promotion_event
+            .details
+            .get("route_basis")
+            .map(String::as_str),
         Some("insufficient_evidence")
     );
     assert_eq!(
-        promotion_event.details.get("fallback_layer").map(String::as_str),
+        promotion_event
+            .details
+            .get("fallback_layer")
+            .map(String::as_str),
         Some("episode")
     );
     assert_eq!(
-        promotion_event.details.get("reason_code").map(String::as_str),
+        promotion_event
+            .details
+            .get("reason_code")
+            .map(String::as_str),
         Some(ReasonCode::EvidenceThresholdNotMet.as_str())
     );
 }
@@ -261,11 +320,13 @@ fn unseeded_procedure_routes_to_episode_evidence_and_audits_why() {
         .expect("episode evidence stored");
 
     assert!(!memory_id.is_empty());
-    assert!(!controller
-        .store()
-        .memories()
-        .iter()
-        .any(|memory| memory.memory_layer() == MemoryLayer::Procedure));
+    assert!(
+        !controller
+            .store()
+            .memories()
+            .iter()
+            .any(|memory| memory.memory_layer() == MemoryLayer::Procedure)
+    );
     assert_eq!(
         controller
             .store()
@@ -282,19 +343,31 @@ fn unseeded_procedure_routes_to_episode_evidence_and_audits_why() {
         .find(|event| event.action == "promotion")
         .expect("promotion event present");
     assert_eq!(
-        promotion_event.details.get("target_layer").map(String::as_str),
+        promotion_event
+            .details
+            .get("target_layer")
+            .map(String::as_str),
         Some("procedure")
     );
     assert_eq!(
-        promotion_event.details.get("route_basis").map(String::as_str),
+        promotion_event
+            .details
+            .get("route_basis")
+            .map(String::as_str),
         Some("insufficient_evidence")
     );
     assert_eq!(
-        promotion_event.details.get("fallback_layer").map(String::as_str),
+        promotion_event
+            .details
+            .get("fallback_layer")
+            .map(String::as_str),
         Some("episode")
     );
     assert_eq!(
-        promotion_event.details.get("reason_code").map(String::as_str),
+        promotion_event
+            .details
+            .get("reason_code")
+            .map(String::as_str),
         Some(ReasonCode::ProcedureEvidenceRestricted.as_str())
     );
 }
@@ -349,11 +422,17 @@ fn weaker_belief_contradiction_is_audited_explicitly() {
         .find(|event| event.action == "belief_contradiction_detected")
         .expect("contradiction audit present");
     assert_eq!(
-        contradiction_event.details.get("prior_value").map(String::as_str),
+        contradiction_event
+            .details
+            .get("prior_value")
+            .map(String::as_str),
         Some("Berlin")
     );
     assert_eq!(
-        contradiction_event.details.get("new_value").map(String::as_str),
+        contradiction_event
+            .details
+            .get("new_value")
+            .map(String::as_str),
         Some("Paris")
     );
     assert_eq!(
@@ -395,19 +474,31 @@ fn whitespace_only_belief_structure_falls_back_to_trace_and_never_persists_truth
         .find(|event| event.action == "promotion")
         .expect("promotion event present");
     assert_eq!(
-        promotion_event.details.get("target_layer").map(String::as_str),
+        promotion_event
+            .details
+            .get("target_layer")
+            .map(String::as_str),
         Some("belief")
     );
     assert_eq!(
-        promotion_event.details.get("route_basis").map(String::as_str),
+        promotion_event
+            .details
+            .get("route_basis")
+            .map(String::as_str),
         Some("insufficient_structure")
     );
     assert_eq!(
-        promotion_event.details.get("fallback_layer").map(String::as_str),
+        promotion_event
+            .details
+            .get("fallback_layer")
+            .map(String::as_str),
         Some("trace")
     );
     assert_eq!(
-        promotion_event.details.get("reason_code").map(String::as_str),
+        promotion_event
+            .details
+            .get("reason_code")
+            .map(String::as_str),
         Some(ReasonCode::StructuredIdentityRequired.as_str())
     );
 
@@ -417,7 +508,10 @@ fn whitespace_only_belief_structure_falls_back_to_trace_and_never_persists_truth
         .find(|event| event.action == "policy_rejected")
         .expect("policy rejection event present");
     assert_eq!(
-        rejection_event.details.get("reason_code").map(String::as_str),
+        rejection_event
+            .details
+            .get("reason_code")
+            .map(String::as_str),
         Some(ReasonCode::StructuredIdentityRequired.as_str())
     );
 }

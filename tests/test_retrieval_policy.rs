@@ -64,12 +64,11 @@ fn current_fact_query_checks_belief_state_first() {
         ts(1_700_000_000),
     );
     archived.memory_id = "m1".to_string();
-    archived
-        .metadata
-        .insert("supporting_episode_ids".to_string(), "episode-1".to_string());
-    store
-        .put_memory(&archived)
-        .expect("memory stored");
+    archived.metadata.insert(
+        "supporting_episode_ids".to_string(),
+        "episode-1".to_string(),
+    );
+    store.put_memory(&archived).expect("memory stored");
     let mut support_episode = durable(
         "user",
         "location",
@@ -107,7 +106,10 @@ fn current_fact_query_checks_belief_state_first() {
     assert!(hits.iter().skip(1).any(|hit| {
         hit.metadata.get("retrieval_role").map(String::as_str) == Some("support_evidence")
     }));
-    assert!(hits.iter().any(|hit| hit.memory_layer == Some(MemoryLayer::Episode)));
+    assert!(
+        hits.iter()
+            .any(|hit| hit.memory_layer == Some(MemoryLayer::Episode))
+    );
 }
 
 #[test]
@@ -233,8 +235,14 @@ fn historical_fact_queries_prefer_episodes_and_prior_state_evidence() {
         )
         .expect("historical retrieval works");
 
-    assert_eq!(hits.first().and_then(|hit| hit.memory_layer), Some(MemoryLayer::Episode));
-    assert!(hits.iter().any(|hit| hit.memory_layer == Some(MemoryLayer::Belief)));
+    assert_eq!(
+        hits.first().and_then(|hit| hit.memory_layer),
+        Some(MemoryLayer::Episode)
+    );
+    assert!(
+        hits.iter()
+            .any(|hit| hit.memory_layer == Some(MemoryLayer::Belief))
+    );
 }
 
 #[test]
@@ -401,7 +409,10 @@ fn score_breakdown_in_metadata_contains_all_named_factors() {
         "expiry_penalty",
         "total",
     ] {
-        assert!(components.contains_key(key), "missing score component {key}");
+        assert!(
+            components.contains_key(key),
+            "missing score component {key}"
+        );
     }
     assert!(direct.metadata.contains_key("ranking_explanation"));
 }
@@ -615,10 +626,18 @@ fn positive_belief_feedback_increases_current_fact_evidence_strength() {
     };
 
     let positive_hits = retriever
-        .retrieve(&mut positive_store, &query, &FixedClock::new(ts(1_700_000_100)))
+        .retrieve(
+            &mut positive_store,
+            &query,
+            &FixedClock::new(ts(1_700_000_100)),
+        )
         .expect("positive retrieval works");
     let negative_hits = retriever
-        .retrieve(&mut negative_store, &query, &FixedClock::new(ts(1_700_000_100)))
+        .retrieve(
+            &mut negative_store,
+            &query,
+            &FixedClock::new(ts(1_700_000_100)),
+        )
         .expect("negative retrieval works");
 
     let positive_strength = positive_hits[0]
@@ -698,11 +717,13 @@ fn procedure_lifecycle_penalty_appears_in_breakdown_for_cooling_down_procedure()
             .map(String::as_str),
         Some("-1.500000")
     );
-    assert!(direct
-        .metadata
-        .get("score_components")
-        .expect("score components present")
-        .contains("procedure_lifecycle_penalty=-1.500000"));
+    assert!(
+        direct
+            .metadata
+            .get("score_components")
+            .expect("score components present")
+            .contains("procedure_lifecycle_penalty=-1.500000")
+    );
 }
 
 #[test]
@@ -761,7 +782,10 @@ fn recently_accessed_memory_ranks_above_equally_relevant_peer() {
         )
         .expect("retrieval works");
 
-    assert_eq!(hits.first().and_then(|hit| hit.memory_id.as_deref()), Some("accessed-note"));
+    assert_eq!(
+        hits.first().and_then(|hit| hit.memory_id.as_deref()),
+        Some("accessed-note")
+    );
     assert_eq!(
         hits.first()
             .and_then(|hit| hit.metadata.get("retrieval_count"))
@@ -1173,9 +1197,10 @@ fn preference_query_returns_self_model_with_limited_support() {
         0.75,
         ts(1_700_000_000),
     );
-    first
-        .metadata
-        .insert("supporting_episode_ids".to_string(), "episode-1".to_string());
+    first.metadata.insert(
+        "supporting_episode_ids".to_string(),
+        "episode-1".to_string(),
+    );
     store.put_memory(&first).expect("first preference stored");
     let second = durable(
         "user",
@@ -1221,7 +1246,10 @@ fn preference_query_returns_self_model_with_limited_support() {
         )
         .expect("retrieval works");
 
-    assert_eq!(hits.first().and_then(|hit| hit.memory_type), Some(MemoryType::Preference));
+    assert_eq!(
+        hits.first().and_then(|hit| hit.memory_type),
+        Some(MemoryType::Preference)
+    );
     assert!(hits.iter().skip(1).any(|hit| {
         hit.metadata.get("retrieval_role").map(String::as_str) == Some("support_evidence")
     }));
@@ -1301,7 +1329,10 @@ fn procedural_help_query_returns_direct_procedure_with_bounded_support() {
         )
         .expect("retrieval works");
 
-    assert_eq!(hits.first().and_then(|hit| hit.memory_layer), Some(MemoryLayer::Procedure));
+    assert_eq!(
+        hits.first().and_then(|hit| hit.memory_layer),
+        Some(MemoryLayer::Procedure)
+    );
     assert_eq!(
         hits.first()
             .and_then(|hit| hit.metadata.get("retrieval_role").map(String::as_str)),
@@ -1316,9 +1347,11 @@ fn procedural_help_query_returns_direct_procedure_with_bounded_support() {
         .collect();
     assert!(!support_hits.is_empty());
     assert!(support_hits.len() <= 3);
-    assert!(support_hits
-        .iter()
-        .all(|hit| hit.memory_layer == Some(MemoryLayer::Episode)));
+    assert!(
+        support_hits
+            .iter()
+            .all(|hit| hit.memory_layer == Some(MemoryLayer::Episode))
+    );
 }
 
 #[test]

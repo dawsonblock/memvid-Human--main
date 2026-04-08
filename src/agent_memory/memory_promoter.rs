@@ -6,6 +6,7 @@ use super::clock::Clock;
 use super::enums::{MemoryLayer, PromotionDecision, SelfModelKind};
 use super::policy::{PolicyProfile, PolicySet, ReasonCode};
 use super::schemas::{CandidateMemory, DurableMemory, PromotionContext, PromotionResult};
+use super::source_trust::effective_source_weight;
 
 #[derive(Debug, Clone)]
 struct DestinationEligibility {
@@ -24,6 +25,19 @@ pub struct MemoryPromoter {
 }
 
 impl MemoryPromoter {
+    fn effective_trust_weight(
+        &self,
+        candidate: &CandidateMemory,
+        context: &PromotionContext,
+    ) -> f32 {
+        effective_source_weight(
+            candidate.source.trust_weight,
+            context.corroborating_evidence_count,
+            context.contradictory_evidence_count,
+            context.verified_source,
+        )
+    }
+
     #[must_use]
     pub fn new(policy: PolicySet) -> Self {
         let profile = policy.policy_profile();
@@ -150,6 +164,7 @@ impl MemoryPromoter {
             .cloned()
             .unwrap_or_else(|| "singleton".to_string());
         let evidence_count = self.evidence_count(layer, context).to_string();
+        let stored_at = clock.now();
         let mut metadata = candidate.metadata.clone();
         metadata.insert("promotion_route_basis".to_string(), promotion_route);
         metadata.insert("promotion_evidence_count".to_string(), evidence_count);
@@ -170,7 +185,8 @@ impl MemoryPromoter {
             durable_memory: Some(DurableMemory {
                 memory_id: Uuid::new_v4().to_string(),
                 candidate_id: candidate.candidate_id.clone(),
-                stored_at: clock.now(),
+                stored_at,
+                updated_at: Some(stored_at),
                 entity: candidate.entity_non_empty().unwrap_or("").to_string(),
                 slot: candidate.slot_non_empty().unwrap_or("").to_string(),
                 value: candidate.value_non_empty().unwrap_or("").to_string(),
@@ -203,6 +219,7 @@ impl MemoryPromoter {
         score: f32,
     ) -> BTreeMap<String, String> {
         let layer = candidate.memory_layer();
+        let effective_trust_weight = self.effective_trust_weight(candidate, context);
         BTreeMap::from([
             ("target_layer".to_string(), layer.as_str().to_string()),
             (
@@ -217,6 +234,10 @@ impl MemoryPromoter {
                 "source_trust_weight".to_string(),
                 candidate.source.trust_weight.to_string(),
             ),
+            (
+                "effective_source_trust_weight".to_string(),
+                effective_trust_weight.to_string(),
+            ),
             ("score".to_string(), score.to_string()),
             (
                 "evidence_count".to_string(),
@@ -225,6 +246,14 @@ impl MemoryPromoter {
             (
                 "verified_source".to_string(),
                 context.verified_source.to_string(),
+            ),
+            (
+                "corroborating_evidence_count".to_string(),
+                context.corroborating_evidence_count.to_string(),
+            ),
+            (
+                "contradictory_evidence_count".to_string(),
+                context.contradictory_evidence_count.to_string(),
             ),
             (
                 "seeded_by_system".to_string(),
@@ -322,11 +351,11 @@ impl MemoryPromoter {
         candidate: &CandidateMemory,
         context: &PromotionContext,
     ) -> DestinationEligibility {
+        let effective_trust_weight = self.effective_trust_weight(candidate, context);
         if !candidate.has_required_structure_for(MemoryLayer::Belief) {
             return DestinationEligibility {
                 allowed: false,
-                reason: "belief promotion requires non-empty entity, slot, and value"
-                    .to_string(),
+                reason: "belief promotion requires non-empty entity, slot, and value".to_string(),
                 reason_code: Some(ReasonCode::StructuredIdentityRequired),
                 route_basis: "insufficient_structure",
                 fallback_layer: if Self::should_preserve_as_episode(candidate) {
@@ -354,23 +383,33 @@ impl MemoryPromoter {
                 fallback_layer: "episode",
             };
         }
-        if self.policy_profile().allows_singleton_belief_from_trusted_source(
-            candidate.source.source_type,
-            candidate.source.trust_weight,
-        ) {
+        if self
+            .policy_profile()
+            .allows_singleton_belief_from_trusted_source(
+                candidate.source.source_type,
+                effective_trust_weight,
+            )
+        {
             return DestinationEligibility {
                 allowed: true,
-                reason: "belief promotion allowed for trusted source evidence".to_string(),
+                reason:
+                    "belief promotion allowed for trusted source evidence after deterministic trust adjustment"
+                        .to_string(),
                 reason_code: None,
-                route_basis: "trusted_source",
+                route_basis: if context.corroborating_evidence_count > 0 {
+                    "corroborated_trusted_source"
+                } else {
+                    "trusted_source"
+                },
                 fallback_layer: "episode",
             };
         }
 
         DestinationEligibility {
             allowed: false,
-            reason: "belief promotion requires repeated evidence, verified source, or trusted source"
-                .to_string(),
+            reason:
+                "belief promotion requires repeated evidence, verified source, or trusted source"
+                    .to_string(),
             reason_code: Some(ReasonCode::EvidenceThresholdNotMet),
             route_basis: "insufficient_evidence",
             fallback_layer: "episode",
@@ -382,6 +421,7 @@ impl MemoryPromoter {
         candidate: &CandidateMemory,
         context: &PromotionContext,
     ) -> DestinationEligibility {
+        let effective_trust_weight = self.effective_trust_weight(candidate, context);
         if !candidate.has_required_structure_for(MemoryLayer::SelfModel) {
             return DestinationEligibility {
                 allowed: false,
@@ -396,7 +436,8 @@ impl MemoryPromoter {
                 },
             };
         }
-        if context.self_model_evidence_count >= self.policy_profile().minimum_self_model_evidence() {
+        if context.self_model_evidence_count >= self.policy_profile().minimum_self_model_evidence()
+        {
             return DestinationEligibility {
                 allowed: true,
                 reason: "self-model promotion allowed after repeated stable evidence".to_string(),
@@ -406,32 +447,40 @@ impl MemoryPromoter {
             };
         }
         let trusted_or_verified = context.verified_source
-            || self.policy_profile().allows_singleton_self_model_from_trusted_source(
-                candidate.source.source_type,
-                candidate.source.trust_weight,
-            );
+            || self
+                .policy_profile()
+                .allows_singleton_self_model_from_trusted_source(
+                    candidate.source.source_type,
+                    effective_trust_weight,
+                );
         if trusted_or_verified && !self.is_explicit_durable_self_model_statement(candidate) {
             return DestinationEligibility {
                 allowed: false,
-                reason: "self-model promotion rejected by protected self-model rules"
-                    .to_string(),
+                reason: "self-model promotion rejected by protected self-model rules".to_string(),
                 reason_code: Some(ReasonCode::ProtectedSelfModelRejected),
                 route_basis: "insufficient_evidence",
                 fallback_layer: "episode",
             };
         }
         if self.is_explicit_durable_self_model_statement(candidate)
-            && self.policy_profile().allows_singleton_self_model_from_trusted_source(
-                candidate.source.source_type,
-                candidate.source.trust_weight,
-            )
+            && self
+                .policy_profile()
+                .allows_singleton_self_model_from_trusted_source(
+                    candidate.source.source_type,
+                    effective_trust_weight,
+                )
         {
             return DestinationEligibility {
                 allowed: true,
-                reason: "self-model promotion allowed for explicit durable trusted statement"
-                    .to_string(),
+                reason:
+                    "self-model promotion allowed for explicit durable trusted statement after deterministic trust adjustment"
+                        .to_string(),
                 reason_code: None,
-                route_basis: "trusted_source",
+                route_basis: if context.corroborating_evidence_count > 0 {
+                    "corroborated_trusted_source"
+                } else {
+                    "trusted_source"
+                },
                 fallback_layer: "episode",
             };
         }
@@ -463,8 +512,9 @@ impl MemoryPromoter {
         if !candidate.has_required_structure_for(MemoryLayer::Procedure) {
             return DestinationEligibility {
                 allowed: false,
-                reason: "procedure promotion requires non-empty entity, slot, value, and workflow key"
-                    .to_string(),
+                reason:
+                    "procedure promotion requires non-empty entity, slot, value, and workflow key"
+                        .to_string(),
                 reason_code: Some(ReasonCode::StructuredIdentityRequired),
                 route_basis: "insufficient_structure",
                 fallback_layer: if Self::is_event_like(candidate) {
@@ -484,7 +534,9 @@ impl MemoryPromoter {
                 fallback_layer: "episode",
             };
         }
-        if context.procedure_success_count >= self.policy_profile().minimum_procedure_success_evidence() {
+        if context.procedure_success_count
+            >= self.policy_profile().minimum_procedure_success_evidence()
+        {
             return DestinationEligibility {
                 allowed: true,
                 reason: "procedure promotion allowed after repeated successful workflow evidence"

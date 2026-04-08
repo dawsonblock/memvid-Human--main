@@ -5,6 +5,7 @@ mod common;
 use memvid_core::Memvid;
 use memvid_core::agent_memory::adapters::memvid_store::{MemoryStore, MemvidStore};
 use memvid_core::agent_memory::clock::FixedClock;
+use memvid_core::agent_memory::enums::OutcomeFeedbackKind;
 use memvid_core::agent_memory::enums::{BeliefStatus, MemoryType, QueryIntent, SourceType};
 use memvid_core::agent_memory::memory_retriever::MemoryRetriever;
 use memvid_core::agent_memory::policy::PolicySet;
@@ -126,5 +127,79 @@ fn memvid_adapter_search_hits_surface_internal_memory_layer() {
     assert_eq!(
         hit.metadata.get("memory_layer").map(String::as_str),
         Some("self_model")
+    );
+}
+
+#[test]
+fn memvid_adapter_keeps_ingest_time_stable_across_access_and_feedback_updates() {
+    let dir = tempdir().expect("tempdir");
+    let path = dir.path().join("agent-memory-updates.mv2");
+    let memvid = Memvid::create(&path).expect("memvid created");
+    let mut store = MemvidStore::new(memvid);
+
+    let stored_at = ts(1_700_000_000);
+    let accessed_at = ts(1_700_000_100);
+    let feedback_at = ts(1_700_000_200);
+    let memory = durable(
+        "user",
+        "location",
+        "Berlin",
+        "The user lives in Berlin",
+        MemoryType::Fact,
+        SourceType::Chat,
+        0.75,
+        stored_at,
+    );
+    store.put_memory(&memory).expect("memory stored");
+
+    store
+        .touch_memory_access(&memory.memory_id, accessed_at)
+        .expect("touch stored");
+
+    let touched = store
+        .get_memory(&memory.memory_id)
+        .expect("lookup succeeds")
+        .expect("memory exists");
+    assert_eq!(touched.stored_at, stored_at);
+    assert_eq!(touched.version_timestamp(), accessed_at);
+    assert_eq!(touched.retrieval_count(), 1);
+    assert_eq!(
+        store
+            .list_memories_by_layer(touched.memory_layer())
+            .expect("list succeeds")
+            .len(),
+        1
+    );
+
+    let updated = touched.with_outcome_feedback(OutcomeFeedbackKind::Positive, feedback_at);
+    store.put_memory(&updated).expect("feedback version stored");
+
+    let latest = store
+        .get_memory(&memory.memory_id)
+        .expect("lookup succeeds")
+        .expect("memory exists");
+    assert_eq!(latest.stored_at, stored_at);
+    assert_eq!(latest.version_timestamp(), feedback_at);
+    assert_eq!(latest.positive_outcome_count(), 1);
+
+    let historical_hits = store
+        .search(&RetrievalQuery {
+            query_text: "Berlin".to_string(),
+            intent: QueryIntent::CurrentFact,
+            entity: Some("user".to_string()),
+            slot: Some("location".to_string()),
+            scope: None,
+            top_k: 3,
+            as_of: Some(ts(1_700_000_150)),
+            include_expired: false,
+        })
+        .expect("search works");
+    let historical = historical_hits
+        .into_iter()
+        .find(|hit| hit.memory_id.as_deref() == Some(memory.memory_id.as_str()))
+        .expect("historical hit exists");
+    assert_eq!(
+        historical.metadata.get("stored_at").map(String::as_str),
+        Some(stored_at.to_rfc3339().as_str())
     );
 }

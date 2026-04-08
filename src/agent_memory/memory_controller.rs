@@ -8,8 +8,8 @@ use super::belief_updater::{BeliefUpdateOutcome, BeliefUpdater};
 use super::clock::Clock;
 use super::consolidation_engine::ConsolidationEngine;
 use super::enums::{
-    BeliefAction, MemoryLayer, MemoryType, PromotionDecision, SelfModelStabilityClass,
-    SelfModelKind, SourceType,
+    BeliefAction, MemoryLayer, MemoryType, PromotionDecision, SelfModelKind,
+    SelfModelStabilityClass, SourceType,
 };
 use super::episode_store::EpisodeStore;
 use super::errors::{AgentMemoryError, Result};
@@ -20,8 +20,8 @@ use super::memory_retriever::MemoryRetriever;
 use super::policy::ReasonCode;
 use super::procedure_store::{ProcedureStatusTransition, ProcedureStore};
 use super::schemas::{
-    AuditEvent, BeliefRecord, CandidateMemory, DurableMemory, OutcomeFeedback,
-    PromotionContext, RetrievalHit, RetrievalQuery,
+    AuditEvent, BeliefRecord, CandidateMemory, DurableMemory, OutcomeFeedback, PromotionContext,
+    RetrievalHit, RetrievalQuery,
 };
 use super::self_model_store::SelfModelStore;
 
@@ -39,7 +39,10 @@ pub struct MemoryController<S: MemoryStore> {
 
 enum SelfModelGovernanceDecision {
     Persist(DurableMemory),
-    Downgrade { reason: String, reason_code: ReasonCode },
+    Downgrade {
+        reason: String,
+        reason_code: ReasonCode,
+    },
 }
 
 impl<S: MemoryStore> MemoryController<S> {
@@ -139,8 +142,7 @@ impl<S: MemoryStore> MemoryController<S> {
         match promotion.decision {
             PromotionDecision::Reject => Ok(None),
             PromotionDecision::StoreTrace => {
-                if promotion.details.get("fallback_layer").map(String::as_str) == Some("episode")
-                {
+                if promotion.details.get("fallback_layer").map(String::as_str) == Some("episode") {
                     let episode_memory = {
                         let mut episode_store = EpisodeStore::new(&mut self.store);
                         episode_store.record_candidate(&classified, self.clock.as_ref())?
@@ -246,7 +248,10 @@ impl<S: MemoryStore> MemoryController<S> {
                         SelfModelGovernanceDecision::Persist(governed) => {
                             memory = governed;
                         }
-                        SelfModelGovernanceDecision::Downgrade { reason, reason_code } => {
+                        SelfModelGovernanceDecision::Downgrade {
+                            reason,
+                            reason_code,
+                        } => {
                             self.emit_policy_rejection_event(
                                 Some(classified.candidate_id.clone()),
                                 MemoryLayer::SelfModel,
@@ -254,7 +259,10 @@ impl<S: MemoryStore> MemoryController<S> {
                                 reason,
                                 reason_code,
                                 BTreeMap::from([
-                                    ("route_basis".to_string(), "stable_directive_protection".to_string()),
+                                    (
+                                        "route_basis".to_string(),
+                                        "stable_directive_protection".to_string(),
+                                    ),
                                     ("fallback_layer".to_string(), "episode".to_string()),
                                     (
                                         "policy_version".to_string(),
@@ -262,7 +270,9 @@ impl<S: MemoryStore> MemoryController<S> {
                                     ),
                                 ]),
                             );
-                            self.reconcile_procedure_statuses(Some(classified.candidate_id.clone()))?;
+                            self.reconcile_procedure_statuses(Some(
+                                classified.candidate_id.clone(),
+                            ))?;
                             return Ok(episode_memory.map(|episode| episode.memory_id));
                         }
                     }
@@ -364,7 +374,10 @@ impl<S: MemoryStore> MemoryController<S> {
                 SelfModelGovernanceDecision::Persist(governed) => {
                     memory = governed;
                 }
-                SelfModelGovernanceDecision::Downgrade { reason, reason_code } => {
+                SelfModelGovernanceDecision::Downgrade {
+                    reason,
+                    reason_code,
+                } => {
                     self.emit_policy_rejection_event(
                         Some(candidate_id),
                         MemoryLayer::SelfModel,
@@ -420,6 +433,10 @@ impl<S: MemoryStore> MemoryController<S> {
         Ok(hits)
     }
 
+    pub fn retrieve_text(&mut self, query_text: impl Into<String>) -> Result<Vec<RetrievalHit>> {
+        self.retrieve(RetrievalQuery::from_text(query_text))
+    }
+
     pub fn record_outcome_feedback(&mut self, feedback: OutcomeFeedback) -> Result<Option<String>> {
         let mut workflow_key = feedback
             .workflow_key
@@ -457,8 +474,12 @@ impl<S: MemoryStore> MemoryController<S> {
                     workflow_key = memory.workflow_key_non_empty().map(ToString::to_string);
                 }
 
-                if !matches!(memory.memory_layer(), MemoryLayer::Trace | MemoryLayer::Procedure) {
-                    let mut updated = memory.with_outcome_feedback(feedback.outcome, feedback.observed_at);
+                if !matches!(
+                    memory.memory_layer(),
+                    MemoryLayer::Trace | MemoryLayer::Procedure
+                ) {
+                    let mut updated =
+                        memory.with_outcome_feedback(feedback.outcome, feedback.observed_at);
                     for (key, value) in &feedback.metadata {
                         updated
                             .metadata
@@ -524,10 +545,7 @@ impl<S: MemoryStore> MemoryController<S> {
 
         let mut details = BTreeMap::from([
             ("outcome".to_string(), feedback.outcome.as_str().to_string()),
-            (
-                "stored_memory_ids".to_string(),
-                stored_memory_ids.join(","),
-            ),
+            ("stored_memory_ids".to_string(), stored_memory_ids.join(",")),
         ]);
         if let Some(memory_id) = target_memory_id {
             details.insert("target_memory_id".to_string(), memory_id);
@@ -592,7 +610,7 @@ impl<S: MemoryStore> MemoryController<S> {
                 continue;
             }
 
-            self.store.put_memory(&memory.with_retrieval_access(accessed_at))?;
+            self.store.touch_memory_access(memory_id, accessed_at)?;
             touched.push(memory_id.to_string());
         }
 
@@ -655,9 +673,9 @@ impl<S: MemoryStore> MemoryController<S> {
                     let mut belief_store = BeliefStore::new(&mut self.store);
                     belief_store.get_current(&memory.entity, &memory.slot)?
                 };
-                let outcome = self
-                    .belief_updater
-                    .apply(existing.clone(), &memory, self.clock.as_ref());
+                let outcome =
+                    self.belief_updater
+                        .apply(existing.clone(), &memory, self.clock.as_ref());
                 {
                     let mut belief_store = BeliefStore::new(&mut self.store);
                     if let Some(prior) = outcome.prior_belief.as_ref() {
@@ -761,7 +779,12 @@ impl<S: MemoryStore> MemoryController<S> {
         reason_code: ReasonCode,
     ) {
         let mut details = BTreeMap::new();
-        for key in ["route_basis", "fallback_layer", "policy_version", "score_threshold"] {
+        for key in [
+            "route_basis",
+            "fallback_layer",
+            "policy_version",
+            "score_threshold",
+        ] {
             if let Some(value) = promotion.details.get(key) {
                 details.insert(key.to_string(), value.clone());
             }
@@ -785,7 +808,10 @@ impl<S: MemoryStore> MemoryController<S> {
         reason_code: ReasonCode,
         mut details: BTreeMap<String, String>,
     ) {
-        details.insert("target_layer".to_string(), target_layer.as_str().to_string());
+        details.insert(
+            "target_layer".to_string(),
+            target_layer.as_str().to_string(),
+        );
         details.insert(
             "decision".to_string(),
             format!("{:?}", decision).to_lowercase(),
@@ -874,8 +900,9 @@ impl<S: MemoryStore> MemoryController<S> {
                     ("value".to_string(), current.current_value.clone()),
                     (
                         "resolved_contestation".to_string(),
-                        (existing.is_some_and(|belief| belief.status == super::enums::BeliefStatus::Disputed)
-                            && current.status == super::enums::BeliefStatus::Active)
+                        (existing.is_some_and(|belief| {
+                            belief.status == super::enums::BeliefStatus::Disputed
+                        }) && current.status == super::enums::BeliefStatus::Active)
                             .to_string(),
                     ),
                 ]);
@@ -897,7 +924,9 @@ impl<S: MemoryStore> MemoryController<S> {
                 });
             }
             BeliefAction::Dispute => {
-                let existing_trust = existing.map(BeliefRecord::strongest_source_weight).unwrap_or(0.0);
+                let existing_trust = existing
+                    .map(BeliefRecord::strongest_source_weight)
+                    .unwrap_or(0.0);
                 let mut details = BTreeMap::from([
                     ("entity".to_string(), current.entity.clone()),
                     ("slot".to_string(), current.slot.clone()),
@@ -910,7 +939,10 @@ impl<S: MemoryStore> MemoryController<S> {
                     ("new_value".to_string(), memory.value.clone()),
                     (
                         "trust_comparison".to_string(),
-                        format!("new={:.2},existing={:.2}", memory.source.trust_weight, existing_trust),
+                        format!(
+                            "new={:.2},existing={:.2}",
+                            memory.source.trust_weight, existing_trust
+                        ),
                     ),
                     (
                         "contradictions_observed".to_string(),
@@ -950,7 +982,9 @@ impl<S: MemoryStore> MemoryController<S> {
                         format!(
                             "new={:.2},existing={:.2}",
                             memory.source.trust_weight,
-                            existing.map(BeliefRecord::strongest_source_weight).unwrap_or(0.0)
+                            existing
+                                .map(BeliefRecord::strongest_source_weight)
+                                .unwrap_or(0.0)
                         ),
                     ),
                 ]);
@@ -1012,7 +1046,9 @@ impl<S: MemoryStore> MemoryController<S> {
         memory.entity = entity.clone();
         memory.slot = slot.clone();
         memory.value = value.clone();
-        memory.metadata.insert("self_model_kind".to_string(), kind.as_str().to_string());
+        memory
+            .metadata
+            .insert("self_model_kind".to_string(), kind.as_str().to_string());
         memory.metadata.insert(
             "self_model_stability_class".to_string(),
             stability_class.as_str().to_string(),
@@ -1028,7 +1064,9 @@ impl<S: MemoryStore> MemoryController<S> {
         };
         let corroborating_count = {
             let mut self_model_store = SelfModelStore::new(&mut self.store);
-            self_model_store.matching_values(&entity, &slot, &value)?.len()
+            self_model_store
+                .matching_values(&entity, &slot, &value)?
+                .len()
         };
 
         if let Some(existing_record) = existing {
@@ -1097,7 +1135,9 @@ impl<S: MemoryStore> MemoryController<S> {
         let mut context = PromotionContext {
             verified_source: Self::is_verified_source(candidate),
             seeded_by_system: Self::is_seeded_by_system(candidate),
-            goal_state_evidence_count: usize::from(candidate.memory_layer() == MemoryLayer::GoalState),
+            goal_state_evidence_count: usize::from(
+                candidate.memory_layer() == MemoryLayer::GoalState,
+            ),
             ..PromotionContext::default()
         };
 
@@ -1106,33 +1146,57 @@ impl<S: MemoryStore> MemoryController<S> {
             candidate.slot_non_empty(),
             candidate.value_non_empty(),
         ) {
-            context.belief_evidence_count = self
-                .store
-                .list_memories_for_belief(entity, slot)?
-                .into_iter()
+            let belief_memories = self.store.list_memories_for_belief(entity, slot)?;
+            let corroborating_beliefs = belief_memories
+                .iter()
                 .filter(|memory| !memory.is_retraction)
                 .filter(|memory| memory.value == value)
-                .count()
+                .count();
+            let contradictory_beliefs = belief_memories
+                .iter()
+                .filter(|memory| !memory.is_retraction)
+                .filter(|memory| memory.value != value)
+                .count();
+            context.belief_evidence_count = corroborating_beliefs
                 + usize::from(candidate.memory_layer() == MemoryLayer::Belief);
 
-            context.self_model_evidence_count = {
-                let mut self_model_store = SelfModelStore::new(&mut self.store);
-                self_model_store.matching_values(entity, slot, value)?.len()
-            } + usize::from(candidate.memory_layer() == MemoryLayer::SelfModel);
+            context.self_model_evidence_count =
+                {
+                    let mut self_model_store = SelfModelStore::new(&mut self.store);
+                    let corroborating_self_model =
+                        self_model_store.matching_values(entity, slot, value)?.len();
+                    let contradictory_self_model = self_model_store
+                        .list_for_entity_memories(entity)?
+                        .into_iter()
+                        .filter(|memory| memory.slot == slot)
+                        .filter(|memory| memory.value != value)
+                        .count();
+                    if candidate.memory_layer() == MemoryLayer::SelfModel {
+                        context.corroborating_evidence_count = corroborating_self_model;
+                        context.contradictory_evidence_count = contradictory_self_model;
+                    }
+                    corroborating_self_model
+                } + usize::from(candidate.memory_layer() == MemoryLayer::SelfModel);
 
-            context.goal_state_evidence_count = if candidate.memory_layer() == MemoryLayer::GoalState {
-                let mut goal_store = GoalStateStore::new(&mut self.store);
-                goal_store
-                    .list_all_memories()?
-                    .into_iter()
-                    .filter(|memory| memory.entity == entity)
-                    .filter(|memory| memory.slot == slot)
-                    .filter(|memory| memory.value == value)
-                    .count()
-                    + 1
-            } else {
-                context.goal_state_evidence_count
-            };
+            if candidate.memory_layer() == MemoryLayer::Belief {
+                context.corroborating_evidence_count = corroborating_beliefs;
+                context.contradictory_evidence_count = contradictory_beliefs;
+            }
+
+            context.goal_state_evidence_count =
+                if candidate.memory_layer() == MemoryLayer::GoalState {
+                    let mut goal_store = GoalStateStore::new(&mut self.store);
+                    goal_store
+                        .list_all_memories()?
+                        .into_iter()
+                        .filter(|memory| memory.entity == entity)
+                        .filter(|memory| memory.slot == slot)
+                        .filter(|memory| memory.value == value)
+                        .count()
+                        + 1
+                } else {
+                    context.goal_state_evidence_count
+                };
         }
 
         if let Some(workflow_key) = candidate.workflow_key_non_empty() {

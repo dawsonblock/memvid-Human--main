@@ -95,14 +95,13 @@ impl RetentionManager {
         };
 
         let recency_boost = memory.last_accessed_at().map_or(0.0, |last_accessed_at| {
-            let age_days = (now.timestamp() - last_accessed_at.timestamp()).max(0) as f32
-                / DAY_SECONDS as f32;
+            let age_days =
+                (now.timestamp() - last_accessed_at.timestamp()).max(0) as f32 / DAY_SECONDS as f32;
             (1.0 - (age_days / ACCESS_RECENCY_WINDOW_DAYS)).clamp(0.0, 1.0)
                 * ACCESS_RECENCY_MAX_BOOST
         });
 
-        (count_boost + recency_boost)
-            .clamp(0.0, ACCESS_COUNT_MAX_BOOST + ACCESS_RECENCY_MAX_BOOST)
+        (count_boost + recency_boost).clamp(0.0, ACCESS_COUNT_MAX_BOOST + ACCESS_RECENCY_MAX_BOOST)
     }
 
     fn outcome_impact_adjustment(memory: &DurableMemory, now: DateTime<Utc>) -> f32 {
@@ -113,14 +112,18 @@ impl RetentionManager {
             return 0.0;
         }
 
-        let count_weight = total.min(OUTCOME_IMPACT_COUNT_CAP) as f32 / OUTCOME_IMPACT_COUNT_CAP as f32;
+        let count_weight =
+            total.min(OUTCOME_IMPACT_COUNT_CAP) as f32 / OUTCOME_IMPACT_COUNT_CAP as f32;
         let recency_weight = memory.last_outcome_at().map_or(0.0, |last_outcome_at| {
-            let age_days = (now.timestamp() - last_outcome_at.timestamp()).max(0) as f32
-                / DAY_SECONDS as f32;
+            let age_days =
+                (now.timestamp() - last_outcome_at.timestamp()).max(0) as f32 / DAY_SECONDS as f32;
             (1.0 - (age_days / OUTCOME_IMPACT_WINDOW_DAYS)).clamp(0.0, 1.0)
         });
 
-        memory.outcome_impact_score() * count_weight * recency_weight * OUTCOME_IMPACT_MAX_ADJUSTMENT
+        memory.outcome_impact_score()
+            * count_weight
+            * recency_weight
+            * OUTCOME_IMPACT_MAX_ADJUSTMENT
     }
 
     fn adjust_procedure_rule(rule: &mut RetentionRule, record: &ProcedureRecord) {

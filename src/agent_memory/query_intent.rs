@@ -1,4 +1,5 @@
 use super::enums::QueryIntent;
+use super::schemas::RetrievalQuery;
 
 /// Rule-based retrieval intent detector.
 #[derive(Debug, Default, Clone, Copy)]
@@ -6,7 +7,7 @@ pub struct QueryIntentDetector;
 
 impl QueryIntentDetector {
     #[must_use]
-    pub fn detect(&self, query: &str) -> QueryIntent {
+    pub fn detect(query: &str) -> QueryIntent {
         let lower = query.to_lowercase();
         if ["prefer", "favorite", "like", "dislike", "setting"]
             .iter()
@@ -36,6 +37,23 @@ impl QueryIntentDetector {
             QueryIntent::CurrentFact
         } else {
             QueryIntent::SemanticBackground
+        }
+    }
+}
+
+impl RetrievalQuery {
+    #[must_use]
+    pub fn from_text(query_text: impl Into<String>) -> Self {
+        let query_text = query_text.into();
+        Self {
+            intent: QueryIntentDetector::detect(&query_text),
+            query_text,
+            entity: None,
+            slot: None,
+            scope: None,
+            top_k: 5,
+            as_of: None,
+            include_expired: false,
         }
     }
 }

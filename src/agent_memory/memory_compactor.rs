@@ -8,4 +8,10 @@ impl MemoryCompactor {
     pub const fn is_supported(&self) -> bool {
         false
     }
+
+    /// Governed memory does not currently run a separate logical compaction pass.
+    #[must_use]
+    pub const fn status(&self) -> &'static str {
+        "unsupported"
+    }
 }
