@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 
 use super::adapters::memvid_store::MemoryStore;
 use super::errors::Result;
+use super::policy::PolicySet;
 use super::retention::RetentionManager;
 use super::schemas::DurableMemory;
 
@@ -15,6 +16,11 @@ impl MemoryDecay {
     #[must_use]
     pub fn new(retention: RetentionManager) -> Self {
         Self { retention }
+    }
+
+    #[must_use]
+    pub fn from_policy(policy: PolicySet) -> Self {
+        Self::new(RetentionManager::new(policy))
     }
 
     pub fn run<S: MemoryStore>(

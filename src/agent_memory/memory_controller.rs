@@ -15,10 +15,13 @@ use super::episode_store::EpisodeStore;
 use super::errors::{AgentMemoryError, Result};
 use super::goal_state_store::GoalStateStore;
 use super::memory_classifier::MemoryClassifier;
+use super::memory_compactor::MemoryCompactor;
 use super::memory_promoter::MemoryPromoter;
+use super::memory_decay::MemoryDecay;
 use super::memory_retriever::MemoryRetriever;
 use super::policy::ReasonCode;
 use super::procedure_store::{ProcedureStatusTransition, ProcedureStore};
+use super::retention::RetentionManager;
 use super::schemas::{
     AuditEvent, BeliefRecord, CandidateMemory, DurableMemory, OutcomeFeedback, PromotionContext,
     RetrievalHit, RetrievalQuery,
@@ -43,6 +46,15 @@ enum SelfModelGovernanceDecision {
         reason: String,
         reason_code: ReasonCode,
     },
+}
+
+/// Explicit governed-memory maintenance result.
+#[derive(Debug, Clone)]
+pub struct MemoryMaintenanceReport {
+    pub durable_memories: Vec<DurableMemory>,
+    pub expired_ids: Vec<String>,
+    pub compactor_status: &'static str,
+    pub compaction_supported: bool,
 }
 
 impl<S: MemoryStore> MemoryController<S> {
@@ -437,6 +449,41 @@ impl<S: MemoryStore> MemoryController<S> {
         self.retrieve(RetrievalQuery::from_text(query_text))
     }
 
+    pub fn list_current_durable_memories(&mut self) -> Result<Vec<DurableMemory>> {
+        let mut memories = Vec::new();
+        for layer in [
+            MemoryLayer::Episode,
+            MemoryLayer::Belief,
+            MemoryLayer::GoalState,
+            MemoryLayer::SelfModel,
+            MemoryLayer::Procedure,
+        ] {
+            memories.extend(self.store.list_memories_by_layer(layer)?);
+        }
+        memories.sort_by(|left, right| {
+            left.memory_layer()
+                .as_str()
+                .cmp(right.memory_layer().as_str())
+                .then_with(|| left.stored_at.cmp(&right.stored_at))
+                .then_with(|| left.memory_id.cmp(&right.memory_id))
+        });
+        Ok(memories)
+    }
+
+    pub fn run_maintenance(&mut self) -> Result<MemoryMaintenanceReport> {
+        let durable_memories = self.list_current_durable_memories()?;
+        let expired_ids = MemoryDecay::new(RetentionManager::new(self.promoter.policy().clone()))
+            .run(&mut self.store, &durable_memories, self.clock.now())?;
+        let compactor = MemoryCompactor;
+
+        Ok(MemoryMaintenanceReport {
+            durable_memories,
+            expired_ids,
+            compactor_status: compactor.status(),
+            compaction_supported: compactor.is_supported(),
+        })
+    }
+
     pub fn record_outcome_feedback(&mut self, feedback: OutcomeFeedback) -> Result<Option<String>> {
         let mut workflow_key = feedback
             .workflow_key
@@ -591,6 +638,7 @@ impl<S: MemoryStore> MemoryController<S> {
     fn touch_retrieved_memories(&mut self, hits: &[RetrievalHit]) -> Result<Vec<String>> {
         let accessed_at = self.clock.now();
         let mut touched = Vec::new();
+        let mut touches = Vec::new();
         let mut seen = std::collections::BTreeSet::new();
 
         for hit in hits {
@@ -610,8 +658,12 @@ impl<S: MemoryStore> MemoryController<S> {
                 continue;
             }
 
-            self.store.touch_memory_access(memory_id, accessed_at)?;
             touched.push(memory_id.to_string());
+            touches.push((memory_id.to_string(), accessed_at.to_owned()));
+        }
+
+        if !touches.is_empty() {
+            self.store.touch_memory_accesses(&touches)?;
         }
 
         Ok(touched)

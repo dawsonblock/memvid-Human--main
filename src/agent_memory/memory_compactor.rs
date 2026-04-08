@@ -14,4 +14,10 @@ impl MemoryCompactor {
     pub const fn status(&self) -> &'static str {
         "unsupported"
     }
+
+    /// Honest user-facing explanation for the governed-memory maintenance surface.
+    #[must_use]
+    pub const fn unsupported_reason(&self) -> &'static str {
+        "governed memory does not expose a separate logical compaction pass"
+    }
 }
