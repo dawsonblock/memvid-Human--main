@@ -292,6 +292,26 @@ fn dedup_search_hits(hits: Vec<RetrievalHit>) -> Vec<RetrievalHit> {
     hits
 }
 
+fn aggregate_batch_touches(
+    touches: &[(String, DateTime<Utc>)],
+) -> Vec<(String, DateTime<Utc>, u32)> {
+    let mut aggregated: Vec<(String, DateTime<Utc>, u32)> = Vec::new();
+    let mut index_by_memory_id: HashMap<&str, usize> = HashMap::new();
+
+    for (memory_id, accessed_at) in touches {
+        if let Some(index) = index_by_memory_id.get(memory_id.as_str()).copied() {
+            let (_, latest_accessed_at, occurrences) = &mut aggregated[index];
+            *latest_accessed_at = (*latest_accessed_at).max(*accessed_at);
+            *occurrences = occurrences.saturating_add(1);
+        } else {
+            index_by_memory_id.insert(memory_id.as_str(), aggregated.len());
+            aggregated.push((memory_id.clone(), *accessed_at, 1));
+        }
+    }
+
+    aggregated
+}
+
 fn belief_entity(entity: &str) -> String {
     format!("{BELIEF_PREFIX}:{entity}")
 }
@@ -405,15 +425,24 @@ impl MemoryStore for InMemoryMemoryStore {
     }
 
     fn touch_memory_accesses(&mut self, touches: &[(String, DateTime<Utc>)]) -> Result<()> {
-        for (memory_id, accessed_at) in touches {
-            let Some(memory) = self.get_memory(memory_id)? else {
+        for (memory_id, accessed_at, occurrences) in aggregate_batch_touches(touches) {
+            let Some(memory) = self.get_memory(&memory_id)? else {
                 continue;
             };
-            let touched = memory.with_retrieval_access(accessed_at.to_owned());
-            self.access_touches.insert(
-                memory_id.clone(),
-                (accessed_at.to_owned(), touched.retrieval_count()),
+            let mut touched = memory;
+            touched.metadata.insert(
+                "retrieval_count".to_string(),
+                touched
+                    .retrieval_count()
+                    .saturating_add(occurrences)
+                    .to_string(),
             );
+            touched
+                .metadata
+                .insert("last_accessed_at".to_string(), accessed_at.to_rfc3339());
+            touched.updated_at = Some(touched.version_timestamp().max(accessed_at));
+            self.access_touches
+                .insert(memory_id, (accessed_at, touched.retrieval_count()));
         }
 
         Ok(())
@@ -563,10 +592,6 @@ impl MemoryStore for InMemoryMemoryStore {
             .filter(|memory| memory.memory_layer() == layer)
             .cloned()
             .collect())
-    }
-
-    fn list_memories_by_layer(&mut self, layer: MemoryLayer) -> Result<Vec<DurableMemory>> {
-        Ok(latest_memories_by_id(self.list_memory_versions_by_layer(layer)?))
     }
 
     fn list_memories_for_belief(&mut self, entity: &str, slot: &str) -> Result<Vec<DurableMemory>> {
@@ -913,12 +938,12 @@ impl MemoryStore for MemvidStore {
     fn touch_memory_accesses(&mut self, touches: &[(String, DateTime<Utc>)]) -> Result<()> {
         let mut pending = Vec::new();
 
-        for (memory_id, accessed_at) in touches {
-            let Some(memory) = self.get_memory(memory_id)? else {
+        for (memory_id, accessed_at, occurrences) in aggregate_batch_touches(touches) {
+            let Some(memory) = self.get_memory(&memory_id)? else {
                 continue;
             };
-            let touched = memory.with_retrieval_access(accessed_at.to_owned());
-            let uri = Self::access_touch_uri(memory_id, accessed_at.to_owned());
+            let retrieval_count = memory.retrieval_count().saturating_add(occurrences);
+            let uri = Self::access_touch_uri(&memory_id, accessed_at);
 
             self.memvid.put_bytes_with_options(
                 b"access_touch",
@@ -936,18 +961,13 @@ impl MemoryStore for MemvidStore {
                         ),
                         (
                             "agent_retrieval_count".to_string(),
-                            touched.retrieval_count().to_string(),
+                            retrieval_count.to_string(),
                         ),
                     ]),
                     ..PutOptions::default()
                 },
             )?;
-            pending.push((
-                memory_id.clone(),
-                accessed_at.to_owned(),
-                touched.retrieval_count(),
-                uri,
-            ));
+            pending.push((memory_id, accessed_at, retrieval_count, uri));
         }
 
         if pending.is_empty() {

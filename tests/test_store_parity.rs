@@ -123,18 +123,16 @@ fn stores_match_for_multiple_access_touches_on_same_memory() {
     in_memory.put_memory(&memory).expect("in-memory stored");
     memvid.put_memory(&memory).expect("memvid stored");
 
+    let touches = vec![
+        (memory.memory_id.clone(), ts(1_700_000_100)),
+        (memory.memory_id.clone(), ts(1_700_000_200)),
+    ];
     in_memory
-        .touch_memory_accesses(&[(memory.memory_id.clone(), ts(1_700_000_100))])
-        .expect("first in-memory touch stored");
-    in_memory
-        .touch_memory_accesses(&[(memory.memory_id.clone(), ts(1_700_000_200))])
-        .expect("second in-memory touch stored");
+        .touch_memory_accesses(&touches)
+        .expect("in-memory touches stored");
     memvid
-        .touch_memory_accesses(&[(memory.memory_id.clone(), ts(1_700_000_100))])
-        .expect("first memvid touch stored");
-    memvid
-        .touch_memory_accesses(&[(memory.memory_id.clone(), ts(1_700_000_200))])
-        .expect("second memvid touch stored");
+        .touch_memory_accesses(&touches)
+        .expect("memvid touches stored");
 
     let left = in_memory
         .get_memory(&memory.memory_id)

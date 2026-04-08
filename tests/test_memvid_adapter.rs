@@ -241,11 +241,9 @@ fn memvid_adapter_batch_touch_path_updates_effective_access_metadata() {
         .touch_memory_accesses(&[
             (first.memory_id.clone(), first_touch),
             (second.memory_id.clone(), second_touch),
+            (first.memory_id.clone(), first_touch_again),
         ])
         .expect("batch touch stored");
-    store
-        .touch_memory_accesses(&[(first.memory_id.clone(), first_touch_again)])
-        .expect("second batch touch stored");
 
     let first_latest = store
         .get_memory(&first.memory_id)
