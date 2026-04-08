@@ -258,7 +258,8 @@ impl DurableMemory {
         );
         self.metadata
             .insert(LAST_ACCESSED_AT_KEY.to_string(), accessed_at.to_rfc3339());
-        self.updated_at = Some(accessed_at);
+        let current_version_timestamp = self.updated_at.unwrap_or(self.stored_at);
+        self.updated_at = Some(current_version_timestamp.max(accessed_at));
         self
     }
 
