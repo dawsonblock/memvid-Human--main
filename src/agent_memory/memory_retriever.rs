@@ -712,6 +712,10 @@ impl MemoryRetriever {
         metadata.insert("confidence".to_string(), memory.confidence.to_string());
         metadata.insert("salience".to_string(), retention.decayed_salience.to_string());
         metadata.insert("stored_at".to_string(), memory.stored_at.to_rfc3339());
+        metadata.insert(
+            "updated_at".to_string(),
+            memory.version_timestamp().to_rfc3339(),
+        );
         metadata.insert("event_at".to_string(), memory.event_timestamp().to_rfc3339());
         if let Some(record) = memory.to_procedure_record() {
             metadata.insert(
@@ -1020,6 +1024,11 @@ impl MemoryRetriever {
             memory_id: hit.memory_id.clone().unwrap_or_default(),
             candidate_id: String::new(),
             stored_at: Self::parse_hit_timestamp(hit.metadata.get("stored_at")).unwrap_or(hit.timestamp),
+            updated_at: Some(
+                Self::parse_hit_timestamp(hit.metadata.get("updated_at"))
+                    .or_else(|| Self::parse_hit_timestamp(hit.metadata.get("stored_at")))
+                    .unwrap_or(hit.timestamp),
+            ),
             entity: hit.entity.clone().unwrap_or_default(),
             slot: hit.slot.clone().unwrap_or_default(),
             value: hit.value.clone().unwrap_or_default(),
@@ -1413,6 +1422,7 @@ impl MemoryRetriever {
             memory_id: record.memory_id,
             candidate_id: record.candidate_id,
             stored_at: record.stored_at,
+            updated_at: Some(record.stored_at),
             entity: record.entity,
             slot: record.slot,
             value: record.value,

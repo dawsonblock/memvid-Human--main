@@ -178,6 +178,16 @@ impl<'a, S: MemoryStore> ProcedureStore<'a, S> {
             .insert("procedure_name".to_string(), procedure_name);
         if let Some(existing) = self.get_by_workflow_key(&workflow_key)? {
             procedure_memory.memory_id = existing.procedure_id;
+            let recorded_at = existing
+                .metadata
+                .get("recorded_at")
+                .and_then(|recorded_at| DateTime::parse_from_rfc3339(recorded_at).ok())
+                .map(|recorded_at| recorded_at.with_timezone(&Utc))
+                .unwrap_or(existing.updated_at);
+            procedure_memory.stored_at = recorded_at;
+            procedure_memory
+                .metadata
+                .insert("recorded_at".to_string(), recorded_at.to_rfc3339());
         }
         self.store.put_memory(&procedure_memory)
     }
@@ -193,7 +203,7 @@ impl<'a, S: MemoryStore> ProcedureStore<'a, S> {
 
     pub fn list_all_memories(&mut self) -> Result<Vec<DurableMemory>> {
         let mut memories = self.store.list_memories_by_layer(MemoryLayer::Procedure)?;
-        memories.sort_by(|left, right| right.stored_at.cmp(&left.stored_at));
+        memories.sort_by(|left, right| right.version_timestamp().cmp(&left.version_timestamp()));
         let mut seen_workflows = HashSet::new();
         let mut latest = Vec::new();
         for memory in memories {
@@ -517,11 +527,18 @@ impl<'a, S: MemoryStore> ProcedureStore<'a, S> {
         if let Some(last_failed_at) = record.last_failed_at {
             metadata.insert("last_failed_at".to_string(), last_failed_at.to_rfc3339());
         }
+        let recorded_at = metadata
+            .get("recorded_at")
+            .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+            .map(|value| value.with_timezone(&Utc))
+            .unwrap_or(record.updated_at);
+        metadata.insert("recorded_at".to_string(), recorded_at.to_rfc3339());
 
         let memory = DurableMemory {
             memory_id: record.procedure_id.clone(),
             candidate_id: format!("procedure-{}", record.procedure_id),
-            stored_at: record.updated_at,
+            stored_at: recorded_at,
+            updated_at: Some(record.updated_at),
             entity: "procedure".to_string(),
             slot: record
                 .metadata

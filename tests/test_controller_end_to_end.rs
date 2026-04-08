@@ -152,6 +152,7 @@ fn ingest_verified_fact_promotes_belief_and_audits_route() {
 
 #[test]
 fn retrieval_touches_returned_memories_and_persists_access_metadata() {
+    let stored_at = ts(1_700_000_000);
     let now = ts(1_700_000_100);
     let (mut controller, sink) = controller(now);
     let memory = durable(
@@ -162,10 +163,11 @@ fn retrieval_touches_returned_memories_and_persists_access_metadata() {
         MemoryType::Preference,
         SourceType::Chat,
         0.75,
-        ts(1_700_000_000),
+        stored_at,
     );
 
     let memory_id = apply_durable(&mut controller, &memory, None);
+    assert_eq!(controller.store().memories().len(), 1);
 
     controller
         .retrieve(RetrievalQuery {
@@ -184,9 +186,11 @@ fn retrieval_touches_returned_memories_and_persists_access_metadata() {
         .store()
         .memories()
         .iter()
-        .rev()
         .find(|stored| stored.memory_id == memory_id)
         .expect("touched memory present");
+    assert_eq!(controller.store().memories().len(), 1);
+    assert_eq!(latest.stored_at, stored_at);
+    assert_eq!(latest.version_timestamp(), now);
     assert_eq!(
         latest.metadata.get("retrieval_count").map(String::as_str),
         Some("1")
@@ -219,6 +223,7 @@ fn retrieval_touches_returned_memories_and_persists_access_metadata() {
 
 #[test]
 fn outcome_feedback_updates_generic_memory_metadata() {
+    let stored_at = ts(1_700_000_000);
     let now = ts(1_700_000_120);
     let (mut controller, sink) = controller(now);
     let memory = durable(
@@ -229,7 +234,7 @@ fn outcome_feedback_updates_generic_memory_metadata() {
         MemoryType::Preference,
         SourceType::Chat,
         0.75,
-        ts(1_700_000_000),
+        stored_at,
     );
     let memory_id = apply_durable(&mut controller, &memory, None);
 
@@ -254,6 +259,8 @@ fn outcome_feedback_updates_generic_memory_metadata() {
         .rev()
         .find(|stored| stored.memory_id == memory_id)
         .expect("feedback memory present");
+    assert_eq!(latest.stored_at, stored_at);
+    assert_eq!(latest.version_timestamp(), now);
     assert_eq!(
         latest
             .metadata

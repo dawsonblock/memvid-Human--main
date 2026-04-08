@@ -420,6 +420,10 @@ impl<S: MemoryStore> MemoryController<S> {
         Ok(hits)
     }
 
+    pub fn retrieve_text(&mut self, query_text: impl Into<String>) -> Result<Vec<RetrievalHit>> {
+        self.retrieve(RetrievalQuery::from_text(query_text))
+    }
+
     pub fn record_outcome_feedback(&mut self, feedback: OutcomeFeedback) -> Result<Option<String>> {
         let mut workflow_key = feedback
             .workflow_key
@@ -592,7 +596,7 @@ impl<S: MemoryStore> MemoryController<S> {
                 continue;
             }
 
-            self.store.put_memory(&memory.with_retrieval_access(accessed_at))?;
+            self.store.touch_memory_access(memory_id, accessed_at)?;
             touched.push(memory_id.to_string());
         }
 
@@ -1106,19 +1110,40 @@ impl<S: MemoryStore> MemoryController<S> {
             candidate.slot_non_empty(),
             candidate.value_non_empty(),
         ) {
-            context.belief_evidence_count = self
-                .store
-                .list_memories_for_belief(entity, slot)?
-                .into_iter()
+            let belief_memories = self.store.list_memories_for_belief(entity, slot)?;
+            let corroborating_beliefs = belief_memories
+                .iter()
                 .filter(|memory| !memory.is_retraction)
                 .filter(|memory| memory.value == value)
-                .count()
+                .count();
+            let contradictory_beliefs = belief_memories
+                .iter()
+                .filter(|memory| !memory.is_retraction)
+                .filter(|memory| memory.value != value)
+                .count();
+            context.belief_evidence_count = corroborating_beliefs
                 + usize::from(candidate.memory_layer() == MemoryLayer::Belief);
 
             context.self_model_evidence_count = {
                 let mut self_model_store = SelfModelStore::new(&mut self.store);
-                self_model_store.matching_values(entity, slot, value)?.len()
+                let corroborating_self_model = self_model_store.matching_values(entity, slot, value)?.len();
+                let contradictory_self_model = self_model_store
+                    .list_for_entity_memories(entity)?
+                    .into_iter()
+                    .filter(|memory| memory.slot == slot)
+                    .filter(|memory| memory.value != value)
+                    .count();
+                if candidate.memory_layer() == MemoryLayer::SelfModel {
+                    context.corroborating_evidence_count = corroborating_self_model;
+                    context.contradictory_evidence_count = contradictory_self_model;
+                }
+                corroborating_self_model
             } + usize::from(candidate.memory_layer() == MemoryLayer::SelfModel);
+
+            if candidate.memory_layer() == MemoryLayer::Belief {
+                context.corroborating_evidence_count = corroborating_beliefs;
+                context.contradictory_evidence_count = contradictory_beliefs;
+            }
 
             context.goal_state_evidence_count = if candidate.memory_layer() == MemoryLayer::GoalState {
                 let mut goal_store = GoalStateStore::new(&mut self.store);

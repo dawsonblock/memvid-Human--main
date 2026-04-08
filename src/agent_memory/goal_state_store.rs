@@ -41,7 +41,7 @@ impl<'a, S: MemoryStore> GoalStateStore<'a, S> {
             .filter(|candidate| candidate.has_required_structure_for(MemoryLayer::GoalState))
             .filter(|candidate| candidate.entity_non_empty() == Some(entity))
             .filter(|candidate| candidate.slot_non_empty() == Some(slot))
-            .max_by(|left, right| left.stored_at.cmp(&right.stored_at));
+            .max_by(|left, right| left.version_timestamp().cmp(&right.version_timestamp()));
 
         let mut goal_memory = memory.clone();
         goal_memory.internal_layer = Some(MemoryLayer::GoalState);
@@ -58,6 +58,7 @@ impl<'a, S: MemoryStore> GoalStateStore<'a, S> {
             .insert("goal_status".to_string(), goal_status.as_str().to_string());
         if let Some(existing_memory) = existing {
             goal_memory.memory_id = existing_memory.memory_id;
+            goal_memory.stored_at = existing_memory.stored_at;
         }
         if let Some(episode_id) = supporting_episode_id {
             goal_memory = goal_memory.with_supporting_episode(episode_id);
@@ -78,7 +79,7 @@ impl<'a, S: MemoryStore> GoalStateStore<'a, S> {
     pub fn list_all_memories(&mut self) -> Result<Vec<DurableMemory>> {
         let mut memories = self.store.list_memories_by_layer(MemoryLayer::GoalState)?;
         memories.retain(|memory| memory.has_required_structure_for(MemoryLayer::GoalState));
-        memories.sort_by(|left, right| right.stored_at.cmp(&left.stored_at));
+        memories.sort_by(|left, right| right.version_timestamp().cmp(&left.version_timestamp()));
         Ok(memories)
     }
 

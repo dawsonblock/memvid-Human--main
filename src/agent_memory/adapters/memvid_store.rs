@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use crate::Memvid;
-use crate::agent_memory::enums::{BeliefStatus, MemoryLayer, MemoryType, Scope, SourceType};
+use crate::agent_memory::enums::{BeliefStatus, MemoryLayer, MemoryType, QueryIntent, Scope, SourceType};
 use crate::agent_memory::errors::{AgentMemoryError, Result};
 use crate::agent_memory::schemas::{BeliefRecord, DurableMemory, RetrievalHit, RetrievalQuery};
 use crate::types::{AclEnforcementMode, MemoryCardBuilder, MemoryKind, PutOptions, SearchRequest};
@@ -15,11 +15,13 @@ const TRACK_BELIEF: &str = "agent_memory_belief";
 const TRACK_SYSTEM: &str = "agent_memory_system";
 const BELIEF_PREFIX: &str = "__agent_memory_belief__";
 const EXPIRY_PREFIX: &str = "__agent_memory_expiry__";
+const ACCESS_PREFIX: &str = "__agent_memory_access__";
 
 /// Narrow governed-memory store abstraction.
 pub trait MemoryStore {
     fn put_trace(&mut self, raw_text: &str, metadata: BTreeMap<String, String>) -> Result<String>;
     fn put_memory(&mut self, memory: &DurableMemory) -> Result<String>;
+    fn touch_memory_access(&mut self, memory_id: &str, accessed_at: DateTime<Utc>) -> Result<()>;
     fn update_belief(&mut self, belief: &BeliefRecord) -> Result<()>;
     fn get_active_belief(&mut self, entity: &str, slot: &str) -> Result<Option<BeliefRecord>>;
     fn get_current_belief(&mut self, entity: &str, slot: &str) -> Result<Option<BeliefRecord>>;
@@ -149,9 +151,13 @@ fn memory_metadata(memory: &DurableMemory) -> BTreeMap<String, String> {
         ),
         (
             "agent_observed_at".to_string(),
-            memory.stored_at.to_rfc3339(),
+            memory.event_timestamp().to_rfc3339(),
         ),
         ("agent_stored_at".to_string(), memory.stored_at.to_rfc3339()),
+        (
+            "agent_updated_at".to_string(),
+            memory.version_timestamp().to_rfc3339(),
+        ),
         (
             "agent_is_retraction".to_string(),
             memory.is_retraction.to_string(),
@@ -197,6 +203,10 @@ fn retrieval_metadata(memory: &DurableMemory) -> BTreeMap<String, String> {
     );
     metadata.insert("stored_at".to_string(), memory.stored_at.to_rfc3339());
     metadata.insert(
+        "updated_at".to_string(),
+        memory.version_timestamp().to_rfc3339(),
+    );
+    metadata.insert(
         "event_at".to_string(),
         memory.event_at.unwrap_or(memory.event_timestamp()).to_rfc3339(),
     );
@@ -210,9 +220,11 @@ fn retrieval_metadata(memory: &DurableMemory) -> BTreeMap<String, String> {
 }
 
 fn memory_is_newer(candidate: &DurableMemory, existing: &DurableMemory) -> bool {
-    candidate.stored_at > existing.stored_at
-        || (candidate.stored_at == existing.stored_at
-            && candidate.event_timestamp() > existing.event_timestamp())
+    candidate.version_timestamp() > existing.version_timestamp()
+        || (candidate.version_timestamp() == existing.version_timestamp()
+            && (candidate.event_timestamp() > existing.event_timestamp()
+                || (candidate.event_timestamp() == existing.event_timestamp()
+                    && candidate.memory_id > existing.memory_id)))
 }
 
 fn latest_memories_by_id(memories: impl IntoIterator<Item = DurableMemory>) -> Vec<DurableMemory> {
@@ -267,6 +279,21 @@ fn belief_entity(entity: &str) -> String {
 
 fn expiry_entity() -> &'static str {
     EXPIRY_PREFIX
+}
+
+fn access_entity() -> &'static str {
+    ACCESS_PREFIX
+}
+
+fn is_reserved_system_entity(entity: &str) -> bool {
+    entity == expiry_entity() || entity == access_entity()
+}
+
+fn memory_as_of_anchor(query: &RetrievalQuery, memory: &DurableMemory) -> DateTime<Utc> {
+    match query.intent {
+        QueryIntent::HistoricalFact | QueryIntent::EpisodicRecall => memory.event_timestamp(),
+        _ => memory.stored_at,
+    }
 }
 
 fn simple_score(haystack: &str, query: &str) -> f32 {
@@ -325,6 +352,32 @@ impl MemoryStore for InMemoryMemoryStore {
         Ok(memory.memory_id.clone())
     }
 
+    fn touch_memory_access(&mut self, memory_id: &str, accessed_at: DateTime<Utc>) -> Result<()> {
+        let latest_index = self
+            .memories
+            .iter()
+            .enumerate()
+            .filter(|(_, memory)| memory.memory_id == memory_id)
+            .fold(None, |latest, (index, memory)| match latest {
+                Some((latest_index, latest_memory))
+                    if !memory_is_newer(memory, latest_memory) =>
+                {
+                    Some((latest_index, latest_memory))
+                }
+                _ => Some((index, memory)),
+            })
+            .map(|(index, _)| index);
+
+        if let Some(index) = latest_index {
+            let updated = self.memories[index]
+                .clone()
+                .with_retrieval_access(accessed_at);
+            self.memories[index] = updated;
+        }
+
+        Ok(())
+    }
+
     fn update_belief(&mut self, belief: &BeliefRecord) -> Result<()> {
         self.beliefs
             .insert((belief.entity.clone(), belief.slot.clone()), belief.clone());
@@ -355,17 +408,19 @@ impl MemoryStore for InMemoryMemoryStore {
     }
 
     fn get_memory(&mut self, memory_id: &str) -> Result<Option<DurableMemory>> {
-        Ok(self
-            .memories
-            .iter()
-            .rev()
-            .find(|memory| memory.memory_id == memory_id)
-            .cloned())
+        Ok(latest_memories_by_id(
+            self.memories
+                .iter()
+                .filter(|memory| memory.memory_id == memory_id)
+                .cloned(),
+        )
+        .into_iter()
+        .next())
     }
 
     fn search(&mut self, query: &RetrievalQuery) -> Result<Vec<RetrievalHit>> {
         let mut hits = Vec::new();
-        for memory in &self.memories {
+        for memory in latest_memories_by_id(self.memories.clone()) {
             if let Some(scope) = query.scope
                 && memory.scope != scope
             {
@@ -375,7 +430,7 @@ impl MemoryStore for InMemoryMemoryStore {
                 continue;
             }
             if let Some(as_of) = query.as_of
-                && memory.stored_at > as_of
+                && memory_as_of_anchor(query, &memory) > as_of
             {
                 continue;
             }
@@ -402,7 +457,7 @@ impl MemoryStore for InMemoryMemoryStore {
                 source: Some(memory.source.source_type),
                 from_belief: false,
                 expired: self.expired.contains(&memory.memory_id),
-                metadata: retrieval_metadata(memory),
+                metadata: retrieval_metadata(&memory),
             });
         }
         for (trace_id, raw_text, metadata) in &self.traces {
@@ -500,6 +555,54 @@ impl MemvidStore {
             .any(|card| !card.is_retracted())
     }
 
+    fn latest_access_touch(
+        &mut self,
+        memory_id: &str,
+    ) -> Result<Option<(DateTime<Utc>, u32)>> {
+        let mut latest = None;
+        for card in self.memvid.memories().get_cards(access_entity(), memory_id) {
+            if card.is_retracted() {
+                continue;
+            }
+            let frame = self.memvid.frame_by_id(card.source_frame_id)?;
+            let Some(accessed_at) = parse_datetime(frame.extra_metadata.get("agent_last_accessed_at"))? else {
+                continue;
+            };
+            let retrieval_count = frame
+                .extra_metadata
+                .get("agent_retrieval_count")
+                .and_then(|value| value.parse::<u32>().ok())
+                .unwrap_or(0);
+            if latest
+                .as_ref()
+                .is_none_or(|(current_accessed_at, _)| accessed_at > *current_accessed_at)
+            {
+                latest = Some((accessed_at, retrieval_count));
+            }
+        }
+        Ok(latest)
+    }
+
+    fn apply_access_touch(&mut self, mut memory: DurableMemory) -> Result<DurableMemory> {
+        if let Some((accessed_at, retrieval_count)) = self.latest_access_touch(&memory.memory_id)? {
+            if memory
+                .last_accessed_at()
+                .is_none_or(|existing| accessed_at > existing)
+            {
+                memory.metadata.insert(
+                    "retrieval_count".to_string(),
+                    retrieval_count.to_string(),
+                );
+                memory.metadata.insert(
+                    "last_accessed_at".to_string(),
+                    accessed_at.to_rfc3339(),
+                );
+                memory.updated_at = Some(memory.version_timestamp().max(accessed_at));
+            }
+        }
+        Ok(memory)
+    }
+
     fn build_durable_from_frame(
         &mut self,
         frame_id: u64,
@@ -525,6 +628,11 @@ impl MemvidStore {
                 .unwrap_or_default(),
             stored_at: parse_datetime(extra_metadata.get("agent_stored_at"))?
                 .unwrap_or(timestamp_to_datetime(0)?),
+            updated_at: Some(
+                parse_datetime(extra_metadata.get("agent_updated_at"))?
+                    .or(parse_datetime(extra_metadata.get("agent_stored_at"))?)
+                    .unwrap_or(timestamp_to_datetime(0)?),
+            ),
             entity: extra_metadata
                 .get("agent_entity")
                 .cloned()
@@ -595,7 +703,7 @@ impl MemvidStore {
         let mut hits = Vec::new();
         let cards = self.memvid.memories().cards().to_vec();
         for card in &cards {
-            if card.entity.starts_with(BELIEF_PREFIX) || card.entity == expiry_entity() {
+            if card.entity.starts_with(BELIEF_PREFIX) || is_reserved_system_entity(&card.entity) {
                 continue;
             }
             let frame = self.memvid.frame_by_id(card.source_frame_id)?;
@@ -604,13 +712,14 @@ impl MemvidStore {
                 continue;
             }
             let memory = self.build_durable_from_frame(card.source_frame_id, &extra)?;
+            let memory = self.apply_access_touch(memory)?;
             if let Some(scope) = query.scope
                 && memory.scope != scope
             {
                 continue;
             }
             if let Some(as_of) = query.as_of
-                && memory.stored_at > as_of
+                && memory_as_of_anchor(query, &memory) > as_of
             {
                 continue;
             }
@@ -634,10 +743,7 @@ impl MemvidStore {
                 memory_layer: Some(memory.memory_layer()),
                 memory_type: Some(memory.memory_type),
                 score,
-                timestamp: memory
-                    .event_at
-                    .or(memory.valid_from)
-                    .unwrap_or(memory.stored_at),
+                timestamp: memory.event_timestamp(),
                 scope: Some(memory.scope),
                 source: Some(memory.source.source_type),
                 from_belief: false,
@@ -685,7 +791,7 @@ impl MemoryStore for MemvidStore {
         self.memvid.put_bytes_with_options(
             memory.raw_text.as_bytes(),
             PutOptions {
-                timestamp: Some(memory.stored_at.timestamp()),
+                timestamp: Some(memory.version_timestamp().timestamp()),
                 track: Some(TRACK_MEMORY.to_string()),
                 kind: Some(format!("agent_memory_{}", memory.memory_layer().as_str())),
                 uri: Some(uri.clone()),
@@ -735,6 +841,56 @@ impl MemoryStore for MemvidStore {
         self.memvid.put_memory_card(card)?;
         self.memvid.commit()?;
         Ok(memory.memory_id.clone())
+    }
+
+    fn touch_memory_access(&mut self, memory_id: &str, accessed_at: DateTime<Utc>) -> Result<()> {
+        let Some(memory) = self.get_memory(memory_id)? else {
+            return Ok(());
+        };
+        let touched = memory.with_retrieval_access(accessed_at);
+        let uri = format!(
+            "mv2://agent-memory/access/{memory_id}/{}",
+            accessed_at.timestamp_nanos_opt().unwrap_or_else(|| accessed_at.timestamp_micros())
+        );
+        self.memvid.put_bytes_with_options(
+            b"access_touch",
+            PutOptions {
+                timestamp: Some(accessed_at.timestamp()),
+                track: Some(TRACK_SYSTEM.to_string()),
+                kind: Some("agent_memory_access_touch".to_string()),
+                uri: Some(uri.clone()),
+                search_text: Some(format!("access touch {memory_id}")),
+                extra_metadata: BTreeMap::from([
+                    ("agent_memory_id".to_string(), memory_id.to_string()),
+                    (
+                        "agent_last_accessed_at".to_string(),
+                        accessed_at.to_rfc3339(),
+                    ),
+                    (
+                        "agent_retrieval_count".to_string(),
+                        touched.retrieval_count().to_string(),
+                    ),
+                ]),
+                ..PutOptions::default()
+            },
+        )?;
+        self.memvid.commit()?;
+        let frame_id = self.frame_id_for_uri(&uri)?;
+        let card = MemoryCardBuilder::new()
+            .kind(MemoryKind::Other)
+            .entity(access_entity())
+            .slot(memory_id.to_string())
+            .value(accessed_at.to_rfc3339())
+            .source(frame_id, Some(uri))
+            .engine("agent_memory", "1")
+            .document_date(accessed_at.timestamp())
+            .build(0)
+            .map_err(|err| AgentMemoryError::Store {
+                reason: err.to_string(),
+            })?;
+        self.memvid.put_memory_card(card)?;
+        self.memvid.commit()?;
+        Ok(())
     }
 
     fn update_belief(&mut self, belief: &BeliefRecord) -> Result<()> {
@@ -851,7 +1007,7 @@ impl MemoryStore for MemvidStore {
         let mut latest = None;
 
         for card in &cards {
-            if card.entity.starts_with(BELIEF_PREFIX) || card.entity == expiry_entity() {
+            if card.entity.starts_with(BELIEF_PREFIX) || is_reserved_system_entity(&card.entity) {
                 continue;
             }
             let frame = self.memvid.frame_by_id(card.source_frame_id)?;
@@ -867,7 +1023,7 @@ impl MemoryStore for MemvidStore {
             }
         }
 
-        Ok(latest)
+        latest.map_or(Ok(None), |memory| self.apply_access_touch(memory).map(Some))
     }
 
     fn search(&mut self, query: &RetrievalQuery) -> Result<Vec<RetrievalHit>> {
@@ -880,7 +1036,12 @@ impl MemoryStore for MemvidStore {
             scope: None,
             cursor: None,
             as_of_frame: None,
-            as_of_ts: query.as_of.map(|timestamp| timestamp.timestamp()),
+            as_of_ts: (!matches!(
+                query.intent,
+                QueryIntent::HistoricalFact | QueryIntent::EpisodicRecall
+            ))
+            .then(|| query.as_of.map(|timestamp| timestamp.timestamp()))
+            .flatten(),
             no_sketch: false,
             acl_context: None,
             acl_enforcement_mode: AclEnforcementMode::default(),
@@ -901,12 +1062,26 @@ impl MemoryStore for MemvidStore {
                 let memory_id = extra.get("agent_memory_id").cloned();
                 let expired = memory_id.as_deref().is_some_and(|id| self.is_expired(id));
                 let memory_type = parse_memory_type(extra.get("agent_memory_type"));
+                let as_of_anchor = parse_datetime(extra.get("agent_event_at"))?
+                    .or(parse_datetime(extra.get("agent_valid_from"))?)
+                    .or(parse_datetime(extra.get("agent_stored_at"))?)
+                    .unwrap_or_else(|| query.as_of.unwrap_or_else(Utc::now));
+                if let Some(as_of) = query.as_of
+                    && match query.intent {
+                        QueryIntent::HistoricalFact | QueryIntent::EpisodicRecall => as_of_anchor > as_of,
+                        _ => parse_datetime(extra.get("agent_stored_at"))?
+                            .unwrap_or(as_of_anchor)
+                            > as_of,
+                    }
+                {
+                    continue;
+                }
                 let timestamp = parse_datetime(extra.get("agent_event_at"))?
                     .or(parse_datetime(extra.get("agent_valid_from"))?)
                     .or(parse_datetime(extra.get("agent_stored_at"))?)
                     .unwrap_or_else(|| query.as_of.unwrap_or_else(Utc::now));
                 hits.push(RetrievalHit {
-                    memory_id,
+                    memory_id: memory_id.clone(),
                     belief_id: None,
                     entity: extra.get("agent_entity").cloned(),
                     slot: extra.get("agent_slot").cloned(),
@@ -949,8 +1124,32 @@ impl MemoryStore for MemvidStore {
                         if let Some(stored_at) = extra.get("agent_stored_at") {
                             metadata.insert("stored_at".to_string(), stored_at.clone());
                         }
+                        if let Some(updated_at) = extra.get("agent_updated_at") {
+                            metadata.insert("updated_at".to_string(), updated_at.clone());
+                        }
                         if let Some(event_at) = extra.get("agent_event_at") {
                             metadata.insert("event_at".to_string(), event_at.clone());
+                        }
+                        if let Some(memory_id) = memory_id.as_deref()
+                            && let Some((last_accessed_at, retrieval_count)) =
+                                self.latest_access_touch(memory_id)?
+                        {
+                            metadata.insert(
+                                "last_accessed_at".to_string(),
+                                last_accessed_at.to_rfc3339(),
+                            );
+                            metadata.insert(
+                                "retrieval_count".to_string(),
+                                retrieval_count.to_string(),
+                            );
+                            let version_timestamp = parse_datetime(extra.get("agent_updated_at"))?
+                                .or(parse_datetime(extra.get("agent_stored_at"))?)
+                                .unwrap_or(last_accessed_at)
+                                .max(last_accessed_at);
+                            metadata.insert(
+                                "updated_at".to_string(),
+                                version_timestamp.to_rfc3339(),
+                            );
                         }
                         if let Some(valid_from) = extra.get("agent_valid_from") {
                             metadata.insert("valid_from".to_string(), valid_from.clone());
@@ -995,7 +1194,7 @@ impl MemoryStore for MemvidStore {
         let cards: Vec<_> = self.memvid.memories().cards().to_vec();
         let mut memories = Vec::new();
         for card in &cards {
-            if card.entity.starts_with(BELIEF_PREFIX) || card.entity == expiry_entity() {
+            if card.entity.starts_with(BELIEF_PREFIX) || is_reserved_system_entity(&card.entity) {
                 continue;
             }
             let frame = self.memvid.frame_by_id(card.source_frame_id)?;
@@ -1008,7 +1207,10 @@ impl MemoryStore for MemvidStore {
                 memories.push(memory);
             }
         }
-        Ok(latest_memories_by_id(memories))
+        latest_memories_by_id(memories)
+            .into_iter()
+            .map(|memory| self.apply_access_touch(memory))
+            .collect()
     }
 
     fn list_memories_for_belief(&mut self, entity: &str, slot: &str) -> Result<Vec<DurableMemory>> {

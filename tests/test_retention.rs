@@ -156,6 +156,29 @@ fn recently_accessed_memory_gets_a_salience_boost() {
 }
 
 #[test]
+fn retrieval_touch_does_not_reset_ttl_anchor() {
+    let retention = RetentionManager::new(PolicySet::default());
+    let mut memory = durable(
+        "project",
+        "note",
+        "temp",
+        "Temporary note",
+        MemoryType::Trace,
+        SourceType::Chat,
+        0.75,
+        ts(1_700_000_000),
+    );
+    memory.ttl = Some(60);
+    memory = memory.with_retrieval_access(ts(1_700_000_030));
+
+    let evaluation = retention.evaluate(&memory, ts(1_700_000_061));
+
+    assert!(evaluation.expired);
+    assert_eq!(memory.stored_at, ts(1_700_000_000));
+    assert_eq!(memory.version_timestamp(), ts(1_700_000_030));
+}
+
+#[test]
 fn positive_outcome_feedback_outranks_negative_feedback_in_salience() {
     let retention = RetentionManager::new(PolicySet::default());
     let mut positive = durable(

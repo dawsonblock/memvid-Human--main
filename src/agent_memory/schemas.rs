@@ -144,6 +144,7 @@ impl CandidateMemory {
             memory_id: uuid::Uuid::new_v4().to_string(),
             candidate_id: self.candidate_id.clone(),
             stored_at,
+            updated_at: Some(stored_at),
             // Episodes preserve whatever structure was present; empty string is the honest
             // representation of "no entity asserted" — not the fabricated "unknown".
             entity: self.entity.clone().unwrap_or_default(),
@@ -173,6 +174,7 @@ pub struct DurableMemory {
     pub memory_id: String,
     pub candidate_id: String,
     pub stored_at: DateTime<Utc>,
+    pub updated_at: Option<DateTime<Utc>>,
     pub entity: String,
     pub slot: String,
     pub value: String,
@@ -193,6 +195,11 @@ pub struct DurableMemory {
 }
 
 impl DurableMemory {
+    #[must_use]
+    pub fn version_timestamp(&self) -> DateTime<Utc> {
+        self.updated_at.unwrap_or(self.stored_at)
+    }
+
     #[must_use]
     pub fn memory_layer(&self) -> MemoryLayer {
         self.internal_layer
@@ -253,7 +260,7 @@ impl DurableMemory {
             LAST_ACCESSED_AT_KEY.to_string(),
             accessed_at.to_rfc3339(),
         );
-        self.stored_at = accessed_at;
+        self.updated_at = Some(accessed_at);
         self
     }
 
@@ -335,7 +342,7 @@ impl DurableMemory {
             OUTCOME_IMPACT_SCORE_KEY.to_string(),
             format!("{:.6}", self.outcome_impact_score()),
         );
-        self.stored_at = observed_at;
+        self.updated_at = Some(observed_at);
         self
     }
 
@@ -427,7 +434,7 @@ impl DurableMemory {
                 .and_then(|value| GoalStatus::from_str(value))
                 .unwrap_or_else(|| GoalStatus::from_text(&value, &self.raw_text)),
             created_at: self.event_timestamp(),
-            updated_at: self.stored_at,
+            updated_at: self.version_timestamp(),
             expires_at: self
                 .ttl
                 .map(|ttl| self.stored_at + chrono::Duration::seconds(ttl)),
@@ -510,7 +517,7 @@ impl DurableMemory {
                 }),
             confidence: self.confidence,
             observed_at: self.event_timestamp(),
-            updated_at: self.stored_at,
+            updated_at: self.version_timestamp(),
             source: self.source.clone(),
             supporting_memory_ids: self
                 .metadata
@@ -603,7 +610,7 @@ impl DurableMemory {
                 .get("last_failed_at")
                 .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
                 .map(|value| value.with_timezone(&Utc)),
-            updated_at: self.stored_at,
+            updated_at: self.version_timestamp(),
             metadata: self.metadata.clone(),
         })
     }
@@ -878,6 +885,8 @@ pub struct PromotionContext {
     pub goal_state_evidence_count: usize,
     pub procedure_success_count: usize,
     pub procedure_failure_count: usize,
+    pub corroborating_evidence_count: usize,
+    pub contradictory_evidence_count: usize,
     pub verified_source: bool,
     pub seeded_by_system: bool,
 }

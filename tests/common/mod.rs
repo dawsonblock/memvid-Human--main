@@ -66,6 +66,7 @@ pub fn durable(
         memory_id: format!("memory-{entity}-{slot}-{value}-{}", stored_at.timestamp()),
         candidate_id: format!("candidate-{entity}-{slot}-{value}"),
         stored_at,
+        updated_at: Some(stored_at),
         entity: entity.to_string(),
         slot: slot.to_string(),
         value: value.to_string(),

@@ -52,7 +52,7 @@ impl<'a, S: MemoryStore> SelfModelStore<'a, S> {
             candidates.sort_by(|left, right| {
                 Self::status_priority(right)
                     .cmp(&Self::status_priority(left))
-                    .then_with(|| right.stored_at.cmp(&left.stored_at))
+                    .then_with(|| right.version_timestamp().cmp(&left.version_timestamp()))
             });
             candidates.into_iter().next()
         };
@@ -100,6 +100,7 @@ impl<'a, S: MemoryStore> SelfModelStore<'a, S> {
                     .unwrap_or(1)
                     + 1;
                 self_model_memory.memory_id = existing_memory.memory_id.clone();
+                self_model_memory.stored_at = existing_memory.stored_at;
                 self_model_memory.confidence = self_model_memory.confidence.max(existing_memory.confidence);
                 self_model_memory.metadata.insert(
                     "reinforcement_count".to_string(),
@@ -107,7 +108,7 @@ impl<'a, S: MemoryStore> SelfModelStore<'a, S> {
                 );
                 self_model_memory.metadata.insert(
                     "last_reinforced_at".to_string(),
-                    self_model_memory.stored_at.to_rfc3339(),
+                    self_model_memory.version_timestamp().to_rfc3339(),
                 );
                 self_model_memory.metadata.insert(
                     "supporting_memory_ids".to_string(),
@@ -129,7 +130,7 @@ impl<'a, S: MemoryStore> SelfModelStore<'a, S> {
                 );
                 self_model_memory.metadata.insert(
                     "conflict_observed_at".to_string(),
-                    self_model_memory.stored_at.to_rfc3339(),
+                    self_model_memory.version_timestamp().to_rfc3339(),
                 );
                 self_model_memory.metadata.insert(
                     "supporting_memory_ids".to_string(),
@@ -137,6 +138,7 @@ impl<'a, S: MemoryStore> SelfModelStore<'a, S> {
                 );
                 if forced_update || new_strength + 0.05 >= existing_strength {
                     self_model_memory.memory_id = existing_memory.memory_id.clone();
+                    self_model_memory.stored_at = existing_memory.stored_at;
                     self_model_memory.metadata.insert(
                         "contradiction_resolution".to_string(),
                         "updated".to_string(),
@@ -186,7 +188,7 @@ impl<'a, S: MemoryStore> SelfModelStore<'a, S> {
         memories.sort_by(|left, right| {
             Self::status_priority(right)
                 .cmp(&Self::status_priority(left))
-                .then_with(|| right.stored_at.cmp(&left.stored_at))
+                .then_with(|| right.version_timestamp().cmp(&left.version_timestamp()))
         });
         Ok(memories)
     }
