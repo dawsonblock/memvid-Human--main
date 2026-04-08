@@ -1058,12 +1058,12 @@ impl MemoryStore for MemvidStore {
             scope: None,
             cursor: None,
             as_of_frame: None,
-            as_of_ts: (!matches!(
-                query.intent,
-                QueryIntent::HistoricalFact | QueryIntent::EpisodicRecall
-            ))
-            .then(|| query.as_of.map(|timestamp| timestamp.timestamp()))
-            .flatten(),
+            // Do not apply backend timestamp filtering here: `as_of_ts` is evaluated
+            // against the underlying frame/version timestamp, which can move when a
+            // memory is touched or feedback-updated. For non-historical search, `as_of`
+            // visibility must be anchored on immutable ingest time (`stored_at`), so we
+            // overfetch candidates and rely on the Rust-side filtering below.
+            as_of_ts: None,
             no_sketch: false,
             acl_context: None,
             acl_enforcement_mode: AclEnforcementMode::default(),
