@@ -322,6 +322,10 @@ effective salience used by ranking. Read touches do not rewrite immutable ingest
 memories now keep `stored_at` as ingest chronology, `updated_at` as mutable version/activity time,
 and event/history time separately. The visible score surface stays the same: the `salience`
 component now reflects both write-time salience and bounded repeated-recall boosts.
+That read-side write behavior is explicit policy rather than an implicit cost:
+`PolicySet::persist_retrieval_touches()` defaults to `true`, so retrieval persists durable
+access-touch records unless a caller disables it. When disabled, typed retrieval behavior and
+returned hits stay the same, but retrieval does not append durable access-touch records.
 
 Phase 6 extends that same controller-owned retrieval and feedback path with explicit outcome feedback.
 External callers can now attach positive or negative feedback to a durable memory id or
@@ -358,9 +362,11 @@ On read, those fields are reconstructed into `DurableMemory` and `RetrievalHit`.
 injected as if it were memory time; retrieval uses persisted ingest, update, and event timestamps
 without letting read touches move historical visibility.
 
-Access touches no longer write a fresh durable memory body. The store keeps retrieval metadata on a
-dedicated access-touch path so `retrieval_count`, `last_accessed_at`, and effective salience can
-advance without creating a new durable content version or per-hit commit cycle on every read.
+Access touches no longer write a fresh durable memory body. When retrieval-touch persistence is
+enabled, the store keeps retrieval metadata on a dedicated access-touch path so `retrieval_count`,
+`last_accessed_at`, and effective salience can advance without creating a new durable content
+version or per-hit commit cycle on every read. That access-touch history remains append-only today:
+maintenance does not roll it up, supersede it, or claim logical compaction.
 
 ## Maintenance Status
 
@@ -369,7 +375,8 @@ advance without creating a new durable content version or per-hit commit cycle o
 - lists the current durable memories that governed maintenance can act on
 - runs `MemoryDecay`
 - returns the expired ids
-- reports `MemoryCompactor` status as unsupported
+- reports `MemoryCompactor` status as unsupported together with the stable unsupported reason
+- emits a `maintenance` audit event through the same append-only audit sink used for other major controller operations
 
 `MemoryCompactor` is still an explicit stub; `Memvid` owns low-level storage compaction and
 governed memory does not currently add a separate logical compaction pass.
@@ -387,6 +394,7 @@ The audit trail is append-only and explicit. `MemoryController` emits events suc
 - `procedure_learned`
 - `procedure_status_changed`
 - `retrieval`
+- `maintenance`
 
 Promotion audit details explain which layer was chosen, the score and threshold, route basis such as
 `verified_source`, `trusted_source`, `repeated_evidence`, or `system_seeded`, and any fallback layer

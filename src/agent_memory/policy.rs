@@ -27,6 +27,7 @@ pub struct PolicySet {
     belief_stability_min_days: i64,
     trusted_belief_source_weight: f32,
     trusted_self_model_source_weight: f32,
+    persist_retrieval_touches: bool,
 }
 
 impl Default for PolicySet {
@@ -47,6 +48,7 @@ impl Default for PolicySet {
             belief_stability_min_days: 3,
             trusted_belief_source_weight: 0.8,
             trusted_self_model_source_weight: 0.9,
+            persist_retrieval_touches: true,
         }
     }
 }
@@ -117,6 +119,17 @@ impl PolicySet {
     #[must_use]
     pub fn trusted_self_model_source_weight(&self) -> f32 {
         self.trusted_self_model_source_weight
+    }
+
+    #[must_use]
+    pub fn persist_retrieval_touches(&self) -> bool {
+        self.persist_retrieval_touches
+    }
+
+    #[must_use]
+    pub fn with_persist_retrieval_touches(mut self, enabled: bool) -> Self {
+        self.persist_retrieval_touches = enabled;
+        self
     }
 
     #[must_use]

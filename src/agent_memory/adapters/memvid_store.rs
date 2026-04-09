@@ -612,15 +612,26 @@ impl MemoryStore for InMemoryMemoryStore {
 pub struct MemvidStore {
     memvid: Memvid,
     access_touch_cache: HashMap<String, Option<AccessTouch>>,
+    persist_retrieval_touches: bool,
 }
 
 impl MemvidStore {
     #[must_use]
     pub fn new(memvid: Memvid) -> Self {
+        Self::with_access_touch_persistence(memvid, true)
+    }
+
+    #[must_use]
+    pub fn with_access_touch_persistence(memvid: Memvid, persist_retrieval_touches: bool) -> Self {
         Self {
             memvid,
             access_touch_cache: HashMap::new(),
+            persist_retrieval_touches,
         }
+    }
+
+    pub fn set_access_touch_persistence(&mut self, enabled: bool) {
+        self.persist_retrieval_touches = enabled;
     }
 
     fn is_expired(&self, memory_id: &str) -> bool {
@@ -936,6 +947,9 @@ impl MemoryStore for MemvidStore {
     }
 
     fn touch_memory_accesses(&mut self, touches: &[(String, DateTime<Utc>)]) -> Result<()> {
+        if !self.persist_retrieval_touches {
+            return Ok(());
+        }
         let mut pending = Vec::new();
 
         for (memory_id, accessed_at, occurrences) in aggregate_batch_touches(touches) {

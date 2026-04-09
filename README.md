@@ -288,11 +288,15 @@ Ingest is done through `MemoryController::ingest(candidate)`, which classifies, 
 audits every memory candidate before storage. Typed retrieval through `RetrievalQuery` remains the
 canonical read path; `MemoryController::retrieve_text(...)` and `RetrievalQuery::from_text(...)`
 are convenience helpers for obvious text-only queries, not the authoritative semantic router.
-Durable memories now preserve immutable ingest time separately from mutable update/access time, and
-read touches update access metadata through a batched access-touch path without writing a fresh
-durable content body for every retrieval hit. `MemoryController::run_maintenance()` is the explicit
-maintenance entrypoint: it lists current durable memories, runs `MemoryDecay`, returns expired ids,
-and reports `MemoryCompactor` as unsupported. See
+Durable memories now preserve immutable ingest time separately from mutable update/access time.
+Retrieval-touch persistence is explicit policy: `PolicySet` defaults `persist_retrieval_touches` to
+enabled, so retrieval may append durable access-touch records and update effective
+`retrieval_count`/`last_accessed_at`; callers can disable that policy without changing retrieval
+results. Access-touch history remains append-only today — there is no logical rollup or compaction
+pass for those records. `MemoryController::run_maintenance()` is the explicit, caller-driven
+maintenance entrypoint: it lists current durable memories, runs `MemoryDecay`, emits a maintenance
+audit event, returns expired ids, and reports `MemoryCompactor` as unsupported together with its
+unsupported reason. See
 [docs/agent_memory.md](docs/agent_memory.md) for details.
 
 ---

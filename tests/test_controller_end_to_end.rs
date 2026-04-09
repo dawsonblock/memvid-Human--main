@@ -22,7 +22,7 @@ use memvid_core::agent_memory::schemas::{
     BeliefRecord, DurableMemory, OutcomeFeedback, RetrievalHit, RetrievalQuery,
 };
 
-use common::{apply_durable, candidate, controller, durable, ts};
+use common::{apply_durable, candidate, controller, controller_with_policy, durable, ts};
 
 #[test]
 fn ingest_low_trust_fact_preserves_episode_evidence_without_promoting_truth() {
@@ -242,6 +242,72 @@ fn retrieval_touches_returned_memories_and_persists_access_metadata() {
             .map(String::as_str),
         Some(memory_id.as_str())
     );
+    assert_eq!(
+        retrieval_event
+            .details
+            .get("touch_persistence")
+            .map(String::as_str),
+        Some("enabled")
+    );
+}
+
+#[test]
+fn retrieval_can_skip_durable_touch_writes_when_touch_persistence_is_disabled() {
+    let stored_at = ts(1_700_000_000);
+    let now = ts(1_700_000_100);
+    let policy = PolicySet::default().with_persist_retrieval_touches(false);
+    let (mut controller, sink) = controller_with_policy(now, policy);
+    let memory = durable(
+        "user",
+        "favorite_editor",
+        "vim",
+        "The user prefers vim for editing",
+        MemoryType::Preference,
+        SourceType::Chat,
+        0.75,
+        stored_at,
+    );
+
+    let memory_id = apply_durable(&mut controller, &memory, None);
+    let hits = controller
+        .retrieve(RetrievalQuery {
+            query_text: "what editor does the user prefer".to_string(),
+            intent: QueryIntent::PreferenceLookup,
+            entity: Some("user".to_string()),
+            slot: None,
+            scope: None,
+            top_k: 1,
+            as_of: None,
+            include_expired: false,
+        })
+        .expect("retrieval succeeds");
+
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].value.as_deref(), Some("vim"));
+
+    let latest = controller
+        .store_mut()
+        .get_memory(&memory_id)
+        .expect("lookup succeeds")
+        .expect("memory exists");
+    assert_eq!(latest.stored_at, stored_at);
+    assert_eq!(latest.version_timestamp(), stored_at);
+    assert_eq!(latest.retrieval_count(), 0);
+    assert_eq!(latest.last_accessed_at(), None);
+
+    let retrieval_event = sink
+        .events()
+        .into_iter()
+        .find(|event| event.action == "retrieval")
+        .expect("retrieval audit event present");
+    assert_eq!(
+        retrieval_event
+            .details
+            .get("touch_persistence")
+            .map(String::as_str),
+        Some("disabled")
+    );
+    assert!(!retrieval_event.details.contains_key("touched_memories"));
 }
 
 #[test]
