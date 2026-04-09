@@ -1376,11 +1376,12 @@ impl MemoryStore for MemvidStore {
     }
 
     fn expire_memory(&mut self, memory_id: &str) -> Result<()> {
+        let now = self.clock.now();
         let uri = format!("mv2://agent-memory/expiry/{memory_id}");
         self.memvid.put_bytes_with_options(
             format!("expired {memory_id}").as_bytes(),
             PutOptions {
-                timestamp: Some(self.clock.now().timestamp()),
+                timestamp: Some(now.timestamp()),
                 track: Some(TRACK_SYSTEM.to_string()),
                 kind: Some("agent_memory_expiry".to_string()),
                 uri: Some(uri.clone()),
@@ -1397,7 +1398,7 @@ impl MemoryStore for MemvidStore {
             .value("expired".to_string())
             .source(frame_id, Some(uri))
             .engine("agent_memory", "1")
-            .document_date(self.clock.now().timestamp())
+            .document_date(now.timestamp())
             .build(0)
             .map_err(|err| AgentMemoryError::Store {
                 reason: err.to_string(),
