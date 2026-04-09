@@ -1,9 +1,11 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use crate::Memvid;
+use crate::agent_memory::clock::{Clock, SystemClock};
 use crate::agent_memory::enums::{
     BeliefStatus, MemoryLayer, MemoryType, QueryIntent, Scope, SourceType,
 };
@@ -616,6 +618,7 @@ pub struct MemvidStore {
     memvid: Memvid,
     access_touch_cache: HashMap<String, Option<AccessTouch>>,
     persist_access_touches: bool,
+    clock: Arc<dyn Clock>,
 }
 
 impl MemvidStore {
@@ -630,7 +633,16 @@ impl MemvidStore {
             memvid,
             access_touch_cache: HashMap::new(),
             persist_access_touches,
+            clock: Arc::new(SystemClock),
         }
+    }
+
+    /// Override the clock used for store-level timestamps (trace ingest, expiry).
+    /// Defaults to [`SystemClock`]. Useful for deterministic tests.
+    #[must_use]
+    pub fn with_clock(mut self, clock: Arc<dyn Clock>) -> Self {
+        self.clock = clock;
+        self
     }
 
     pub fn set_access_touch_persistence(&mut self, enabled: bool) {
@@ -874,7 +886,7 @@ impl MemoryStore for MemvidStore {
         self.memvid.put_bytes_with_options(
             raw_text.as_bytes(),
             PutOptions {
-                timestamp: Some(Utc::now().timestamp()),
+                timestamp: Some(self.clock.now().timestamp()),
                 track: Some(TRACK_TRACE.to_string()),
                 kind: Some("agent_memory_trace".to_string()),
                 uri: Some(uri.clone()),
@@ -1364,11 +1376,12 @@ impl MemoryStore for MemvidStore {
     }
 
     fn expire_memory(&mut self, memory_id: &str) -> Result<()> {
+        let now = self.clock.now();
         let uri = format!("mv2://agent-memory/expiry/{memory_id}");
         self.memvid.put_bytes_with_options(
             format!("expired {memory_id}").as_bytes(),
             PutOptions {
-                timestamp: Some(Utc::now().timestamp()),
+                timestamp: Some(now.timestamp()),
                 track: Some(TRACK_SYSTEM.to_string()),
                 kind: Some("agent_memory_expiry".to_string()),
                 uri: Some(uri.clone()),
@@ -1385,7 +1398,7 @@ impl MemoryStore for MemvidStore {
             .value("expired".to_string())
             .source(frame_id, Some(uri))
             .engine("agent_memory", "1")
-            .document_date(Utc::now().timestamp())
+            .document_date(now.timestamp())
             .build(0)
             .map_err(|err| AgentMemoryError::Store {
                 reason: err.to_string(),
