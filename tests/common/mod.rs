@@ -151,9 +151,15 @@ pub fn apply_durable(
 pub fn controller(
     now: DateTime<Utc>,
 ) -> (MemoryController<InMemoryMemoryStore>, InMemoryAuditSink) {
+    controller_with_policy(now, PolicySet::default())
+}
+
+pub fn controller_with_policy(
+    now: DateTime<Utc>,
+    policy: PolicySet,
+) -> (MemoryController<InMemoryMemoryStore>, InMemoryAuditSink) {
     let sink = InMemoryAuditSink::default();
     let clock = Arc::new(FixedClock::new(now));
-    let policy = PolicySet::default();
     let controller = MemoryController::new(
         InMemoryMemoryStore::default(),
         clock.clone(),

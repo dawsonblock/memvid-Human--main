@@ -54,6 +54,7 @@ pub struct MemoryMaintenanceReport {
     pub expired_ids: Vec<String>,
     pub compactor_status: &'static str,
     pub compaction_supported: bool,
+    pub compactor_reason: &'static str,
 }
 
 impl<S: MemoryStore> MemoryController<S> {
@@ -414,12 +415,21 @@ impl<S: MemoryStore> MemoryController<S> {
             .retriever
             .retrieve(&mut self.store, &query, self.clock.as_ref())?;
         let touched_memory_ids = self.touch_retrieved_memories(&hits)?;
+        let touch_persistence_enabled = self.retrieval_touch_persistence_enabled();
         let mut details = BTreeMap::from([
             (
                 "intent".to_string(),
                 format!("{:?}", query.intent).to_lowercase(),
             ),
             ("hits".to_string(), hits.len().to_string()),
+            (
+                "touch_persistence".to_string(),
+                if touch_persistence_enabled {
+                    "enabled".to_string()
+                } else {
+                    "disabled".to_string()
+                },
+            ),
         ]);
         if !touched_memory_ids.is_empty() {
             details.insert(
@@ -447,7 +457,7 @@ impl<S: MemoryStore> MemoryController<S> {
     /// Convenience wrapper for obvious text-only queries.
     ///
     /// Typed `RetrievalQuery` remains the authoritative path when a caller needs exact retrieval
-    /// semantics.
+    /// semantics. It shares the same optional retrieval-touch side effects as `retrieve`.
     pub fn retrieve_text(&mut self, query_text: impl Into<String>) -> Result<Vec<RetrievalHit>> {
         self.retrieve(RetrievalQuery::from_text(query_text))
     }
@@ -483,12 +493,53 @@ impl<S: MemoryStore> MemoryController<S> {
             self.clock.now(),
         )?;
         let compactor = MemoryCompactor;
+        let compactor_reason = compactor.unsupported_reason();
+        let mut details = BTreeMap::from([
+            (
+                "durable_memory_count".to_string(),
+                durable_memories.len().to_string(),
+            ),
+            ("expired_count".to_string(), expired_ids.len().to_string()),
+            (
+                "compaction_supported".to_string(),
+                compactor.is_supported().to_string(),
+            ),
+            (
+                "compactor_status".to_string(),
+                compactor.status().to_string(),
+            ),
+            ("compactor_reason".to_string(), compactor_reason.to_string()),
+        ]);
+        if !durable_memories.is_empty() {
+            details.insert(
+                "durable_memory_ids".to_string(),
+                durable_memories
+                    .iter()
+                    .map(|memory| memory.memory_id.clone())
+                    .collect::<Vec<_>>()
+                    .join(","),
+            );
+        }
+        if !expired_ids.is_empty() {
+            details.insert("expired_ids".to_string(), expired_ids.join(","));
+        }
+        self.audit.emit(AuditEvent {
+            event_id: String::new(),
+            occurred_at: self.clock.now(),
+            action: "maintenance".to_string(),
+            candidate_id: None,
+            memory_id: None,
+            belief_id: None,
+            query_text: None,
+            details,
+        });
 
         Ok(MemoryMaintenanceReport {
             durable_memories,
             expired_ids,
             compactor_status: compactor.status(),
             compaction_supported: compactor.is_supported(),
+            compactor_reason,
         })
     }
 
@@ -644,6 +695,9 @@ impl<S: MemoryStore> MemoryController<S> {
     }
 
     fn touch_retrieved_memories(&mut self, hits: &[RetrievalHit]) -> Result<Vec<String>> {
+        if !self.retrieval_touch_persistence_enabled() {
+            return Ok(Vec::new());
+        }
         let accessed_at = self.clock.now();
         let mut touched = Vec::new();
         let mut touches = Vec::new();
@@ -675,6 +729,10 @@ impl<S: MemoryStore> MemoryController<S> {
         }
 
         Ok(touched)
+    }
+
+    fn retrieval_touch_persistence_enabled(&self) -> bool {
+        self.promoter.policy().persist_retrieval_touches() && self.store.persists_access_touches()
     }
 
     fn persist_durable_memory(

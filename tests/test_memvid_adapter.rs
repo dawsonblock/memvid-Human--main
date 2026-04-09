@@ -16,6 +16,13 @@ use tempfile::tempdir;
 
 use common::{durable, ts};
 
+const ACCESS_ENTITY: &str = "__agent_memory_access__";
+
+fn access_touch_count(path: &std::path::Path, memory_id: &str) -> usize {
+    let memvid = Memvid::open(path).expect("memvid reopened");
+    memvid.memories().get_cards(ACCESS_ENTITY, memory_id).len()
+}
+
 #[test]
 fn memvid_adapter_maps_governed_memory_to_real_memvid_interfaces() {
     let dir = tempdir().expect("tempdir");
@@ -294,4 +301,182 @@ fn memvid_adapter_batch_touch_path_updates_effective_access_metadata() {
             .map(String::as_str),
         Some("1")
     );
+}
+
+#[test]
+fn memvid_adapter_can_disable_durable_touch_persistence() {
+    let dir = tempdir().expect("tempdir");
+    let path = dir.path().join("agent-memory-disabled-touch.mv2");
+    let memvid = Memvid::create(&path).expect("memvid created");
+    let mut store = MemvidStore::with_access_touch_persistence(memvid, false);
+
+    let memory = durable(
+        "user",
+        "favorite_editor",
+        "vim",
+        "The user prefers vim for editing",
+        MemoryType::Preference,
+        SourceType::Chat,
+        0.75,
+        ts(1_700_000_000),
+    );
+    store.put_memory(&memory).expect("memory stored");
+
+    store
+        .touch_memory_accesses(&[(memory.memory_id.clone(), ts(1_700_000_100))])
+        .expect("touch call succeeds");
+
+    let latest = store
+        .get_memory(&memory.memory_id)
+        .expect("lookup succeeds")
+        .expect("memory exists");
+    assert_eq!(latest.retrieval_count(), 0);
+    assert_eq!(latest.last_accessed_at(), None);
+
+    drop(store);
+    assert_eq!(access_touch_count(&path, &memory.memory_id), 0);
+}
+
+#[test]
+fn memvid_adapter_persists_durable_touch_records_when_enabled() {
+    let dir = tempdir().expect("tempdir");
+    let path = dir.path().join("agent-memory-enabled-touch.mv2");
+    let memvid = Memvid::create(&path).expect("memvid created");
+    let mut store = MemvidStore::new(memvid);
+
+    let memory = durable(
+        "user",
+        "favorite_editor",
+        "vim",
+        "The user prefers vim for editing",
+        MemoryType::Preference,
+        SourceType::Chat,
+        0.75,
+        ts(1_700_000_000),
+    );
+    store.put_memory(&memory).expect("memory stored");
+
+    store
+        .touch_memory_access(&memory.memory_id, ts(1_700_000_100))
+        .expect("first touch stored");
+    store
+        .touch_memory_access(&memory.memory_id, ts(1_700_000_120))
+        .expect("second touch stored");
+
+    let latest = store
+        .get_memory(&memory.memory_id)
+        .expect("lookup succeeds")
+        .expect("memory exists");
+    assert_eq!(latest.retrieval_count(), 2);
+    assert_eq!(latest.last_accessed_at(), Some(ts(1_700_000_120)));
+
+    drop(store);
+    assert_eq!(access_touch_count(&path, &memory.memory_id), 2);
+}
+
+#[test]
+fn memvid_adapter_cache_tracks_touch_updates_without_stale_reads() {
+    let dir = tempdir().expect("tempdir");
+    let path = dir.path().join("agent-memory-cache.mv2");
+    let memvid = Memvid::create(&path).expect("memvid created");
+    let mut store = MemvidStore::new(memvid);
+
+    let memory = durable(
+        "user",
+        "favorite_editor",
+        "vim",
+        "The user prefers vim for editing",
+        MemoryType::Preference,
+        SourceType::Chat,
+        0.75,
+        ts(1_700_000_000),
+    );
+    store.put_memory(&memory).expect("memory stored");
+
+    let initial = store
+        .get_memory(&memory.memory_id)
+        .expect("initial lookup succeeds")
+        .expect("memory exists");
+    assert_eq!(initial.retrieval_count(), 0);
+    assert_eq!(initial.last_accessed_at(), None);
+
+    store
+        .touch_memory_accesses(&[(memory.memory_id.clone(), ts(1_700_000_100))])
+        .expect("touch stored");
+    let first_read = store
+        .get_memory(&memory.memory_id)
+        .expect("first read succeeds")
+        .expect("memory exists");
+    assert_eq!(first_read.retrieval_count(), 1);
+    assert_eq!(first_read.last_accessed_at(), Some(ts(1_700_000_100)));
+
+    store
+        .touch_memory_accesses(&[(memory.memory_id.clone(), ts(1_700_000_120))])
+        .expect("second touch stored");
+    let second_read = store
+        .get_memory(&memory.memory_id)
+        .expect("second read succeeds")
+        .expect("memory exists");
+    let repeated_read = store
+        .get_memory(&memory.memory_id)
+        .expect("repeated read succeeds")
+        .expect("memory exists");
+
+    assert_eq!(second_read.retrieval_count(), 2);
+    assert_eq!(second_read.last_accessed_at(), Some(ts(1_700_000_120)));
+    assert_eq!(repeated_read.retrieval_count(), 2);
+    assert_eq!(repeated_read.last_accessed_at(), Some(ts(1_700_000_120)));
+}
+
+#[test]
+fn memvid_adapter_preserves_feedback_then_touch_order_in_effective_metadata() {
+    let dir = tempdir().expect("tempdir");
+    let path = dir.path().join("agent-memory-feedback-touch-order.mv2");
+    let memvid = Memvid::create(&path).expect("memvid created");
+    let mut store = MemvidStore::new(memvid);
+
+    let stored_at = ts(1_700_000_000);
+    let feedback_at = ts(1_700_000_100);
+    let touched_at = ts(1_700_000_120);
+    let memory = durable(
+        "user",
+        "favorite_editor",
+        "vim",
+        "The user prefers vim for editing",
+        MemoryType::Preference,
+        SourceType::Chat,
+        0.75,
+        stored_at,
+    );
+    store.put_memory(&memory).expect("memory stored");
+
+    let _ = store
+        .get_memory(&memory.memory_id)
+        .expect("initial lookup succeeds");
+
+    let updated = memory
+        .clone()
+        .with_outcome_feedback(OutcomeFeedbackKind::Positive, feedback_at);
+    store.put_memory(&updated).expect("feedback version stored");
+    store
+        .touch_memory_accesses(&[(memory.memory_id.clone(), touched_at)])
+        .expect("touch stored");
+
+    let latest = store
+        .get_memory(&memory.memory_id)
+        .expect("lookup succeeds")
+        .expect("memory exists");
+    let repeated = store
+        .get_memory(&memory.memory_id)
+        .expect("repeated lookup succeeds")
+        .expect("memory exists");
+
+    assert_eq!(latest.positive_outcome_count(), 1);
+    assert_eq!(latest.retrieval_count(), 1);
+    assert_eq!(latest.last_accessed_at(), Some(touched_at));
+    assert_eq!(latest.version_timestamp(), touched_at);
+    assert_eq!(repeated.positive_outcome_count(), 1);
+    assert_eq!(repeated.retrieval_count(), 1);
+    assert_eq!(repeated.last_accessed_at(), Some(touched_at));
+    assert_eq!(repeated.version_timestamp(), touched_at);
 }

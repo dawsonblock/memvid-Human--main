@@ -25,6 +25,9 @@ type AccessTouch = (DateTime<Utc>, u32);
 pub trait MemoryStore {
     fn put_trace(&mut self, raw_text: &str, metadata: BTreeMap<String, String>) -> Result<String>;
     fn put_memory(&mut self, memory: &DurableMemory) -> Result<String>;
+    fn persists_access_touches(&self) -> bool {
+        true
+    }
     fn touch_memory_access(&mut self, memory_id: &str, accessed_at: DateTime<Utc>) -> Result<()>;
     fn touch_memory_accesses(&mut self, touches: &[(String, DateTime<Utc>)]) -> Result<()> {
         for (memory_id, accessed_at) in touches {
@@ -612,15 +615,26 @@ impl MemoryStore for InMemoryMemoryStore {
 pub struct MemvidStore {
     memvid: Memvid,
     access_touch_cache: HashMap<String, Option<AccessTouch>>,
+    persist_access_touches: bool,
 }
 
 impl MemvidStore {
     #[must_use]
     pub fn new(memvid: Memvid) -> Self {
+        Self::with_access_touch_persistence(memvid, true)
+    }
+
+    #[must_use]
+    pub fn with_access_touch_persistence(memvid: Memvid, persist_access_touches: bool) -> Self {
         Self {
             memvid,
             access_touch_cache: HashMap::new(),
+            persist_access_touches,
         }
+    }
+
+    pub fn set_access_touch_persistence(&mut self, enabled: bool) {
+        self.persist_access_touches = enabled;
     }
 
     fn is_expired(&self, memory_id: &str) -> bool {
@@ -848,6 +862,10 @@ impl MemvidStore {
 }
 
 impl MemoryStore for MemvidStore {
+    fn persists_access_touches(&self) -> bool {
+        self.persist_access_touches
+    }
+
     fn put_trace(&mut self, raw_text: &str, metadata: BTreeMap<String, String>) -> Result<String> {
         let trace_id = Uuid::new_v4().to_string();
         let uri = format!("mv2://agent-memory/trace/{trace_id}");
@@ -936,6 +954,9 @@ impl MemoryStore for MemvidStore {
     }
 
     fn touch_memory_accesses(&mut self, touches: &[(String, DateTime<Utc>)]) -> Result<()> {
+        if !self.persist_access_touches {
+            return Ok(());
+        }
         let mut pending = Vec::new();
 
         for (memory_id, accessed_at, occurrences) in aggregate_batch_touches(touches) {
