@@ -507,10 +507,7 @@ impl<S: MemoryStore> MemoryController<S> {
                 "compactor_status".to_string(),
                 compactor.status().to_string(),
             ),
-            (
-                "compactor_reason".to_string(),
-                compactor_reason.to_string(),
-            ),
+            ("compactor_reason".to_string(), compactor_reason.to_string()),
         ]);
         if !durable_memories.is_empty() {
             details.insert(

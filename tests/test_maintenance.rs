@@ -69,7 +69,10 @@ fn maintenance_reports_current_memories_expires_due_entries_and_audits_activity(
     assert_eq!(report.expired_ids, vec![expired_id.clone()]);
     assert!(!report.compaction_supported);
     assert_eq!(report.compactor_status, "unsupported");
-    assert_eq!(report.compactor_reason, MemoryCompactor.unsupported_reason());
+    assert_eq!(
+        report.compactor_reason,
+        MemoryCompactor.unsupported_reason()
+    );
 
     let after = controller
         .store_mut()

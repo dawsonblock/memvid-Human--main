@@ -454,7 +454,9 @@ fn memvid_adapter_preserves_feedback_then_touch_order_in_effective_metadata() {
         .get_memory(&memory.memory_id)
         .expect("initial lookup succeeds");
 
-    let updated = memory.with_outcome_feedback(OutcomeFeedbackKind::Positive, feedback_at);
+    let updated = memory
+        .clone()
+        .with_outcome_feedback(OutcomeFeedbackKind::Positive, feedback_at);
     store.put_memory(&updated).expect("feedback version stored");
     store
         .touch_memory_accesses(&[(memory.memory_id.clone(), touched_at)])
