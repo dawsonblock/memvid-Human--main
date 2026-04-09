@@ -415,6 +415,7 @@ impl<S: MemoryStore> MemoryController<S> {
             .retriever
             .retrieve(&mut self.store, &query, self.clock.as_ref())?;
         let touched_memory_ids = self.touch_retrieved_memories(&hits)?;
+        let touch_persistence_enabled = self.retrieval_touch_persistence_enabled();
         let mut details = BTreeMap::from([
             (
                 "intent".to_string(),
@@ -423,7 +424,7 @@ impl<S: MemoryStore> MemoryController<S> {
             ("hits".to_string(), hits.len().to_string()),
             (
                 "touch_persistence".to_string(),
-                if self.promoter.policy().persist_retrieval_touches() {
+                if touch_persistence_enabled {
                     "enabled".to_string()
                 } else {
                     "disabled".to_string()
@@ -694,7 +695,7 @@ impl<S: MemoryStore> MemoryController<S> {
     }
 
     fn touch_retrieved_memories(&mut self, hits: &[RetrievalHit]) -> Result<Vec<String>> {
-        if !self.promoter.policy().persist_retrieval_touches() {
+        if !self.retrieval_touch_persistence_enabled() {
             return Ok(Vec::new());
         }
         let accessed_at = self.clock.now();
@@ -728,6 +729,10 @@ impl<S: MemoryStore> MemoryController<S> {
         }
 
         Ok(touched)
+    }
+
+    fn retrieval_touch_persistence_enabled(&self) -> bool {
+        self.promoter.policy().persist_retrieval_touches() && self.store.persists_access_touches()
     }
 
     fn persist_durable_memory(

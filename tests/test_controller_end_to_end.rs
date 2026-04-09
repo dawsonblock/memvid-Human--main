@@ -576,6 +576,7 @@ struct CountingTouchStore {
     single_calls: usize,
     commit_like_operations: usize,
     last_batch_ids: Vec<String>,
+    persists_access_touches: bool,
 }
 
 impl CountingTouchStore {
@@ -586,12 +587,22 @@ impl CountingTouchStore {
                 .map(|memory| (memory.memory_id.clone(), memory))
                 .collect(),
             hits,
+            persists_access_touches: true,
             ..Self::default()
         }
+    }
+
+    fn with_access_touch_persistence(mut self, enabled: bool) -> Self {
+        self.persists_access_touches = enabled;
+        self
     }
 }
 
 impl MemoryStore for CountingTouchStore {
+    fn persists_access_touches(&self) -> bool {
+        self.persists_access_touches
+    }
+
     fn put_trace(
         &mut self,
         _raw_text: &str,
@@ -787,4 +798,83 @@ fn retrieval_batches_access_touches_once_per_operation() {
         controller.store().last_batch_ids,
         vec![first.memory_id, second.memory_id]
     );
+}
+
+#[test]
+fn retrieval_audit_reflects_store_level_touch_persistence_disablement() {
+    let now = ts(1_700_000_180);
+    let sink = InMemoryAuditSink::default();
+    let clock = Arc::new(FixedClock::new(now));
+    let policy = PolicySet::default();
+    let memory = durable(
+        "user",
+        "favorite_editor",
+        "vim",
+        "The user prefers vim for editing",
+        MemoryType::Preference,
+        SourceType::Chat,
+        0.75,
+        ts(1_700_000_000),
+    );
+    let hits = vec![RetrievalHit {
+        memory_id: Some(memory.memory_id.clone()),
+        belief_id: None,
+        entity: Some(memory.entity.clone()),
+        slot: Some(memory.slot.clone()),
+        value: Some(memory.value.clone()),
+        text: memory.raw_text.clone(),
+        memory_layer: Some(memory.memory_layer()),
+        memory_type: Some(memory.memory_type),
+        score: 0.9,
+        timestamp: memory.event_timestamp(),
+        scope: Some(memory.scope),
+        source: Some(memory.source.source_type),
+        from_belief: false,
+        expired: false,
+        metadata: BTreeMap::new(),
+    }];
+    let store = CountingTouchStore::with_hits(vec![memory.clone()], hits)
+        .with_access_touch_persistence(false);
+    let mut controller = MemoryController::new(
+        store,
+        clock.clone(),
+        AuditLogger::new(clock.clone(), Arc::new(sink.clone())),
+        MemoryClassifier,
+        MemoryPromoter::new(policy.clone()),
+        BeliefUpdater,
+        MemoryRetriever::new(Ranker, RetentionManager::new(policy)),
+    );
+
+    controller
+        .retrieve(RetrievalQuery {
+            query_text: "preferred editor".to_string(),
+            intent: QueryIntent::PreferenceLookup,
+            entity: Some("user".to_string()),
+            slot: None,
+            scope: None,
+            top_k: 1,
+            as_of: None,
+            include_expired: false,
+        })
+        .expect("retrieval succeeds");
+
+    assert_eq!(controller.store().batch_calls, 0);
+    assert_eq!(controller.store().single_calls, 0);
+    assert_eq!(controller.store().commit_like_operations, 0);
+    assert!(controller.store().last_batch_ids.is_empty());
+
+    let retrieval_event = sink
+        .events()
+        .into_iter()
+        .find(|event| event.action == "retrieval")
+        .expect("retrieval audit event present");
+    assert_eq!(
+        retrieval_event
+            .details
+            .get("touch_persistence")
+            .map(String::as_str),
+        Some("disabled")
+    );
+    assert!(!retrieval_event.details.contains_key("touched_memories"));
+    assert!(!retrieval_event.details.contains_key("touched_memory_ids"));
 }
