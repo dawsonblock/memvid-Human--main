@@ -816,7 +816,7 @@ impl<S: MemoryStore> MemoryController<S> {
         primary_memory: Option<&DurableMemory>,
         clock: &dyn Clock,
     ) -> Result<Vec<ConsolidationOutcome>> {
-        ConsolidationEngine::default().consolidate(
+        self.consolidation_engine.consolidate(
             &mut self.store,
             episode_memory,
             primary_memory,
