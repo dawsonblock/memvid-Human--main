@@ -791,10 +791,11 @@ impl<S: MemoryStore> MemoryController<S> {
         entity: &str,
     ) -> Result<Vec<DurableMemory>> {
         let records = SelfModelStore::new(&mut self.store).list_latest_for_entity(entity)?;
-        Ok(records
+        let memories = records
             .into_iter()
-            .filter_map(|record| self.store.get_memory(&record.memory_id).ok().flatten())
-            .collect())
+            .map(|record| self.store.get_memory(&record.memory_id))
+            .collect::<Result<Vec<_>>>()?;
+        Ok(memories.into_iter().flatten().collect())
     }
 
     pub fn get_memory_by_id(&mut self, id: &str) -> Result<Option<DurableMemory>> {
