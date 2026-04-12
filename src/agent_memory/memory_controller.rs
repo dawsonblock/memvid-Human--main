@@ -827,6 +827,7 @@ impl<S: MemoryStore> MemoryController<S> {
     /// Persists a memory record directly, bypassing governance and store-level
     /// validation. Intended for test scenarios that require injecting specific
     /// or intentionally invalid state.
+    #[cfg(any(test, feature = "test_helpers"))]
     pub fn put_memory_direct(&mut self, memory: &DurableMemory) -> Result<String> {
         self.store.put_memory(memory)
     }
