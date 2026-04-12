@@ -34,9 +34,8 @@ fn consolidation_records_repeated_self_model_preferences() {
     apply_durable(&mut controller, &first, Some("episode-1"));
     apply_durable(&mut controller, &second, Some("episode-2"));
 
-    let outcomes = ConsolidationEngine::default()
-        .consolidate(
-            controller.store_mut(),
+    let outcomes = controller
+        .consolidate_for(
             None,
             Some(&second),
             &FixedClock::new(ts(1_700_000_120)),
@@ -144,9 +143,8 @@ fn consolidation_records_recurring_blockers() {
     apply_durable(&mut controller, &second, None);
     apply_durable(&mut controller, &third, None);
 
-    let outcomes = ConsolidationEngine::default()
-        .consolidate(
-            controller.store_mut(),
+    let outcomes = controller
+        .consolidate_for(
             None,
             Some(&third),
             &FixedClock::new(ts(1_700_000_000 + 2 * 86_400 + 60)),
@@ -204,9 +202,8 @@ fn self_model_consolidation_is_threshold_based_idempotent_and_reinforcing() {
     apply_durable(&mut controller, &first, Some("episode-1"));
     apply_durable(&mut controller, &second, Some("episode-2"));
 
-    let first_outcomes = ConsolidationEngine::default()
-        .consolidate(
-            controller.store_mut(),
+    let first_outcomes = controller
+        .consolidate_for(
             None,
             Some(&second),
             &FixedClock::new(ts(1_700_000_180)),
@@ -221,9 +218,8 @@ fn self_model_consolidation_is_threshold_based_idempotent_and_reinforcing() {
         Some("promotion")
     );
 
-    let rerun_outcomes = ConsolidationEngine::default()
-        .consolidate(
-            controller.store_mut(),
+    let rerun_outcomes = controller
+        .consolidate_for(
             None,
             Some(&second),
             &FixedClock::new(ts(1_700_000_181)),
@@ -233,9 +229,8 @@ fn self_model_consolidation_is_threshold_based_idempotent_and_reinforcing() {
 
     apply_durable(&mut controller, &third, Some("episode-3"));
 
-    let reinforcement_outcomes = ConsolidationEngine::default()
-        .consolidate(
-            controller.store_mut(),
+    let reinforcement_outcomes = controller
+        .consolidate_for(
             None,
             Some(&third),
             &FixedClock::new(ts(1_700_000_240)),
@@ -275,15 +270,13 @@ fn blocker_consolidation_uses_at_least_threshold_not_exact_count() {
     }
 
     let latest = controller
-        .store_mut()
-        .list_memories_by_layer(MemoryLayer::GoalState)
+        .list_all_goal_state_memories()
         .expect("goals listed")
         .into_iter()
         .max_by(|left, right| left.stored_at.cmp(&right.stored_at))
         .expect("latest goal exists");
-    let outcomes = ConsolidationEngine::default()
-        .consolidate(
-            controller.store_mut(),
+    let outcomes = controller
+        .consolidate_for(
             None,
             Some(&latest),
             &FixedClock::new(ts(1_700_000_000 + (4 * 86_400))),

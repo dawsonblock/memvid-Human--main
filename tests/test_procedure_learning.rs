@@ -263,13 +263,18 @@ fn system_seeded_procedure_candidate_promotes_without_repetition() {
         .expect("ingest succeeds")
         .expect("procedure stored");
 
-    let procedure = {
-        let mut procedure_store = ProcedureStore::new(controller.store_mut());
-        procedure_store
-            .get_by_workflow_key("repo_review")
-            .expect("procedure lookup succeeds")
-            .expect("procedure exists")
-    };
+    let procedure = controller
+        .list_procedures()
+        .expect("procedures listed")
+        .into_iter()
+        .find_map(|m| {
+            if m.workflow_key_non_empty() == Some("repo_review") {
+                m.to_procedure_record()
+            } else {
+                None
+            }
+        })
+        .expect("procedure exists");
     let promotion_event = sink
         .events()
         .into_iter()
@@ -460,14 +465,16 @@ fn failed_workflow_updates_existing_procedure_lifecycle() {
 fn controller_emits_procedure_status_change_when_reconciling_stale_lifecycle() {
     let (mut controller, sink) = controller(ts(1_700_000_000));
     controller
-        .store_mut()
-        .put_memory(&procedure_memory(
-            "procedure-stale-active",
-            ProcedureStatus::Active,
-            1,
-            6,
-            ts(1_699_999_000),
-        ))
+        .apply_governed_memory_for_import(
+            procedure_memory(
+                "procedure-stale-active",
+                ProcedureStatus::Active,
+                1,
+                6,
+                ts(1_699_999_000),
+            ),
+            None,
+        )
         .expect("stale procedure stored");
 
     controller
@@ -540,14 +547,16 @@ fn controller_emits_procedure_status_change_when_reconciling_stale_lifecycle() {
 fn controller_surfaces_failure_transition_reason_and_history_query() {
     let (mut controller, sink) = controller(ts(1_700_000_000));
     controller
-        .store_mut()
-        .put_memory(&procedure_memory(
-            "procedure-active-to-cooling-controller",
-            ProcedureStatus::Active,
-            2,
-            2,
-            ts(1_699_999_900),
-        ))
+        .apply_governed_memory_for_import(
+            procedure_memory(
+                "procedure-active-to-cooling-controller",
+                ProcedureStatus::Active,
+                2,
+                2,
+                ts(1_699_999_900),
+            ),
+            None,
+        )
         .expect("existing procedure stored");
 
     let mut failed_candidate = candidate(
