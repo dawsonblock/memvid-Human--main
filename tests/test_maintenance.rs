@@ -2,7 +2,6 @@
 
 mod common;
 
-use memvid_core::agent_memory::adapters::memvid_store::MemoryStore;
 use memvid_core::agent_memory::enums::{MemoryType, QueryIntent, SourceType};
 use memvid_core::agent_memory::memory_compactor::MemoryCompactor;
 use memvid_core::agent_memory::schemas::RetrievalQuery;
@@ -39,13 +38,11 @@ fn maintenance_reports_current_memories_expires_due_entries_and_audits_activity(
     let active_id = apply_durable(&mut controller, &active, None);
     let expired_id = apply_durable(&mut controller, &expired, None);
     controller
-        .store_mut()
-        .touch_memory_access(&active_id, ts(1_700_000_150))
+        .touch_memory_access_at(&active_id, ts(1_700_000_150))
         .expect("touch stored");
 
     let before = controller
-        .store_mut()
-        .get_memory(&active_id)
+        .get_memory_by_id(&active_id)
         .expect("lookup succeeds")
         .expect("active memory exists");
     assert_eq!(before.retrieval_count(), 1);
@@ -75,16 +72,14 @@ fn maintenance_reports_current_memories_expires_due_entries_and_audits_activity(
     );
 
     let after = controller
-        .store_mut()
-        .get_memory(&active_id)
+        .get_memory_by_id(&active_id)
         .expect("lookup succeeds")
         .expect("active memory exists");
     assert_eq!(after.retrieval_count(), 1);
     assert_eq!(after.last_accessed_at(), Some(ts(1_700_000_150)));
 
     let visible_hits = controller
-        .store_mut()
-        .search(&RetrievalQuery {
+        .retrieve(RetrievalQuery {
             query_text: "stale task-state".to_string(),
             intent: QueryIntent::EpisodicRecall,
             entity: None,

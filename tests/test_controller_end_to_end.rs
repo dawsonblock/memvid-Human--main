@@ -205,8 +205,7 @@ fn retrieval_touches_returned_memories_and_persists_access_metadata() {
         .expect("stored memory present")
         .clone();
     let latest = controller
-        .store_mut()
-        .get_memory(&memory_id)
+        .get_memory_by_id(&memory_id)
         .expect("lookup succeeds")
         .expect("touched memory present");
     assert_eq!(controller.store().memories().len(), 1);
@@ -286,8 +285,7 @@ fn retrieval_can_skip_durable_touch_writes_when_touch_persistence_is_disabled() 
     assert_eq!(hits[0].value.as_deref(), Some("vim"));
 
     let latest = controller
-        .store_mut()
-        .get_memory(&memory_id)
+        .get_memory_by_id(&memory_id)
         .expect("lookup succeeds")
         .expect("memory exists");
     assert_eq!(latest.stored_at, stored_at);

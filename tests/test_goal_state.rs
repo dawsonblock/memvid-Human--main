@@ -1,7 +1,6 @@
 mod common;
 
 use memvid_core::agent_memory::enums::{GoalStatus, MemoryType, SourceType};
-use memvid_core::agent_memory::goal_state_store::GoalStateStore;
 
 use common::{apply_durable, controller, durable, ts};
 
@@ -21,10 +20,12 @@ fn goal_state_store_persists_and_lists_active_goals() {
 
     let goal_id = apply_durable(&mut controller, &goal_memory, Some("episode-1"));
 
-    let active_goals = {
-        let mut goal_store = GoalStateStore::new(controller.store_mut());
-        goal_store.list_active().expect("active goals listed")
-    };
+    let active_goals = controller
+        .list_active_goal_states_for_entity("project")
+        .expect("active goals listed")
+        .into_iter()
+        .filter_map(|m| m.to_goal_record())
+        .collect::<Vec<_>>();
 
     assert_eq!(goal_id, goal_memory.memory_id);
     assert_eq!(active_goals.len(), 1);

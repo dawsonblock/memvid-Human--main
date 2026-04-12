@@ -99,8 +99,7 @@ fn retrieval_touch_does_not_move_historical_visibility_window() {
         .expect("memory stored")
         .clone();
     let effective = controller
-        .store_mut()
-        .get_memory(&memory_id)
+        .get_memory_by_id(&memory_id)
         .expect("lookup succeeds")
         .expect("memory available");
     assert_eq!(stored.stored_at, ingested_at);

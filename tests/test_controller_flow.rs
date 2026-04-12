@@ -2,7 +2,6 @@ mod common;
 
 use memvid_core::agent_memory::enums::{BeliefStatus, MemoryLayer, SourceType};
 use memvid_core::agent_memory::policy::ReasonCode;
-use memvid_core::agent_memory::self_model_store::SelfModelStore;
 
 use common::{candidate, controller, durable, ts};
 
@@ -98,13 +97,10 @@ fn explicit_trusted_preference_routes_to_self_model_and_audits_basis() {
         .expect("ingest succeeds")
         .expect("self-model stored");
 
-    let self_model = {
-        let mut self_model_store = SelfModelStore::new(controller.store_mut());
-        self_model_store
-            .get_latest_for_entity_slot("user", "favorite_editor")
-            .expect("self-model lookup succeeds")
-            .expect("self-model exists")
-    };
+    let self_model = controller
+        .query_self_model("user", "favorite_editor")
+        .expect("self-model lookup succeeds")
+        .expect("self-model exists");
 
     assert_eq!(memory_id, self_model.memory_id);
     assert_eq!(self_model.value, "vim");
@@ -377,7 +373,7 @@ fn weaker_belief_contradiction_is_audited_explicitly() {
     let (mut controller, sink) = controller(ts(1_700_000_200));
 
     controller
-        .apply_durable_memory(
+        .apply_governed_memory_for_import(
             durable(
                 "user",
                 "location",
@@ -393,7 +389,7 @@ fn weaker_belief_contradiction_is_audited_explicitly() {
         .expect("seed belief stored");
 
     controller
-        .apply_durable_memory(
+        .apply_governed_memory_for_import(
             durable(
                 "user",
                 "location",

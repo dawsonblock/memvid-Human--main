@@ -6,7 +6,7 @@ use super::audit::AuditLogger;
 use super::belief_store::BeliefStore;
 use super::belief_updater::{BeliefUpdateOutcome, BeliefUpdater};
 use super::clock::Clock;
-use super::consolidation_engine::ConsolidationEngine;
+use super::consolidation_engine::{ConsolidationEngine, ConsolidationOutcome};
 use super::enums::{
     BeliefAction, MemoryLayer, MemoryType, PromotionDecision, SelfModelKind,
     SelfModelStabilityClass, SourceType,
@@ -23,7 +23,7 @@ use super::policy::ReasonCode;
 use super::procedure_store::{ProcedureStatusTransition, ProcedureStore};
 use super::schemas::{
     AuditEvent, BeliefRecord, CandidateMemory, DurableMemory, OutcomeFeedback, PromotionContext,
-    RetrievalHit, RetrievalQuery,
+    RetrievalHit, RetrievalQuery, SelfModelRecord,
 };
 use super::self_model_store::SelfModelStore;
 
@@ -375,12 +375,13 @@ impl<S: MemoryStore> MemoryController<S> {
         }
     }
 
-    pub fn apply_durable_memory(
+    pub fn apply_governed_memory_for_import(
         &mut self,
         mut memory: DurableMemory,
         supporting_episode_id: Option<&str>,
     ) -> Result<String> {
-        if memory.memory_layer() == MemoryLayer::SelfModel {
+        let layer = memory.memory_layer();
+        if layer == MemoryLayer::SelfModel {
             let candidate_id = memory.candidate_id.clone();
             match self.govern_self_model_memory(memory)? {
                 SelfModelGovernanceDecision::Persist(governed) => {
@@ -406,6 +407,20 @@ impl<S: MemoryStore> MemoryController<S> {
             }
         }
         let memory_id = self.persist_durable_memory(None, memory, supporting_episode_id)?;
+        self.audit.emit(AuditEvent {
+            event_id: String::new(),
+            occurred_at: self.clock.now(),
+            action: "import_applied".to_string(),
+            candidate_id: None,
+            memory_id: Some(memory_id.clone()),
+            belief_id: None,
+            query_text: None,
+            details: BTreeMap::from([
+                ("route".to_string(), "import".to_string()),
+                ("memory_layer".to_string(), layer.as_str().to_string()),
+                ("memory_id".to_string(), memory_id.clone()),
+            ]),
+        });
         self.reconcile_procedure_statuses(None)?;
         Ok(memory_id)
     }
@@ -690,8 +705,129 @@ impl<S: MemoryStore> MemoryController<S> {
         &self.store
     }
 
+    #[cfg(test)]
     pub fn store_mut(&mut self) -> &mut S {
         &mut self.store
+    }
+
+    pub fn query_self_model(
+        &mut self,
+        entity: &str,
+        slot: &str,
+    ) -> Result<Option<SelfModelRecord>> {
+        SelfModelStore::new(&mut self.store).get_latest_for_entity_slot(entity, slot)
+    }
+
+    pub fn list_self_model_for_entity(&mut self, entity: &str) -> Result<Vec<DurableMemory>> {
+        SelfModelStore::new(&mut self.store).list_for_entity_memories(entity)
+    }
+
+    pub fn matching_self_model_values(
+        &mut self,
+        entity: &str,
+        slot: &str,
+        value: &str,
+    ) -> Result<Vec<DurableMemory>> {
+        let slot = slot.trim();
+        let value = value.trim();
+        if slot.is_empty() || value.is_empty() {
+            return Ok(Vec::new());
+        }
+        Ok(self
+            .store
+            .list_memory_versions_by_layer(MemoryLayer::SelfModel)?
+            .into_iter()
+            .filter(|memory| memory.has_required_structure_for(MemoryLayer::SelfModel))
+            .filter(|memory| memory.entity_non_empty() == Some(entity))
+            .filter(|memory| memory.slot == slot && memory.value == value)
+            .collect())
+    }
+
+    pub fn matching_self_model_values_since(
+        &mut self,
+        entity: &str,
+        slot: &str,
+        value: &str,
+        since: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<DurableMemory>> {
+        Ok(self
+            .matching_self_model_values(entity, slot, value)?
+            .into_iter()
+            .filter(|memory| memory.event_timestamp() >= since)
+            .collect())
+    }
+
+    pub fn list_goal_states_for_entity(&mut self, entity: &str) -> Result<Vec<DurableMemory>> {
+        let entity = entity.trim().to_string();
+        Ok(GoalStateStore::new(&mut self.store)
+            .list_all_memories()?
+            .into_iter()
+            .filter(|memory| memory.entity_non_empty() == Some(entity.as_str()))
+            .collect())
+    }
+
+    pub fn list_active_goal_states_for_entity(
+        &mut self,
+        entity: &str,
+    ) -> Result<Vec<DurableMemory>> {
+        let entity = entity.trim().to_string();
+        Ok(GoalStateStore::new(&mut self.store)
+            .list_active_memories()?
+            .into_iter()
+            .filter(|memory| memory.entity_non_empty() == Some(entity.as_str()))
+            .collect())
+    }
+
+    pub fn list_procedures(&mut self) -> Result<Vec<DurableMemory>> {
+        ProcedureStore::new(&mut self.store).list_all_memories()
+    }
+
+    pub fn list_all_goal_state_memories(&mut self) -> Result<Vec<DurableMemory>> {
+        GoalStateStore::new(&mut self.store).list_all_memories()
+    }
+
+    pub fn list_latest_self_model_for_entity(
+        &mut self,
+        entity: &str,
+    ) -> Result<Vec<DurableMemory>> {
+        let records = SelfModelStore::new(&mut self.store).list_latest_for_entity(entity)?;
+        Ok(records
+            .into_iter()
+            .filter_map(|record| self.store.get_memory(&record.memory_id).ok().flatten())
+            .collect())
+    }
+
+    pub fn get_memory_by_id(&mut self, id: &str) -> Result<Option<DurableMemory>> {
+        self.store.get_memory(id)
+    }
+
+    pub fn touch_memory_access_at(
+        &mut self,
+        id: &str,
+        accessed_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<()> {
+        self.store.touch_memory_access(id, accessed_at)
+    }
+
+    pub fn consolidate_for(
+        &mut self,
+        episode_memory: Option<&DurableMemory>,
+        primary_memory: Option<&DurableMemory>,
+        clock: &dyn Clock,
+    ) -> Result<Vec<ConsolidationOutcome>> {
+        ConsolidationEngine::default().consolidate(
+            &mut self.store,
+            episode_memory,
+            primary_memory,
+            clock,
+        )
+    }
+
+    /// Persists a memory record directly, bypassing governance and store-level
+    /// validation. Intended for test scenarios that require injecting specific
+    /// or intentionally invalid state.
+    pub fn put_memory_direct(&mut self, memory: &DurableMemory) -> Result<String> {
+        self.store.put_memory(memory)
     }
 
     fn touch_retrieved_memories(&mut self, hits: &[RetrievalHit]) -> Result<Vec<String>> {

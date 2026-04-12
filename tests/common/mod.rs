@@ -144,7 +144,7 @@ pub fn apply_durable(
     supporting_episode_id: Option<&str>,
 ) -> String {
     controller
-        .apply_durable_memory(memory.clone(), supporting_episode_id)
+        .apply_governed_memory_for_import(memory.clone(), supporting_episode_id)
         .expect("durable memory applied")
 }
 
