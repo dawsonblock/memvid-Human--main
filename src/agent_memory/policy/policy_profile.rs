@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-use super::super::enums::{MemoryLayer, SourceType};
+use super::super::enums::{MemoryLayer, MemoryType, SourceType};
+use super::super::schemas::CandidateMemory;
 use super::PolicySet;
+use super::reason_codes::ReasonCode;
 
 /// Protected governance profile layered on top of the compatibility-first `PolicySet`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -137,6 +139,7 @@ impl PolicyProfile {
             MemoryLayer::GoalState => self.constraints.goal_state_promotion_threshold,
             MemoryLayer::Procedure => self.constraints.procedure_promotion_threshold,
             MemoryLayer::Trace => 1.1,
+            MemoryLayer::Correction => 1.1,
         }
     }
 
@@ -198,5 +201,52 @@ impl PolicyProfile {
 impl Default for PolicyProfile {
     fn default() -> Self {
         PolicySet::default().policy_profile()
+    }
+}
+
+/// Pre-promotion gate that guards against recording ephemeral one-off noise.
+///
+/// This runs before promotion scoring and rejects candidates that are clearly
+/// temporary or lack enough signal to be worth persisting.
+pub struct MemoryDecisionGate;
+
+impl MemoryDecisionGate {
+    /// Returns `(should_remember, reason_code)`. When `should_remember` is `false`
+    /// the caller must reject without scoring.
+    #[must_use]
+    pub fn should_remember(
+        candidate: &CandidateMemory,
+        _existing_count: usize,
+    ) -> (bool, ReasonCode) {
+        let text_lower = candidate.raw_text.to_lowercase();
+        // Reject explicitly temporary statements that carry no long-term signal.
+        let temporary_markers = [
+            "for now",
+            "temporarily",
+            "just this once",
+            "for today only",
+            "at the moment",
+        ];
+        if temporary_markers.iter().any(|m| text_lower.contains(m))
+            && !candidate
+                .tags
+                .iter()
+                .any(|t| t == "episodic" || t == "event")
+        {
+            return (false, ReasonCode::TemporaryStatement);
+        }
+        // Reject low-signal noise: very low salience + confidence in a non-meaningful type.
+        let is_meaningful_type = matches!(
+            candidate.memory_type,
+            MemoryType::Correction
+                | MemoryType::Preference
+                | MemoryType::GoalState
+                | MemoryType::Skill
+                | MemoryType::Fact
+        );
+        if candidate.salience < 0.3 && candidate.confidence < 0.4 && !is_meaningful_type {
+            return (false, ReasonCode::OneOffNoise);
+        }
+        (true, ReasonCode::PromotionThresholdNotMet)
     }
 }

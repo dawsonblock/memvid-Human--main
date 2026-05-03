@@ -13,6 +13,12 @@ pub enum ReasonCode {
     StableDirectiveUpdateRejected,
     ProcedureEvidenceRestricted,
     PromotionThresholdNotMet,
+    /// Rejected by the `MemoryDecisionGate` before promotion scoring.
+    DecisionGateRejected,
+    /// Input appears to be incidental one-off noise with no lasting signal.
+    OneOffNoise,
+    /// Statement is explicitly temporary and should not enter durable memory.
+    TemporaryStatement,
 }
 
 impl ReasonCode {
@@ -29,6 +35,9 @@ impl ReasonCode {
             Self::StableDirectiveUpdateRejected => "stable_directive_update_rejected",
             Self::ProcedureEvidenceRestricted => "procedure_evidence_restricted",
             Self::PromotionThresholdNotMet => "promotion_threshold_not_met",
+            Self::DecisionGateRejected => "decision_gate_rejected",
+            Self::OneOffNoise => "one_off_noise",
+            Self::TemporaryStatement => "temporary_statement",
         }
     }
 }

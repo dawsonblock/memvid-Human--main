@@ -78,6 +78,7 @@ impl PolicySet {
             MemoryLayer::Episode => self.promote,
             MemoryLayer::Procedure => self.procedure_promote,
             MemoryLayer::Trace => 1.1,
+            MemoryLayer::Correction => 1.1,
         }
     }
 
@@ -225,6 +226,14 @@ impl PolicySet {
                 default_ttl: Some(90 * DAY_SECONDS),
                 decay_per_day: 0.01,
                 retrieval_priority: 0.7,
+                promotable: true,
+            },
+            MemoryLayer::Correction => RetentionRule {
+                memory_layer,
+                memory_type,
+                default_ttl: Some(30 * DAY_SECONDS),
+                decay_per_day: 0.04,
+                retrieval_priority: 0.6,
                 promotable: true,
             },
         }

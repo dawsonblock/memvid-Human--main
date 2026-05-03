@@ -10,6 +10,7 @@ pub enum MemoryLayer {
     GoalState,
     SelfModel,
     Procedure,
+    Correction,
 }
 
 /// High-level governed memory types.
@@ -21,6 +22,8 @@ pub enum MemoryType {
     Fact,
     Preference,
     GoalState,
+    Correction,
+    Skill,
 }
 
 /// Current status of an explicit belief.
@@ -166,6 +169,7 @@ impl MemoryLayer {
             Self::GoalState => "goal_state",
             Self::SelfModel => "self_model",
             Self::Procedure => "procedure",
+            Self::Correction => "correction",
         }
     }
 
@@ -178,6 +182,7 @@ impl MemoryLayer {
             "goal_state" | "goalstate" => Some(Self::GoalState),
             "self_model" | "selfmodel" => Some(Self::SelfModel),
             "procedure" => Some(Self::Procedure),
+            "correction" => Some(Self::Correction),
             _ => None,
         }
     }
@@ -192,6 +197,8 @@ impl MemoryType {
             Self::Fact => MemoryLayer::Belief,
             Self::Preference => MemoryLayer::SelfModel,
             Self::GoalState => MemoryLayer::GoalState,
+            Self::Correction => MemoryLayer::Correction,
+            Self::Skill => MemoryLayer::Procedure,
         }
     }
 }
@@ -478,6 +485,58 @@ impl ProcedureStatus {
             "cooling_down" => Some(Self::CoolingDown),
             "retired" => Some(Self::Retired),
             _ => None,
+        }
+    }
+}
+
+/// Relationship between a correction and the memory it targets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CorrectionRelation {
+    /// Fully replaces a prior memory record.
+    Supersedes,
+    /// Refines an existing value without full replacement.
+    Refines,
+    /// Narrows the scope or applicability of an existing memory.
+    Narrows,
+    /// Adds detail to an existing memory while preserving the original.
+    Extends,
+}
+
+/// Mechanism by which a correction occurs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CorrectionKind {
+    /// An explicit retraction of a prior statement ("I was wrong about X").
+    ExplicitRetraction,
+    /// A new value is provided in place of the old one.
+    ValueUpdate,
+    /// The correction constrains when or where the old value applies.
+    NarrowedScope,
+    /// Multiple memories are merged into a single refined record.
+    MergedRefinement,
+}
+
+impl CorrectionRelation {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Supersedes => "supersedes",
+            Self::Refines => "refines",
+            Self::Narrows => "narrows",
+            Self::Extends => "extends",
+        }
+    }
+}
+
+impl CorrectionKind {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ExplicitRetraction => "explicit_retraction",
+            Self::ValueUpdate => "value_update",
+            Self::NarrowedScope => "narrowed_scope",
+            Self::MergedRefinement => "merged_refinement",
         }
     }
 }

@@ -4,9 +4,9 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use super::enums::{
-    BeliefStatus, BeliefViewStatus, GoalStatus, MemoryLayer, MemoryType, OutcomeFeedbackKind,
-    ProcedureStatus, PromotionDecision, QueryIntent, Scope, SelfModelKind, SelfModelStabilityClass,
-    SelfModelUpdateRequirement, SourceType,
+    BeliefStatus, BeliefViewStatus, CorrectionKind, CorrectionRelation, GoalStatus, MemoryLayer,
+    MemoryType, OutcomeFeedbackKind, ProcedureStatus, PromotionDecision, QueryIntent, Scope,
+    SelfModelKind, SelfModelStabilityClass, SelfModelUpdateRequirement, SourceType,
 };
 use super::policy::ReasonCode;
 
@@ -128,7 +128,7 @@ impl CandidateMemory {
                     && self.value_non_empty().is_some()
                     && self.workflow_key_non_empty().is_some()
             }
-            MemoryLayer::Episode | MemoryLayer::Trace => true,
+            MemoryLayer::Episode | MemoryLayer::Trace | MemoryLayer::Correction => true,
         }
     }
 
@@ -357,7 +357,7 @@ impl DurableMemory {
                     && self.value_non_empty().is_some()
                     && self.workflow_key_non_empty().is_some()
             }
-            MemoryLayer::Episode | MemoryLayer::Trace => true,
+            MemoryLayer::Episode | MemoryLayer::Trace | MemoryLayer::Correction => true,
         }
     }
 
@@ -913,4 +913,60 @@ pub struct AuditEvent {
     pub belief_id: Option<String>,
     pub query_text: Option<String>,
     pub details: BTreeMap<String, String>,
+}
+
+// ─── Phase A: Raw-text ingest ────────────────────────────────────────────────
+
+/// Caller-supplied context forwarded to the extraction pipeline.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct IngestContext {
+    pub source_type: SourceType,
+    pub scope: Scope,
+    pub entity_hint: Option<String>,
+    pub tags: Vec<String>,
+    pub metadata: BTreeMap<String, String>,
+}
+
+impl Default for IngestContext {
+    fn default() -> Self {
+        Self {
+            source_type: SourceType::Chat,
+            scope: Scope::Private,
+            entity_hint: None,
+            tags: Vec::new(),
+            metadata: BTreeMap::new(),
+        }
+    }
+}
+
+/// A structured event for direct episodic ingest (bypasses extraction pipeline).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct IngestEvent {
+    pub entity: String,
+    pub description: String,
+    pub occurred_at: DateTime<Utc>,
+    pub outcome: Option<String>,
+    pub workflow_key: Option<String>,
+    pub metadata: BTreeMap<String, String>,
+}
+
+// ─── Phase B: Correction memory ──────────────────────────────────────────────
+
+/// A durable correction record that supersedes, refines, or narrows a prior memory.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CorrectionRecord {
+    pub correction_id: String,
+    pub entity: String,
+    pub slot: String,
+    pub old_value: Option<String>,
+    pub new_value: String,
+    pub correction_relation: CorrectionRelation,
+    pub correction_kind: CorrectionKind,
+    /// Memory ID of the record being corrected, if known.
+    pub corrects_memory_id: Option<String>,
+    /// Merged/synthesised value when kind is `MergedRefinement`.
+    pub merged_value: Option<String>,
+    pub observed_at: DateTime<Utc>,
+    pub confidence: f32,
+    pub source: Provenance,
 }

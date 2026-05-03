@@ -31,6 +31,20 @@ const EVENT_HINTS: &[&str] = &[
     "finished",
     "started",
 ];
+const CORRECTION_HINTS: &[&str] = &[
+    "actually",
+    "correction:",
+    "i was wrong",
+    "that was incorrect",
+    "i meant",
+    "use x instead",
+    "replace",
+    "update:",
+    "retract",
+    "not",
+    "instead of",
+    "rather than",
+];
 
 /// Deterministic rule-based classifier.
 #[derive(Debug, Default, Clone, Copy)]
@@ -42,6 +56,19 @@ impl MemoryClassifier {
         // Use the slot string only if one was actually asserted.
         let slot = candidate.slot_non_empty().unwrap_or("").to_lowercase();
         let text = candidate.raw_text.to_lowercase();
+
+        // Correction detection runs before structural checks — corrections can arrive
+        // without a well-formed entity/slot/value triple.
+        let correction_signal = CORRECTION_HINTS
+            .iter()
+            .filter(|hint| text.contains(*hint))
+            .count();
+        if correction_signal >= 2 {
+            candidate.memory_type = MemoryType::Correction;
+            candidate.confidence = candidate.confidence.max(0.8);
+            candidate.salience = candidate.salience.max(0.75);
+            return candidate;
+        }
 
         // Only classify as structured fact/preference/goal when all three fields are present.
         // Absent entity, slot, or value means the input lacks enough structure for promotion
@@ -86,6 +113,13 @@ impl MemoryClassifier {
             }
             MemoryType::Episode => {
                 candidate.salience = candidate.salience.max(0.55);
+            }
+            MemoryType::Correction => {
+                candidate.salience = candidate.salience.max(0.75);
+                candidate.confidence = candidate.confidence.max(0.8);
+            }
+            MemoryType::Skill => {
+                candidate.salience = candidate.salience.max(0.65);
             }
             MemoryType::Trace => {}
         }

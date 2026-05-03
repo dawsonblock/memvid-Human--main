@@ -4,6 +4,7 @@ use uuid::Uuid;
 
 use super::clock::Clock;
 use super::enums::{MemoryLayer, PromotionDecision, SelfModelKind};
+use super::policy::policy_profile::MemoryDecisionGate;
 use super::policy::{PolicyProfile, PolicySet, ReasonCode};
 use super::schemas::{CandidateMemory, DurableMemory, PromotionContext, PromotionResult};
 use super::source_trust::effective_source_weight;
@@ -116,6 +117,25 @@ impl MemoryPromoter {
                 decision: PromotionDecision::StoreTrace,
                 score,
                 reason: "candidate retained as trace only".to_string(),
+                reason_code: Some(reason_code),
+                durable_memory: None,
+                details,
+            };
+        }
+
+        // Pre-promotion gate: reject one-off noise and explicitly temporary statements.
+        let gate = MemoryDecisionGate::should_remember(candidate, 0);
+        if !gate.0 {
+            let reason_code = gate.1;
+            details.insert("reason_code".to_string(), reason_code.as_str().to_string());
+            details.insert(
+                "route_basis".to_string(),
+                "decision_gate_rejected".to_string(),
+            );
+            return PromotionResult {
+                decision: PromotionDecision::Reject,
+                score,
+                reason: format!("decision gate rejected: {}", reason_code.as_str()),
                 reason_code: Some(reason_code),
                 durable_memory: None,
                 details,
@@ -284,6 +304,13 @@ impl MemoryPromoter {
             MemoryLayer::Belief => self.can_promote_to_belief(candidate, context),
             MemoryLayer::SelfModel => self.can_promote_to_self_model(candidate, context),
             MemoryLayer::Procedure => self.can_promote_to_procedure(candidate, context),
+            MemoryLayer::Correction => DestinationEligibility {
+                allowed: true,
+                reason: "correction memories always bypass eligibility gate".to_string(),
+                reason_code: None,
+                route_basis: "correction_bypass",
+                fallback_layer: "correction",
+            },
         }
     }
 
@@ -569,6 +596,7 @@ impl MemoryPromoter {
             MemoryLayer::Procedure => context.procedure_success_count,
             MemoryLayer::Episode => 1,
             MemoryLayer::Trace => 0,
+            MemoryLayer::Correction => 0,
         }
     }
 
