@@ -247,7 +247,7 @@ impl Ranker {
             MemoryLayer::Procedure => (0.25 - (age_days / 120.0)).clamp(0.0, 0.25),
             MemoryLayer::Belief => (0.18 - (age_days / 240.0)).clamp(0.0, 0.18),
             MemoryLayer::SelfModel => (0.12 - (age_days / 365.0)).clamp(0.0, 0.12),
-            MemoryLayer::Trace => 0.0,
+            MemoryLayer::Trace | MemoryLayer::Correction => 0.0,
         }
     }
 

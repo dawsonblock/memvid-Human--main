@@ -95,7 +95,7 @@ fn parse_source_type(value: Option<&String>) -> SourceType {
 
 fn memory_kind(memory: &DurableMemory) -> MemoryKind {
     match memory.memory_layer() {
-        MemoryLayer::Trace | MemoryLayer::Procedure => MemoryKind::Other,
+        MemoryLayer::Trace | MemoryLayer::Procedure | MemoryLayer::Correction => MemoryKind::Other,
         MemoryLayer::Episode => MemoryKind::Event,
         MemoryLayer::Belief => MemoryKind::Fact,
         MemoryLayer::SelfModel => MemoryKind::Preference,

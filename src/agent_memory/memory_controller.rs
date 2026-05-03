@@ -1,18 +1,22 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use uuid::Uuid;
+
 use super::adapters::memvid_store::MemoryStore;
 use super::audit::AuditLogger;
 use super::belief_store::BeliefStore;
 use super::belief_updater::{BeliefUpdateOutcome, BeliefUpdater};
 use super::clock::Clock;
 use super::consolidation_engine::{ConsolidationEngine, ConsolidationOutcome};
+use super::correction_store::CorrectionStore;
 use super::enums::{
-    BeliefAction, MemoryLayer, MemoryType, PromotionDecision, SelfModelKind,
-    SelfModelStabilityClass, SourceType,
+    BeliefAction, CorrectionKind, CorrectionRelation, MemoryLayer, MemoryType, PromotionDecision,
+    Scope, SelfModelKind, SelfModelStabilityClass, SourceType,
 };
 use super::episode_store::EpisodeStore;
 use super::errors::{AgentMemoryError, Result};
+use super::extraction::RawInputProcessor;
 use super::goal_state_store::GoalStateStore;
 use super::memory_classifier::MemoryClassifier;
 use super::memory_compactor::MemoryCompactor;
@@ -22,8 +26,9 @@ use super::memory_retriever::MemoryRetriever;
 use super::policy::ReasonCode;
 use super::procedure_store::{ProcedureStatusTransition, ProcedureStore};
 use super::schemas::{
-    AuditEvent, BeliefRecord, CandidateMemory, DurableMemory, OutcomeFeedback, PromotionContext,
-    RetrievalHit, RetrievalQuery, SelfModelRecord,
+    AuditEvent, BeliefRecord, CandidateMemory, CorrectionRecord, DurableMemory, IngestContext,
+    IngestEvent, OutcomeFeedback, PromotionContext, Provenance, RetrievalHit, RetrievalQuery,
+    SelfModelRecord,
 };
 use super::self_model_store::SelfModelStore;
 
@@ -37,6 +42,7 @@ pub struct MemoryController<S: MemoryStore> {
     belief_updater: BeliefUpdater,
     retriever: MemoryRetriever,
     consolidation_engine: ConsolidationEngine,
+    correction_store: CorrectionStore,
 }
 
 enum SelfModelGovernanceDecision {
@@ -78,6 +84,7 @@ impl<S: MemoryStore> MemoryController<S> {
             belief_updater,
             retriever,
             consolidation_engine: ConsolidationEngine::new(consolidation_policy),
+            correction_store: CorrectionStore::new(),
         }
     }
 
@@ -114,6 +121,30 @@ impl<S: MemoryStore> MemoryController<S> {
                 details
             },
         });
+
+        // Phase B: route corrections to the durable correction store.
+        if classified.memory_type == MemoryType::Correction {
+            if let (Some(entity), Some(slot)) =
+                (classified.entity_non_empty(), classified.slot_non_empty())
+            {
+                let record = CorrectionRecord {
+                    correction_id: Uuid::new_v4().to_string(),
+                    entity: entity.to_string(),
+                    slot: slot.to_string(),
+                    old_value: None,
+                    new_value: classified.value.clone().unwrap_or_default(),
+                    correction_relation: CorrectionRelation::Supersedes,
+                    correction_kind: CorrectionKind::ValueUpdate,
+                    corrects_memory_id: None,
+                    merged_value: None,
+                    observed_at: classified.observed_at,
+                    confidence: classified.confidence,
+                    source: classified.source.clone(),
+                };
+                self.correction_store.write_correction(record);
+            }
+            return Ok(None);
+        }
 
         let promotion_context = self.build_promotion_context(&classified)?;
         let promotion = self.promoter.promote_with_context(
@@ -423,6 +454,59 @@ impl<S: MemoryStore> MemoryController<S> {
         });
         self.reconcile_procedure_statuses(None)?;
         Ok(memory_id)
+    }
+
+    /// Extracts candidate memories from raw text and ingests each one through
+    /// the governed pipeline. Returns one `Option<String>` memory ID per candidate.
+    pub fn ingest_text(
+        &mut self,
+        text: impl Into<String>,
+        context: IngestContext,
+    ) -> Result<Vec<Option<String>>> {
+        let text = text.into();
+        let processor = RawInputProcessor::new();
+        let candidates = processor.process(&text, &context);
+        candidates.into_iter().map(|c| self.ingest(c)).collect()
+    }
+
+    /// Stores a structured event directly as an episodic memory, bypassing the
+    /// extraction pipeline.
+    pub fn ingest_event(&mut self, event: IngestEvent) -> Result<Option<String>> {
+        let mut metadata = event.metadata.clone();
+        if let Some(wk) = &event.workflow_key {
+            metadata.insert("workflow_key".to_string(), wk.clone());
+        }
+        if let Some(outcome) = &event.outcome {
+            metadata.insert("outcome".to_string(), outcome.clone());
+        }
+        let candidate = CandidateMemory {
+            candidate_id: Uuid::new_v4().to_string(),
+            observed_at: self.clock.now(),
+            entity: Some(event.entity.clone()),
+            slot: Some("event".to_string()),
+            value: Some(event.description.clone()),
+            raw_text: event.description.clone(),
+            source: Provenance {
+                source_type: SourceType::Chat,
+                source_id: String::new(),
+                source_label: None,
+                observed_by: None,
+                trust_weight: 1.0,
+            },
+            memory_type: MemoryType::Episode,
+            confidence: 0.8,
+            salience: 0.7,
+            scope: Scope::Private,
+            ttl: None,
+            event_at: Some(event.occurred_at),
+            valid_from: None,
+            valid_to: None,
+            internal_layer: Some(MemoryLayer::Episode),
+            tags: Vec::new(),
+            metadata,
+            is_retraction: false,
+        };
+        self.ingest(candidate)
     }
 
     pub fn retrieve(&mut self, query: RetrievalQuery) -> Result<Vec<RetrievalHit>> {
@@ -1016,6 +1100,19 @@ impl<S: MemoryStore> MemoryController<S> {
                 let mut trace_meta = BTreeMap::from([(
                     "memory_layer".to_string(),
                     MemoryLayer::Trace.as_str().to_string(),
+                )]);
+                if !memory.entity.is_empty() {
+                    trace_meta.insert("entity".to_string(), memory.entity.clone());
+                }
+                if !memory.slot.is_empty() {
+                    trace_meta.insert("slot".to_string(), memory.slot.clone());
+                }
+                self.store.put_trace(&memory.raw_text, trace_meta)
+            }
+            MemoryLayer::Correction => {
+                let mut trace_meta = BTreeMap::from([(
+                    "memory_layer".to_string(),
+                    MemoryLayer::Correction.as_str().to_string(),
                 )]);
                 if !memory.entity.is_empty() {
                     trace_meta.insert("entity".to_string(), memory.entity.clone());
