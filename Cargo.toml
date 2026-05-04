@@ -56,16 +56,37 @@ same-file = "1.0"
 fs-err = "3.2"
 atomic-write-file = "0.3"
 dirs-next = "2.0"
-smallvec = { version = "1.13", features = ["serde", "union", "const_generics", "write"] }
-tantivy = { version = "0.25.0", optional = true, default-features = false, features = ["mmap"] }
+smallvec = { version = "1.13", features = [
+    "serde",
+    "union",
+    "const_generics",
+    "write",
+] }
+tantivy = { version = "0.25.0", optional = true, default-features = false, features = [
+    "mmap",
+] }
 ort = { version = "=2.0.0-rc.10", optional = true }
 hnsw = { version = "0.11.0", optional = true, features = ["serde"] }
-jsonwebtoken = { version = "10.0.0", optional = true, features = ["rust_crypto"] }
-image = { version = "0.25", optional = true, default-features = false, features = ["jpeg", "png", "webp"] }
+jsonwebtoken = { version = "10.0.0", optional = true, features = [
+    "rust_crypto",
+] }
+image = { version = "0.25", optional = true, default-features = false, features = [
+    "jpeg",
+    "png",
+    "webp",
+] }
 ndarray = { version = "0.16", optional = true }
 rayon = { version = "1.10", optional = true }
 tokenizers = { version = "0.22", optional = true }
-symphonia = { version = "0.5.3", optional = true, default-features = false, features = ["aac", "mp3", "flac", "isomp4", "ogg", "wav", "pcm"] }
+symphonia = { version = "0.5.3", optional = true, default-features = false, features = [
+    "aac",
+    "mp3",
+    "flac",
+    "isomp4",
+    "ogg",
+    "wav",
+    "pcm",
+] }
 rubato = { version = "0.15", optional = true }
 rustfft = { version = "6.2", optional = true }
 
@@ -90,7 +111,11 @@ wide = { version = "1.1", optional = true }
 space = { version = "0.17", optional = true }
 
 # HTTP client for API-based embedding providers (OpenAI, etc.)
-reqwest = { version = "0.12", optional = true, default-features = false, features = ["blocking", "json", "rustls-tls"] }
+reqwest = { version = "0.12", optional = true, default-features = false, features = [
+    "blocking",
+    "json",
+    "rustls-tls",
+] }
 
 # Platform-specific: libc for stderr suppression on macOS
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -106,7 +131,15 @@ extractous = ["dep:extractous"]
 pdf_extract = ["dep:pdf-extract"]
 # High-accuracy PDF extraction with perfect word spacing (recommended for 2025+)
 pdf_oxide = ["dep:pdf_oxide"]
-vec = ["dep:ort", "dep:hnsw", "dep:ndarray", "dep:tokenizers", "dep:space", "dep:rand", "dep:rand_pcg"]
+vec = [
+    "dep:ort",
+    "dep:hnsw",
+    "dep:ndarray",
+    "dep:tokenizers",
+    "dep:space",
+    "dep:rand",
+    "dep:rand_pcg",
+]
 clip = ["vec", "dep:image", "dep:ndarray", "dep:rayon", "dep:tokenizers"]
 mmap = []
 pdfium = ["dep:pdfium-render"]
@@ -116,11 +149,24 @@ parallel_segments = ["dep:num_cpus", "dep:crossbeam-channel"]
 # Logic-Mesh: entity-relationship graph with NER extraction using DistilBERT-NER ONNX
 logic_mesh = ["dep:ort", "dep:ndarray", "dep:tokenizers"]
 # Whisper: audio transcription with Candle inference
-whisper = ["dep:symphonia", "dep:rubato", "dep:tokenizers", "dep:candle-core", "dep:candle-nn", "dep:candle-transformers", "dep:hf-hub", "dep:byteorder"]
+whisper = [
+    "dep:symphonia",
+    "dep:rubato",
+    "dep:tokenizers",
+    "dep:candle-core",
+    "dep:candle-nn",
+    "dep:candle-transformers",
+    "dep:hf-hub",
+    "dep:byteorder",
+]
 # GPU acceleration for Whisper (optional)
 metal = ["candle-core/metal", "candle-nn/metal", "candle-transformers/metal"]
 cuda = ["candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda"]
-accelerate = ["candle-core/accelerate", "candle-nn/accelerate", "candle-transformers/accelerate"]
+accelerate = [
+    "candle-core/accelerate",
+    "candle-nn/accelerate",
+    "candle-transformers/accelerate",
+]
 # Time-travel replay for agent sessions
 replay = []
 # Password-based encryption capsules (.mv2e)
@@ -132,6 +178,8 @@ api_embed = ["dep:reqwest"]
 # SIMD acceleration for vector distance calculations
 simd = ["dep:wide"]
 hnsw_bench = ["dep:hnsw", "dep:rand", "dep:space", "dep:rand_pcg"]
+# Exposes bypass helpers used by integration tests (put_memory_direct, etc.)
+test_helpers = []
 
 [dev-dependencies]
 fastrand = "2.0"
@@ -162,3 +210,7 @@ harness = false
 name = "vec_search_benchmark"
 harness = false
 required-features = ["hnsw_bench"]
+
+[[test]]
+name = "test_self_model"
+required-features = ["test_helpers"]
