@@ -125,6 +125,15 @@ impl MemoryRetriever {
                 hits.push(self.hit_from_belief(&belief, query, now));
                 hits.extend(self.current_fact_support_hits(store, query, now, &belief)?);
             }
+
+            // Surface any durable corrections for this entity/slot with a salience boost.
+            for correction in store.get_corrections_by_entity_slot(entity, slot)? {
+                let mut hit = self.hit_from_memory_with_role(&correction, query, now, "correction");
+                hit.score = (hit.score + 0.2).min(1.0);
+                hit.metadata
+                    .insert("belief_relation".to_string(), "correction".to_string());
+                hits.push(hit);
+            }
         }
 
         if hits.len() < query.top_k {

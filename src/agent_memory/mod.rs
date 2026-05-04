@@ -2,6 +2,7 @@
 
 pub mod adapters;
 pub mod audit;
+pub mod belief_conflict_resolver;
 pub mod belief_store;
 pub mod belief_updater;
 pub mod clock;
@@ -12,6 +13,7 @@ pub mod episode_store;
 pub mod errors;
 pub mod extraction;
 pub mod goal_state_store;
+pub mod hybrid_retriever;
 pub mod memory_classifier;
 pub mod memory_compactor;
 pub mod memory_controller;

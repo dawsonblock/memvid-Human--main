@@ -18,6 +18,7 @@ use super::episode_store::EpisodeStore;
 use super::errors::{AgentMemoryError, Result};
 use super::extraction::RawInputProcessor;
 use super::goal_state_store::GoalStateStore;
+use super::hybrid_retriever::HybridRetriever;
 use super::memory_classifier::MemoryClassifier;
 use super::memory_compactor::MemoryCompactor;
 use super::memory_decay::MemoryDecay;
@@ -27,8 +28,8 @@ use super::policy::ReasonCode;
 use super::procedure_store::{ProcedureStatusTransition, ProcedureStore};
 use super::schemas::{
     AuditEvent, BeliefRecord, CandidateMemory, CorrectionRecord, DurableMemory, IngestContext,
-    IngestEvent, OutcomeFeedback, PromotionContext, Provenance, RetrievalHit, RetrievalQuery,
-    SelfModelRecord,
+    IngestEvent, MemoryContextPacket, OutcomeFeedback, PromotionContext, Provenance, RetrievalHit,
+    RetrievalQuery, SelfModelRecord,
 };
 use super::self_model_store::SelfModelStore;
 
@@ -122,13 +123,15 @@ impl<S: MemoryStore> MemoryController<S> {
             },
         });
 
-        // Phase B: route corrections to the durable correction store.
+        // Route corrections to both the session store and the durable store so they
+        // survive across restarts and can be queried via the MemoryStore trait.
         if classified.memory_type == MemoryType::Correction {
+            let correction_id = Uuid::new_v4().to_string();
             if let (Some(entity), Some(slot)) =
                 (classified.entity_non_empty(), classified.slot_non_empty())
             {
                 let record = CorrectionRecord {
-                    correction_id: Uuid::new_v4().to_string(),
+                    correction_id: correction_id.clone(),
                     entity: entity.to_string(),
                     slot: slot.to_string(),
                     old_value: None,
@@ -143,7 +146,36 @@ impl<S: MemoryStore> MemoryController<S> {
                 };
                 self.correction_store.write_correction(record);
             }
-            return Ok(None);
+            let now = self.clock.now();
+            let correction_memory = DurableMemory {
+                memory_id: correction_id.clone(),
+                candidate_id: classified.candidate_id.clone(),
+                stored_at: now,
+                updated_at: Some(now),
+                entity: classified.entity.clone().unwrap_or_default(),
+                slot: classified.slot.clone().unwrap_or_default(),
+                value: classified.value.clone().unwrap_or_default(),
+                raw_text: classified.raw_text.clone(),
+                memory_type: MemoryType::Correction,
+                confidence: classified.confidence,
+                salience: classified.salience,
+                scope: classified.scope,
+                ttl: classified.ttl,
+                source: classified.source.clone(),
+                event_at: Some(classified.event_timestamp()),
+                valid_from: classified.valid_from,
+                valid_to: classified.valid_to,
+                internal_layer: Some(MemoryLayer::Correction),
+                tags: classified.tags.clone(),
+                metadata: classified.metadata.clone(),
+                is_retraction: false,
+            };
+            let memory_id = self.persist_durable_memory(
+                Some(classified.candidate_id.clone()),
+                correction_memory,
+                None,
+            )?;
+            return Ok(Some(memory_id));
         }
 
         let promotion_context = self.build_promotion_context(&classified)?;
@@ -561,6 +593,14 @@ impl<S: MemoryStore> MemoryController<S> {
         self.retrieve(RetrievalQuery::from_text(query_text))
     }
 
+    /// Returns a structured context packet with hits partitioned by memory layer
+    /// and status (direct facts, episodes, preferences, procedures, corrections,
+    /// disputed items, stale items).
+    pub fn retrieve_context(&mut self, query: RetrievalQuery) -> Result<MemoryContextPacket> {
+        let hybrid = HybridRetriever::new(self.retriever.clone());
+        hybrid.retrieve_context(&mut self.store, &query, self.clock.as_ref())
+    }
+
     /// Lists the current durable memories that governed maintenance can act on.
     pub fn list_current_durable_memories(&mut self) -> Result<Vec<DurableMemory>> {
         let mut memories = Vec::new();
@@ -916,6 +956,103 @@ impl<S: MemoryStore> MemoryController<S> {
         self.store.put_memory(memory)
     }
 
+    /// Returns all durable corrections that reference the given memory ID
+    /// (populated when a correction was ingested with `corrects_memory_id` set).
+    pub fn get_corrections_for_memory(&mut self, memory_id: &str) -> Result<Vec<DurableMemory>> {
+        self.store.get_corrections_for_memory(memory_id)
+    }
+
+    /// Returns all durable corrections targeting the given entity + slot pair,
+    /// regardless of which memory ID they originated from.
+    pub fn get_corrections_by_entity_slot(
+        &mut self,
+        entity: &str,
+        slot: &str,
+    ) -> Result<Vec<DurableMemory>> {
+        self.store.get_corrections_by_entity_slot(entity, slot)
+    }
+
+    /// Returns corrections for an entity + slot sorted newest-first, useful for
+    /// presenting the most recent override to a consumer.
+    pub fn retrieve_correction_context(
+        &mut self,
+        entity: &str,
+        slot: &str,
+    ) -> Result<Vec<DurableMemory>> {
+        let mut corrections = self.store.get_corrections_by_entity_slot(entity, slot)?;
+        corrections.sort_by(|a, b| b.event_timestamp().cmp(&a.event_timestamp()));
+        Ok(corrections)
+    }
+
+    /// Ingest a correction directly (bypassing the classifier pipeline).
+    /// Writes to both the session `CorrectionStore` and the durable `MemoryStore`.
+    pub fn put_correction(&mut self, candidate: CandidateMemory) -> Result<String> {
+        let correction_id = Uuid::new_v4().to_string();
+        if let (Some(entity), Some(slot)) =
+            (candidate.entity_non_empty(), candidate.slot_non_empty())
+        {
+            let record = CorrectionRecord {
+                correction_id: correction_id.clone(),
+                entity: entity.to_string(),
+                slot: slot.to_string(),
+                old_value: None,
+                new_value: candidate.value.clone().unwrap_or_default(),
+                correction_relation: CorrectionRelation::Supersedes,
+                correction_kind: CorrectionKind::ValueUpdate,
+                corrects_memory_id: None,
+                merged_value: None,
+                observed_at: candidate.observed_at,
+                confidence: candidate.confidence,
+                source: candidate.source.clone(),
+            };
+            self.correction_store.write_correction(record);
+        }
+        let now = self.clock.now();
+        let correction_memory = DurableMemory {
+            memory_id: correction_id.clone(),
+            candidate_id: candidate.candidate_id.clone(),
+            stored_at: now,
+            updated_at: Some(now),
+            entity: candidate.entity.clone().unwrap_or_default(),
+            slot: candidate.slot.clone().unwrap_or_default(),
+            value: candidate.value.clone().unwrap_or_default(),
+            raw_text: candidate.raw_text.clone(),
+            memory_type: MemoryType::Correction,
+            confidence: candidate.confidence,
+            salience: candidate.salience,
+            scope: candidate.scope,
+            ttl: candidate.ttl,
+            source: candidate.source.clone(),
+            event_at: Some(candidate.event_timestamp()),
+            valid_from: candidate.valid_from,
+            valid_to: candidate.valid_to,
+            internal_layer: Some(MemoryLayer::Correction),
+            tags: candidate.tags.clone(),
+            metadata: candidate.metadata.clone(),
+            is_retraction: false,
+        };
+        self.persist_durable_memory(
+            Some(candidate.candidate_id.clone()),
+            correction_memory,
+            None,
+        )
+    }
+
+    /// Applies a correction to an active belief by overwriting its current value
+    /// and persisting the updated belief record.
+    pub fn apply_correction_to_belief(
+        &mut self,
+        entity: &str,
+        slot: &str,
+        new_value: &str,
+    ) -> Result<()> {
+        let Some(mut belief) = self.store.get_active_belief(entity, slot)? else {
+            return Ok(());
+        };
+        belief.current_value = new_value.to_string();
+        self.store.update_belief(&belief)
+    }
+
     fn touch_retrieved_memories(&mut self, hits: &[RetrievalHit]) -> Result<Vec<String>> {
         if !self.retrieval_touch_persistence_enabled() {
             return Ok(Vec::new());
@@ -1110,17 +1247,25 @@ impl<S: MemoryStore> MemoryController<S> {
                 self.store.put_trace(&memory.raw_text, trace_meta)
             }
             MemoryLayer::Correction => {
-                let mut trace_meta = BTreeMap::from([(
-                    "memory_layer".to_string(),
-                    MemoryLayer::Correction.as_str().to_string(),
-                )]);
-                if !memory.entity.is_empty() {
-                    trace_meta.insert("entity".to_string(), memory.entity.clone());
-                }
-                if !memory.slot.is_empty() {
-                    trace_meta.insert("slot".to_string(), memory.slot.clone());
-                }
-                self.store.put_trace(&memory.raw_text, trace_meta)
+                let memory_id = self.store.put_memory(&memory)?;
+                self.audit.emit(AuditEvent {
+                    event_id: String::new(),
+                    occurred_at: self.clock.now(),
+                    action: "correction_stored".to_string(),
+                    candidate_id,
+                    memory_id: Some(memory_id.clone()),
+                    belief_id: None,
+                    query_text: None,
+                    details: BTreeMap::from([
+                        ("entity".to_string(), memory.entity.clone()),
+                        ("slot".to_string(), memory.slot.clone()),
+                        (
+                            "memory_layer".to_string(),
+                            MemoryLayer::Correction.as_str().to_string(),
+                        ),
+                    ]),
+                });
+                Ok(memory_id)
             }
         }
     }

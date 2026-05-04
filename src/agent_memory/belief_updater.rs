@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use uuid::Uuid;
 
+use super::belief_conflict_resolver::{BeliefConflictResolution, BeliefConflictResolver, ConflictContext};
 use super::clock::Clock;
 use super::enums::{BeliefAction, BeliefStatus};
 use super::schemas::{BeliefRecord, DurableMemory};
@@ -93,7 +94,28 @@ impl BeliefUpdater {
                     };
                 }
 
-                if current.current_value == memory.value {
+                let existing_trust = current.strongest_source_weight();
+                let new_trust = memory.source.trust_weight;
+                let comparable_confidence = memory.confidence + 0.05 >= current.confidence;
+
+                let conflict_ctx = ConflictContext {
+                    existing: current.current_value.clone(),
+                    incoming: memory.value.clone(),
+                    source_type: memory.source.source_type,
+                };
+                let resolution = BeliefConflictResolver::resolve(
+                    &current.current_value,
+                    &memory.value,
+                    &conflict_ctx,
+                );
+
+                // ---- Reinforce: same value, high overlap, or contextually scoped variant ----
+                if matches!(
+                    resolution,
+                    BeliefConflictResolution::Same
+                        | BeliefConflictResolution::Reinforces
+                        | BeliefConflictResolution::CompatibleContextualVariant
+                ) {
                     current.confidence = current.confidence.max(memory.confidence);
                     current.last_reviewed_at = now;
                     if !current.supporting_memory_ids.contains(&memory.memory_id) {
@@ -117,17 +139,81 @@ impl BeliefUpdater {
                     };
                 }
 
-                let existing_trust = current.strongest_source_weight();
-                let new_trust = memory.source.trust_weight;
-                let comparable_confidence = memory.confidence + 0.05 >= current.confidence;
+                // ---- Explicit contradiction: dispute immediately ----
+                if resolution == BeliefConflictResolution::Contradicts {
+                    current.status = BeliefStatus::Disputed;
+                    current.last_reviewed_at = now;
+                    let mut observed_new_conflict = false;
+                    if !current.opposing_memory_ids.contains(&memory.memory_id) {
+                        current.opposing_memory_ids.push(memory.memory_id.clone());
+                        observed_new_conflict = true;
+                    }
+                    if observed_new_conflict {
+                        current.contradictions_observed =
+                            current.contradictions_observed.saturating_add(1);
+                    }
+                    current.last_contradiction_at = Some(now);
+                    current.time_to_last_resolution_seconds = None;
+                    return BeliefUpdateOutcome {
+                        action: BeliefAction::Dispute,
+                        current_belief: Some(current),
+                        prior_belief: None,
+                    };
+                }
 
+                // ---- Explicit override: supersedes / temporary / scope shift ----
+                // Update regardless of trust level when confidence is sufficient.
+                if matches!(
+                    resolution,
+                    BeliefConflictResolution::Supersedes
+                        | BeliefConflictResolution::TemporaryOverride
+                        | BeliefConflictResolution::NarrowsScope
+                        | BeliefConflictResolution::BroadensScope
+                ) && comparable_confidence
+                {
+                    let mut stale = current.clone();
+                    stale.status = BeliefStatus::Stale;
+                    stale.valid_to = Some(now);
+                    stale.last_reviewed_at = now;
+                    stale.opposing_memory_ids.push(memory.memory_id.clone());
+                    let mut source_weights = BTreeMap::new();
+                    source_weights.insert(memory.source.source_type, memory.source.trust_weight);
+                    let replacement = BeliefRecord {
+                        belief_id: Uuid::new_v4().to_string(),
+                        entity: memory.entity.clone(),
+                        slot: memory.slot.clone(),
+                        current_value: memory.value.clone(),
+                        status: BeliefStatus::Active,
+                        confidence: memory.confidence,
+                        valid_from: memory.valid_from.unwrap_or(memory.stored_at),
+                        valid_to: None,
+                        last_reviewed_at: now,
+                        supporting_memory_ids: vec![memory.memory_id.clone()],
+                        opposing_memory_ids: stale.supporting_memory_ids.clone(),
+                        contradictions_observed: 0,
+                        last_contradiction_at: None,
+                        time_to_last_resolution_seconds: current
+                            .last_contradiction_at
+                            .map(|observed_at| (now.timestamp() - observed_at.timestamp()).max(0)),
+                        positive_outcome_count: 0,
+                        negative_outcome_count: 0,
+                        last_outcome_at: None,
+                        source_weights,
+                    };
+                    return BeliefUpdateOutcome {
+                        action: BeliefAction::Update,
+                        current_belief: Some(replacement),
+                        prior_belief: Some(stale),
+                    };
+                }
+
+                // ---- Ambiguous or low-confidence override: trust-weighted ----
                 if new_trust > existing_trust && comparable_confidence {
                     let mut stale = current.clone();
                     stale.status = BeliefStatus::Stale;
                     stale.valid_to = Some(now);
                     stale.last_reviewed_at = now;
                     stale.opposing_memory_ids.push(memory.memory_id.clone());
-
                     let mut source_weights = BTreeMap::new();
                     source_weights.insert(memory.source.source_type, memory.source.trust_weight);
                     let replacement = BeliefRecord {

@@ -47,6 +47,24 @@ pub trait MemoryStore {
     fn list_memories_by_layer(&mut self, layer: MemoryLayer) -> Result<Vec<DurableMemory>>;
     fn list_memories_for_belief(&mut self, entity: &str, slot: &str) -> Result<Vec<DurableMemory>>;
     fn expire_memory(&mut self, memory_id: &str) -> Result<()>;
+    fn get_corrections_for_memory(&mut self, memory_id: &str) -> Result<Vec<DurableMemory>> {
+        Ok(self
+            .list_memories_by_layer(MemoryLayer::Correction)?
+            .into_iter()
+            .filter(|m| m.metadata.get("corrects_memory_id").map(String::as_str) == Some(memory_id))
+            .collect())
+    }
+    fn get_corrections_by_entity_slot(
+        &mut self,
+        entity: &str,
+        slot: &str,
+    ) -> Result<Vec<DurableMemory>> {
+        Ok(self
+            .list_memories_by_layer(MemoryLayer::Correction)?
+            .into_iter()
+            .filter(|m| m.entity == entity && m.slot == slot)
+            .collect())
+    }
 }
 
 fn scope_string(scope: Scope) -> &'static str {

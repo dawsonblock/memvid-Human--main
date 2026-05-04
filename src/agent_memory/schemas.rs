@@ -970,3 +970,31 @@ pub struct CorrectionRecord {
     pub confidence: f32,
     pub source: Provenance,
 }
+
+// ─── Phase C: Hybrid retrieval packet ────────────────────────────────────────
+
+/// Structured context packet returned by hybrid retrieval.
+///
+/// Hits are partitioned by memory layer and status so callers can consume
+/// purpose-specific slices without post-processing.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct MemoryContextPacket {
+    /// The original query text.
+    pub query_text: String,
+    /// Confirmed facts sourced from the belief layer.
+    pub direct_facts: Vec<RetrievalHit>,
+    /// Relevant episodic or goal-state memories.
+    pub relevant_episodes: Vec<RetrievalHit>,
+    /// User preferences and self-model entries.
+    pub user_preferences: Vec<RetrievalHit>,
+    /// Learned procedures.
+    pub procedures: Vec<RetrievalHit>,
+    /// Active corrections that supersede or refine prior memories.
+    pub corrections: Vec<RetrievalHit>,
+    /// Beliefs or facts currently in a disputed / contested state.
+    pub disputed_items: Vec<RetrievalHit>,
+    /// Expired / stale memories, included when the query requests them.
+    pub stale_items: Vec<RetrievalHit>,
+    /// Human-readable explanations of ranking decisions.
+    pub ranking_explanations: Vec<String>,
+}
