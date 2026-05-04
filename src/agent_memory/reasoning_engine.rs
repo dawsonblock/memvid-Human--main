@@ -7,6 +7,7 @@ use super::clock::Clock;
 use super::consolidation_engine::ConsolidationEngine;
 use super::enums::MemoryLayer;
 use super::errors::Result;
+use super::reflection_governance::ReflectionCandidate;
 
 /// Alert emitted when observed episodes diverge from the active belief value.
 #[derive(Debug, Clone)]
@@ -31,6 +32,8 @@ pub struct GoalPattern {
 #[derive(Debug, Clone)]
 pub struct ReasoningCycleResult {
     pub reflections: Vec<String>,
+    /// Structured candidates ready for governance validation and persistence.
+    pub reflect_candidates: Vec<ReflectionCandidate>,
     pub drift_alerts: Vec<BeliefDriftAlert>,
     pub goal_patterns: Vec<GoalPattern>,
     pub promoted_procedures: Vec<String>,
@@ -64,21 +67,33 @@ impl ReasoningEngine {
             .filter(|m| m.stored_at >= cutoff)
             .collect::<Vec<_>>();
 
-        let mut slot_counts: HashMap<(String, String), usize> = HashMap::new();
+        // Map (entity, slot) → Vec<(memory_id, confidence)> for evidence tracking.
+        let mut slot_evidence: HashMap<(String, String), Vec<(String, f32)>> = HashMap::new();
         for ep in &recent_episodes {
             if !ep.entity.is_empty() && !ep.slot.is_empty() {
-                *slot_counts
+                slot_evidence
                     .entry((ep.entity.clone(), ep.slot.clone()))
-                    .or_insert(0) += 1;
+                    .or_default()
+                    .push((ep.memory_id.clone(), ep.confidence));
             }
         }
 
         let mut reflections = Vec::new();
-        for ((entity, slot), count) in &slot_counts {
-            if *count >= 3 {
+        let mut reflect_candidates = Vec::new();
+        for ((entity, slot), evidence) in &slot_evidence {
+            let count = evidence.len();
+            if count >= 3 {
                 reflections.push(format!(
                     "Pattern detected: {entity}.{slot} appeared {count} times in the last 24 h"
                 ));
+                reflect_candidates.push(ReflectionCandidate {
+                    text: format!(
+                        "Pattern detected: {entity}.{slot} appeared {count} times in the last 24 h"
+                    ),
+                    supporting_memory_ids: evidence.iter().map(|(id, _)| id.clone()).collect(),
+                    supporting_confidences: evidence.iter().map(|(_, c)| *c).collect(),
+                    origin_rule: "slot-frequency".to_string(),
+                });
             }
         }
 
@@ -142,6 +157,7 @@ impl ReasoningEngine {
 
         Ok(ReasoningCycleResult {
             reflections,
+            reflect_candidates,
             drift_alerts,
             goal_patterns,
             promoted_procedures,

@@ -6,6 +6,7 @@ use super::adapters::memvid_store::MemoryStore;
 use super::clock::Clock;
 use super::enums::{MemoryLayer, MemoryType, Scope, SourceType};
 use super::errors::Result;
+use super::ontology::OntologyRegistry;
 use super::schemas::{DurableMemory, Provenance};
 
 /// Compaction strategy to apply during a governed-memory maintenance pass.
@@ -55,6 +56,7 @@ impl MemoryCompactor {
         store: &mut S,
         mode: CompactionMode,
         clock: &dyn Clock,
+        ontology: &mut OntologyRegistry,
     ) -> Result<CompactionResult> {
         match mode {
             CompactionMode::Dedupe => self.compact_dedupe(store),
@@ -62,7 +64,7 @@ impl MemoryCompactor {
             CompactionMode::Distill => self.compact_distill(store, clock),
             CompactionMode::Synthesize => {
                 use super::concept_synthesis::ConceptSynthesizer;
-                let synthesis = ConceptSynthesizer.synthesize(store, clock)?;
+                let synthesis = ConceptSynthesizer.synthesize(store, clock, ontology)?;
                 Ok(CompactionResult {
                     mode: CompactionMode::Synthesize,
                     summaries_created: synthesis.concepts_created
@@ -310,6 +312,7 @@ mod tests {
     use crate::agent_memory::adapters::memvid_store::InMemoryMemoryStore;
     use crate::agent_memory::clock::FixedClock;
     use crate::agent_memory::enums::SourceType;
+    use crate::agent_memory::ontology::OntologyRegistry;
     use crate::agent_memory::schemas::Provenance;
     use chrono::TimeZone;
 
@@ -386,7 +389,12 @@ mod tests {
         s.put_memory(&low).unwrap();
 
         let result = MemoryCompactor
-            .compact(&mut s, CompactionMode::Dedupe, &clock())
+            .compact(
+                &mut s,
+                CompactionMode::Dedupe,
+                &clock(),
+                &mut OntologyRegistry::new(),
+            )
             .unwrap();
 
         assert_eq!(result.deduplicated_count, 1);
@@ -420,7 +428,12 @@ mod tests {
         s.put_memory(&b).unwrap();
 
         let result = MemoryCompactor
-            .compact(&mut s, CompactionMode::Dedupe, &clock())
+            .compact(
+                &mut s,
+                CompactionMode::Dedupe,
+                &clock(),
+                &mut OntologyRegistry::new(),
+            )
             .unwrap();
         assert_eq!(result.deduplicated_count, 0);
     }
@@ -443,7 +456,12 @@ mod tests {
         }
 
         let result = MemoryCompactor
-            .compact(&mut s, CompactionMode::Summarize, &clock())
+            .compact(
+                &mut s,
+                CompactionMode::Summarize,
+                &clock(),
+                &mut OntologyRegistry::new(),
+            )
             .unwrap();
         assert_eq!(result.summaries_created, 1);
         assert_eq!(result.created_memory_ids.len(), 1);
@@ -470,7 +488,12 @@ mod tests {
         }
 
         let result = MemoryCompactor
-            .compact(&mut s, CompactionMode::Summarize, &clock())
+            .compact(
+                &mut s,
+                CompactionMode::Summarize,
+                &clock(),
+                &mut OntologyRegistry::new(),
+            )
             .unwrap();
         assert_eq!(result.summaries_created, 0);
     }
@@ -490,7 +513,12 @@ mod tests {
         s.put_memory(&t).unwrap();
 
         let result = MemoryCompactor
-            .compact(&mut s, CompactionMode::Distill, &clock())
+            .compact(
+                &mut s,
+                CompactionMode::Distill,
+                &clock(),
+                &mut OntologyRegistry::new(),
+            )
             .unwrap();
         assert_eq!(result.distilled_count, 1);
         assert!(result.source_memory_ids.contains(&"t1".to_string()));
@@ -520,7 +548,12 @@ mod tests {
         s.put_memory(&t).unwrap();
 
         let result = MemoryCompactor
-            .compact(&mut s, CompactionMode::Distill, &clock())
+            .compact(
+                &mut s,
+                CompactionMode::Distill,
+                &clock(),
+                &mut OntologyRegistry::new(),
+            )
             .unwrap();
         assert_eq!(result.distilled_count, 0);
     }

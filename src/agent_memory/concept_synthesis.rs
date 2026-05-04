@@ -7,6 +7,7 @@ use super::adapters::memvid_store::MemoryStore;
 use super::clock::Clock;
 use super::enums::{MemoryLayer, MemoryType, Scope, SourceType};
 use super::errors::Result;
+use super::ontology::{ConceptCanonicalizer, OntologyRegistry};
 use super::schemas::{DurableMemory, Provenance};
 
 // ------------------------------------------------------------------
@@ -65,10 +66,11 @@ impl ConceptSynthesizer {
         &self,
         store: &mut S,
         clock: &dyn Clock,
+        ontology: &mut OntologyRegistry,
     ) -> Result<SynthesisResult> {
         let mut result = SynthesisResult::default();
 
-        self.cluster_concepts(store, clock, &mut result)?;
+        self.cluster_concepts(store, clock, ontology, &mut result)?;
         self.synthesize_profile(store, clock, &mut result)?;
         self.mine_procedures(store, clock, &mut result)?;
         self.mine_patterns(store, clock, &mut result)?;
@@ -85,6 +87,7 @@ impl ConceptSynthesizer {
         &self,
         store: &mut S,
         clock: &dyn Clock,
+        ontology: &mut OntologyRegistry,
         result: &mut SynthesisResult,
     ) -> Result<()> {
         let beliefs = store.list_memories_by_layer(MemoryLayer::Belief)?;
@@ -149,6 +152,22 @@ impl ConceptSynthesizer {
             let avg_confidence: f32 =
                 group.iter().map(|m| m.confidence).sum::<f32>() / group.len() as f32;
 
+            // Ontology-level dedup: if this concept text already resolves to a
+            // canonical entry, add provenance and skip creating a duplicate node.
+            let now_ts = clock.now().timestamp();
+            if let Some(existing_cid) = ontology.resolve_alias(&concept_text).map(str::to_string) {
+                for mid in &source_belief_ids {
+                    ontology.add_supporting_memory(
+                        &existing_cid,
+                        mid.clone(),
+                        Some(avg_confidence),
+                        "cluster_synthesis",
+                        now_ts,
+                    );
+                }
+                continue;
+            }
+
             let memory_id = Uuid::new_v4().to_string();
             let mut metadata = BTreeMap::new();
             metadata.insert("concept_id".to_string(), concept_id.clone());
@@ -190,8 +209,24 @@ impl ConceptSynthesizer {
             };
 
             store.put_memory(&node)?;
-            result.created_memory_ids.push(memory_id);
+            result.created_memory_ids.push(memory_id.clone());
             result.concepts_created += 1;
+
+            // Register the new concept in the ontology for future deduplication.
+            let _ = ontology.register(
+                concept_id.clone(),
+                concept_text.clone(),
+                entity.clone(),
+                avg_confidence,
+                now_ts,
+            );
+            ontology.add_supporting_memory(
+                &concept_id,
+                memory_id,
+                Some(avg_confidence),
+                "cluster_synthesis_new",
+                now_ts,
+            );
 
             let _ = ConceptNode {
                 concept_id,
@@ -591,6 +626,7 @@ mod tests {
     use crate::agent_memory::adapters::memvid_store::InMemoryMemoryStore;
     use crate::agent_memory::clock::FixedClock;
     use crate::agent_memory::enums::SourceType;
+    use crate::agent_memory::ontology::OntologyRegistry;
     use chrono::TimeZone;
 
     fn clock() -> FixedClock {
@@ -656,7 +692,7 @@ mod tests {
             .unwrap();
 
         let synth = ConceptSynthesizer;
-        let result = synth.synthesize(&mut store, &clk).unwrap();
+        let result = synth.synthesize(&mut store, &clk, &mut OntologyRegistry::new()).unwrap();
 
         assert!(
             result.concepts_created >= 1,
@@ -685,8 +721,8 @@ mod tests {
             .unwrap();
 
         let synth = ConceptSynthesizer;
-        let r1 = synth.synthesize(&mut store, &clk).unwrap();
-        let r2 = synth.synthesize(&mut store, &clk).unwrap();
+        let r1 = synth.synthesize(&mut store, &clk, &mut OntologyRegistry::new()).unwrap();
+        let r2 = synth.synthesize(&mut store, &clk, &mut OntologyRegistry::new()).unwrap();
 
         assert_eq!(
             r2.concepts_created, 0,
@@ -714,7 +750,7 @@ mod tests {
         store.put_memory(&s3).unwrap();
 
         let synth = ConceptSynthesizer;
-        let result = synth.synthesize(&mut store, &clk).unwrap();
+        let result = synth.synthesize(&mut store, &clk, &mut OntologyRegistry::new()).unwrap();
 
         assert!(
             result.procedures_mined >= 1,

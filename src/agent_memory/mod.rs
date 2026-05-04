@@ -26,11 +26,13 @@ pub mod memory_feedback;
 pub mod memory_intake;
 pub mod memory_promoter;
 pub mod memory_retriever;
+pub mod ontology;
 pub mod policy;
 pub mod procedure_store;
 pub mod query_intent;
 pub mod ranker;
 pub mod reasoning_engine;
+pub mod reflection_governance;
 pub mod retention;
 pub mod retrieval_feedback;
 pub mod schemas;
@@ -39,3 +41,4 @@ pub mod semantic_retrieval;
 pub mod source_trust;
 
 pub use memory_controller::MemoryController;
+pub use ontology::OntologyRegistry;

@@ -27,9 +27,11 @@ use super::memory_decay::MemoryDecay;
 use super::memory_feedback::{FeedbackSignal, MemoryFeedbackStore};
 use super::memory_promoter::MemoryPromoter;
 use super::memory_retriever::MemoryRetriever;
+use super::ontology::OntologyRegistry;
 use super::policy::ReasonCode;
 use super::procedure_store::{ProcedureStatusTransition, ProcedureStore};
 use super::reasoning_engine::{ReasoningCycleResult, ReasoningEngine};
+use super::reflection_governance::{ReflectionSafetyPolicy, ReflectionValidationLayer};
 use super::schemas::{
     AuditEvent, BeliefRecord, CandidateMemory, CorrectionRecord, DurableMemory, IngestContext,
     IngestEvent, MemoryContextPacket, OutcomeFeedback, PromotionContext, Provenance, RetrievalHit,
@@ -50,6 +52,7 @@ pub struct MemoryController<S: MemoryStore> {
     correction_store: CorrectionStore,
     reasoning_engine: ReasoningEngine,
     feedback_store: MemoryFeedbackStore,
+    ontology: OntologyRegistry,
 }
 
 enum SelfModelGovernanceDecision {
@@ -96,6 +99,7 @@ impl<S: MemoryStore> MemoryController<S> {
             correction_store: CorrectionStore::new(),
             reasoning_engine,
             feedback_store: MemoryFeedbackStore::new(),
+            ontology: OntologyRegistry::new(),
         }
     }
 
@@ -729,7 +733,7 @@ impl<S: MemoryStore> MemoryController<S> {
     /// The pass is idempotent — calling it multiple times against the same store
     /// state will not create duplicate concept memories.
     pub fn run_synthesis(&mut self) -> Result<SynthesisResult> {
-        ConceptSynthesizer.synthesize(&mut self.store, self.clock.as_ref())
+        ConceptSynthesizer.synthesize(&mut self.store, self.clock.as_ref(), &mut self.ontology)
     }
 
     /// Returns a structured context packet with hits partitioned by memory layer
@@ -823,14 +827,32 @@ impl<S: MemoryStore> MemoryController<S> {
 
     /// Run a compaction pass over the memory store using the given strategy.
     pub fn compact(&mut self, mode: CompactionMode) -> Result<CompactionResult> {
-        MemoryCompactor.compact(&mut self.store, mode, self.clock.as_ref())
+        MemoryCompactor.compact(
+            &mut self.store,
+            mode,
+            self.clock.as_ref(),
+            &mut self.ontology,
+        )
+    }
+
+    /// Returns a read-only view of the ontology registry.
+    pub fn ontology(&self) -> &OntologyRegistry {
+        &self.ontology
     }
 
     /// Run a full active-reasoning cycle: reflect on recent episodes, detect belief drift,
     /// identify recurring goal failures, and promote qualified procedures.
     pub fn run_reasoning_cycle(&mut self) -> Result<ReasoningCycleResult> {
-        self.reasoning_engine
-            .run_cycle(&mut self.store, self.clock.as_ref())
+        let result = self
+            .reasoning_engine
+            .run_cycle(&mut self.store, self.clock.as_ref())?;
+
+        // Validate and persist reflections that pass the safety policy.
+        let layer = ReflectionValidationLayer::new(ReflectionSafetyPolicy::default());
+        let filtered = layer.validate(&result.reflect_candidates);
+        layer.write_reflections_to_store(&filtered, &mut self.store, self.clock.as_ref())?;
+
+        Ok(result)
     }
 
     pub fn record_outcome_feedback(&mut self, feedback: OutcomeFeedback) -> Result<Option<String>> {
