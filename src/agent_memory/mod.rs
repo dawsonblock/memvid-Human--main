@@ -28,8 +28,10 @@ pub mod query_intent;
 pub mod ranker;
 pub mod reasoning_engine;
 pub mod retention;
+pub mod retrieval_feedback;
 pub mod schemas;
 pub mod self_model_store;
+pub mod semantic_retrieval;
 pub mod source_trust;
 
 pub use memory_controller::MemoryController;

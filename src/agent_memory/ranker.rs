@@ -45,6 +45,8 @@ pub(crate) const SCORE_SIGNAL_SALIENCE_KEY: &str = "score_signal_salience";
 pub(crate) const SCORE_SIGNAL_EVIDENCE_STRENGTH_KEY: &str = "score_signal_evidence_strength";
 pub(crate) const SCORE_SIGNAL_CONTRADICTION_KEY: &str = "score_signal_contradiction_penalty";
 pub(crate) const SCORE_SIGNAL_PROCEDURE_SUCCESS_KEY: &str = "score_signal_procedure_success";
+pub(crate) const SCORE_SIGNAL_SEMANTIC_SCORE_KEY: &str = "score_signal_semantic_score";
+pub(crate) const SCORE_COMPONENT_SEMANTIC_SCORE_KEY: &str = "score_component_semantic_score";
 
 #[derive(Debug, Clone, Copy, Default)]
 struct ScoreBreakdown {
@@ -63,6 +65,7 @@ struct ScoreBreakdown {
     lifecycle_history_bonus: f32,
     procedure_lifecycle_penalty: f32,
     expiry_penalty: f32,
+    semantic_score: f32,
 }
 
 impl ScoreBreakdown {
@@ -82,9 +85,10 @@ impl ScoreBreakdown {
             + self.lifecycle_history_bonus
             + self.procedure_lifecycle_penalty
             + self.expiry_penalty
+            + self.semantic_score
     }
 
-    fn ordered_components(self) -> [(&'static str, f32); 16] {
+    fn ordered_components(self) -> [(&'static str, f32); 17] {
         [
             (SCORE_COMPONENT_LAYER_MATCH_KEY, self.layer_match),
             (SCORE_COMPONENT_ROLE_PRIORITY_KEY, self.role_priority),
@@ -119,6 +123,7 @@ impl ScoreBreakdown {
                 self.procedure_lifecycle_penalty,
             ),
             (SCORE_COMPONENT_EXPIRY_PENALTY_KEY, self.expiry_penalty),
+            (SCORE_COMPONENT_SEMANTIC_SCORE_KEY, self.semantic_score),
             (SCORE_COMPONENT_TOTAL_KEY, self.total()),
         ]
     }
@@ -205,6 +210,9 @@ impl Ranker {
             lifecycle_history_bonus: Self::lifecycle_history_bonus(hit),
             procedure_lifecycle_penalty: Self::procedure_lifecycle_penalty(hit),
             expiry_penalty: if hit.expired { -1.0 } else { 0.0 },
+            semantic_score: Self::signal_value(hit, SCORE_SIGNAL_SEMANTIC_SCORE_KEY).unwrap_or(0.0)
+                * weights.content_match
+                * CONTENT_MATCH_SCALE,
         }
     }
 

@@ -14,10 +14,12 @@ use super::ranker::{
     Ranker, SCORE_SIGNAL_CONTENT_MATCH_KEY, SCORE_SIGNAL_CONTRADICTION_KEY,
     SCORE_SIGNAL_EVIDENCE_STRENGTH_KEY, SCORE_SIGNAL_GOAL_RELEVANCE_KEY,
     SCORE_SIGNAL_PROCEDURE_SUCCESS_KEY, SCORE_SIGNAL_SALIENCE_KEY, SCORE_SIGNAL_SELF_RELEVANCE_KEY,
+    SCORE_SIGNAL_SEMANTIC_SCORE_KEY,
 };
 use super::retention::RetentionManager;
 use super::schemas::{BeliefRecord, DurableMemory, ProcedureRecord, RetrievalHit, RetrievalQuery};
 use super::self_model_store::SelfModelStore;
+use super::semantic_retrieval::SemanticRetriever;
 
 const TASK_CONTEXT_MATCH_KEY: &str = "task_context_match";
 const RETRIEVAL_ROLE_KEY: &str = "retrieval_role";
@@ -86,6 +88,18 @@ impl MemoryRetriever {
                 }
             }
         };
+
+        // Merge semantic path results.  Hits already found by the lexical path
+        // are boosted in-place; new-only semantic hits are appended.
+        let hits = Self::merge_semantic_hits(
+            hits,
+            SemanticRetriever::semantic_hits(
+                &query.query_text,
+                store,
+                query.top_k.saturating_mul(2),
+                query,
+            )?,
+        );
 
         let mut filtered = self.filter_hits(hits, query);
         if !query.include_expired {
@@ -1493,5 +1507,42 @@ impl MemoryRetriever {
             metadata: record.metadata,
             is_retraction: false,
         }
+    }
+
+    /// Merges semantic-path hits into the existing lexical-path hit list.
+    ///
+    /// * Hits whose `memory_id` already appears in `hits` receive a
+    ///   [`SCORE_SIGNAL_SEMANTIC_SCORE_KEY`] boost applied directly to
+    ///   their `score` and stored in metadata.
+    /// * Hits that are genuinely new (not found by the lexical path) are
+    ///   appended so that the downstream ranker can evaluate them.
+    fn merge_semantic_hits(
+        mut hits: Vec<RetrievalHit>,
+        semantic: Vec<RetrievalHit>,
+    ) -> Vec<RetrievalHit> {
+        let existing_ids: HashSet<Option<String>> =
+            hits.iter().map(|h| h.memory_id.clone()).collect();
+
+        for sem_hit in semantic {
+            if sem_hit.memory_id.is_some() && existing_ids.contains(&sem_hit.memory_id) {
+                // Boost the already-present lexical hit with the semantic score.
+                if let Some(existing) = hits.iter_mut().find(|h| h.memory_id == sem_hit.memory_id) {
+                    if let Some(sem_score_str) =
+                        sem_hit.metadata.get(SCORE_SIGNAL_SEMANTIC_SCORE_KEY)
+                    {
+                        let boost: f32 = sem_score_str.parse().unwrap_or(0.0);
+                        existing.score += boost * 0.5;
+                        existing.metadata.insert(
+                            SCORE_SIGNAL_SEMANTIC_SCORE_KEY.to_string(),
+                            sem_score_str.clone(),
+                        );
+                    }
+                }
+            } else {
+                // Novel semantic hit — let the ranker evaluate it normally.
+                hits.push(sem_hit);
+            }
+        }
+        hits
     }
 }

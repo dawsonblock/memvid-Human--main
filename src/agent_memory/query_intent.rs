@@ -66,3 +66,51 @@ impl RetrievalQuery {
         }
     }
 }
+
+/// Returns the original query text followed by synonym-substituted variants.
+///
+/// For each pair `(a, b)` in [`SYNONYM_PAIRS`], if the lowercased query
+/// contains `a` then a variant with `a` replaced by `b` is appended, and vice
+/// versa.  The original (unchanged) query is always the first element.
+pub fn expand_query(query_text: &str) -> Vec<String> {
+    let lower = query_text.to_lowercase();
+    let mut expansions = vec![query_text.to_string()];
+
+    for &(a, b) in SYNONYM_PAIRS {
+        if lower.contains(a) {
+            let variant = lower.replace(a, b);
+            if variant != lower && !expansions.contains(&variant) {
+                expansions.push(variant);
+            }
+        } else if lower.contains(b) {
+            let variant = lower.replace(b, a);
+            if variant != lower && !expansions.contains(&variant) {
+                expansions.push(variant);
+            }
+        }
+    }
+
+    expansions
+}
+
+/// Synonym pairs used for query expansion.  For each `(a, b)`, occurrences of
+/// `a` in the query are replaced by `b` and vice versa to produce extra
+/// search variants.
+const SYNONYM_PAIRS: &[(&str, &str)] = &[
+    ("prefer", "like"),
+    ("prefer", "want"),
+    ("want", "need"),
+    ("brief", "concise"),
+    ("brief", "short"),
+    ("verbose", "detailed"),
+    ("verbose", "long"),
+    ("summarize", "summarise"),
+    ("behavior", "behaviour"),
+    ("color", "colour"),
+    ("favorite", "favourite"),
+    ("always", "consistently"),
+    ("never", "avoid"),
+    ("response", "answer"),
+    ("response", "reply"),
+    ("format", "style"),
+];
