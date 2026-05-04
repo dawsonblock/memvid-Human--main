@@ -45,6 +45,14 @@ const CORRECTION_HINTS: &[&str] = &[
     "instead of",
     "rather than",
 ];
+const INSTRUCTION_HINTS: &[&str] = &[
+    "from now on",
+    "always remember",
+    "remember to",
+    "going forward",
+];
+const CONSTRAINT_HINTS: &[&str] = &["do not", "don't", "never", "must not", "prohibited"];
+const DECISION_HINTS: &[&str] = &["we chose", "decided to", "selected", "went with"];
 
 /// Deterministic rule-based classifier.
 #[derive(Debug, Default, Clone, Copy)]
@@ -67,6 +75,36 @@ impl MemoryClassifier {
             candidate.memory_type = MemoryType::Correction;
             candidate.confidence = candidate.confidence.max(0.8);
             candidate.salience = candidate.salience.max(0.75);
+            return candidate;
+        }
+
+        // Instruction detection — explicit behavioural directives.
+        let instruction_signal = INSTRUCTION_HINTS.iter().any(|hint| text.contains(*hint));
+        if instruction_signal {
+            candidate.memory_type = MemoryType::Instruction;
+            candidate.confidence = candidate.confidence.max(0.9);
+            candidate.salience = candidate.salience.max(1.0);
+            return candidate;
+        }
+
+        // Constraint detection — prohibitions and hard limits.
+        let constraint_signal = CONSTRAINT_HINTS
+            .iter()
+            .filter(|hint| text.contains(*hint))
+            .count();
+        if constraint_signal >= 1 {
+            candidate.memory_type = MemoryType::Constraint;
+            candidate.confidence = candidate.confidence.max(0.9);
+            candidate.salience = candidate.salience.max(1.0);
+            return candidate;
+        }
+
+        // Decision detection — recorded choices.
+        let decision_signal = DECISION_HINTS.iter().any(|hint| text.contains(*hint));
+        if decision_signal {
+            candidate.memory_type = MemoryType::Decision;
+            candidate.confidence = candidate.confidence.max(0.75);
+            candidate.salience = candidate.salience.max(0.8);
             return candidate;
         }
 
@@ -122,6 +160,8 @@ impl MemoryClassifier {
                 candidate.salience = candidate.salience.max(0.65);
             }
             MemoryType::Trace => {}
+            // New types return early above; arms listed for exhaustiveness.
+            MemoryType::Instruction | MemoryType::Constraint | MemoryType::Decision => {}
         }
 
         // Structured candidates (entity+slot+value present) may also carry episodic signals

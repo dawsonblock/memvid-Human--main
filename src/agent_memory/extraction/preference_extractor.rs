@@ -19,6 +19,12 @@ static PREFERENCE_PATTERNS: &[(&str, &str)] = &[
     ("i do not like ", "dislikes"),
     ("i enjoy ", "likes"),
     ("i can't stand ", "dislikes"),
+    // Habit / default / constraint patterns (Phase D)
+    ("i usually ", "habit"),
+    ("i tend to ", "habit"),
+    ("by default i ", "default"),
+    ("i only use ", "constraint"),
+    ("i always ", "habit"),
 ];
 
 /// Extracts first-person preference statements from plain text.

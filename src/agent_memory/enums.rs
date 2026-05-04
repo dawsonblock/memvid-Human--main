@@ -24,6 +24,9 @@ pub enum MemoryType {
     GoalState,
     Correction,
     Skill,
+    Instruction,
+    Constraint,
+    Decision,
 }
 
 /// Current status of an explicit belief.
@@ -199,6 +202,42 @@ impl MemoryType {
             Self::GoalState => MemoryLayer::GoalState,
             Self::Correction => MemoryLayer::Correction,
             Self::Skill => MemoryLayer::Procedure,
+            Self::Instruction => MemoryLayer::SelfModel,
+            Self::Constraint => MemoryLayer::SelfModel,
+            Self::Decision => MemoryLayer::Belief,
+        }
+    }
+
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Trace => "trace",
+            Self::Episode => "episode",
+            Self::Fact => "fact",
+            Self::Preference => "preference",
+            Self::GoalState => "goal_state",
+            Self::Correction => "correction",
+            Self::Skill => "skill",
+            Self::Instruction => "instruction",
+            Self::Constraint => "constraint",
+            Self::Decision => "decision",
+        }
+    }
+
+    #[must_use]
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "trace" => Some(Self::Trace),
+            "episode" => Some(Self::Episode),
+            "fact" => Some(Self::Fact),
+            "preference" => Some(Self::Preference),
+            "goal_state" | "goalstate" => Some(Self::GoalState),
+            "correction" => Some(Self::Correction),
+            "skill" => Some(Self::Skill),
+            "instruction" => Some(Self::Instruction),
+            "constraint" => Some(Self::Constraint),
+            "decision" => Some(Self::Decision),
+            _ => None,
         }
     }
 }

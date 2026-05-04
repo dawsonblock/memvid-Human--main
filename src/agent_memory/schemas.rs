@@ -925,6 +925,17 @@ pub struct IngestContext {
     pub entity_hint: Option<String>,
     pub tags: Vec<String>,
     pub metadata: BTreeMap<String, String>,
+    // Namespace fields — all optional for backwards compatibility.
+    #[serde(default)]
+    pub user_id: Option<String>,
+    #[serde(default)]
+    pub agent_id: Option<String>,
+    #[serde(default)]
+    pub project_id: Option<String>,
+    #[serde(default)]
+    pub task_id: Option<String>,
+    #[serde(default)]
+    pub conversation_id: Option<String>,
 }
 
 impl Default for IngestContext {
@@ -935,6 +946,11 @@ impl Default for IngestContext {
             entity_hint: None,
             tags: Vec::new(),
             metadata: BTreeMap::new(),
+            user_id: None,
+            agent_id: None,
+            project_id: None,
+            task_id: None,
+            conversation_id: None,
         }
     }
 }

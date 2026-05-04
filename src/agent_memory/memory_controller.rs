@@ -4,6 +4,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use super::adapters::memvid_store::MemoryStore;
+use super::admission::{AdmissionVerdict, MemoryAdmissionController};
 use super::audit::AuditLogger;
 use super::belief_store::BeliefStore;
 use super::belief_updater::{BeliefUpdateOutcome, BeliefUpdater};
@@ -20,12 +21,13 @@ use super::extraction::RawInputProcessor;
 use super::goal_state_store::GoalStateStore;
 use super::hybrid_retriever::HybridRetriever;
 use super::memory_classifier::MemoryClassifier;
-use super::memory_compactor::MemoryCompactor;
+use super::memory_compactor::{CompactionMode, CompactionResult, MemoryCompactor};
 use super::memory_decay::MemoryDecay;
 use super::memory_promoter::MemoryPromoter;
 use super::memory_retriever::MemoryRetriever;
 use super::policy::ReasonCode;
 use super::procedure_store::{ProcedureStatusTransition, ProcedureStore};
+use super::reasoning_engine::{ReasoningCycleResult, ReasoningEngine};
 use super::schemas::{
     AuditEvent, BeliefRecord, CandidateMemory, CorrectionRecord, DurableMemory, IngestContext,
     IngestEvent, MemoryContextPacket, OutcomeFeedback, PromotionContext, Provenance, RetrievalHit,
@@ -44,6 +46,7 @@ pub struct MemoryController<S: MemoryStore> {
     retriever: MemoryRetriever,
     consolidation_engine: ConsolidationEngine,
     correction_store: CorrectionStore,
+    reasoning_engine: ReasoningEngine,
 }
 
 enum SelfModelGovernanceDecision {
@@ -76,6 +79,8 @@ impl<S: MemoryStore> MemoryController<S> {
         retriever: MemoryRetriever,
     ) -> Self {
         let consolidation_policy = promoter.policy().clone();
+        let consolidation_engine = ConsolidationEngine::new(consolidation_policy);
+        let reasoning_engine = ReasoningEngine::new(consolidation_engine.clone());
         Self {
             store,
             clock,
@@ -84,12 +89,29 @@ impl<S: MemoryStore> MemoryController<S> {
             promoter,
             belief_updater,
             retriever,
-            consolidation_engine: ConsolidationEngine::new(consolidation_policy),
+            consolidation_engine,
             correction_store: CorrectionStore::new(),
+            reasoning_engine,
         }
     }
 
     pub fn ingest(&mut self, candidate: CandidateMemory) -> Result<Option<String>> {
+        // Admission gate: fast-reject noise before any classification cost.
+        if let AdmissionVerdict::Reject(reason) = MemoryAdmissionController::evaluate(&candidate, 0)
+        {
+            self.audit.emit(AuditEvent {
+                event_id: String::new(),
+                occurred_at: self.clock.now(),
+                action: "admission_rejected".to_string(),
+                candidate_id: Some(candidate.candidate_id.clone()),
+                memory_id: None,
+                belief_id: None,
+                query_text: None,
+                details: BTreeMap::from([("reason".to_string(), reason.as_str().to_string())]),
+            });
+            return Ok(None);
+        }
+
         // This is the only allowed path for policy-bearing memory mutations.
         let classified = self.classifier.classify(candidate);
         self.audit.emit(AuditEvent {
@@ -497,7 +519,32 @@ impl<S: MemoryStore> MemoryController<S> {
     ) -> Result<Vec<Option<String>>> {
         let text = text.into();
         let processor = RawInputProcessor::new();
-        let candidates = processor.process(&text, &context);
+        let mut candidates = processor.process(&text, &context);
+        // Inject namespace fields into candidate metadata so they survive
+        // through the persistence pipeline.
+        for c in &mut candidates {
+            if let Some(uid) = &context.user_id {
+                c.metadata.insert("ns_user_id".to_string(), uid.clone());
+            }
+            if let Some(aid) = &context.agent_id {
+                c.metadata.insert("ns_agent_id".to_string(), aid.clone());
+            }
+            if let Some(pid) = &context.project_id {
+                c.metadata.insert("ns_project_id".to_string(), pid.clone());
+            }
+            if let Some(tid) = &context.task_id {
+                c.metadata.insert("ns_task_id".to_string(), tid.clone());
+            }
+            if let Some(cid) = &context.conversation_id {
+                c.metadata
+                    .insert("ns_conversation_id".to_string(), cid.clone());
+            }
+            // Task-scoped memories without a project_id are downgraded to
+            // Private scope because task isolation requires project context.
+            if c.scope == Scope::Task && context.project_id.is_none() {
+                c.scope = Scope::Private;
+            }
+        }
         candidates.into_iter().map(|c| self.ingest(c)).collect()
     }
 
@@ -682,6 +729,18 @@ impl<S: MemoryStore> MemoryController<S> {
         })
     }
 
+    /// Run a compaction pass over the memory store using the given strategy.
+    pub fn compact(&mut self, mode: CompactionMode) -> Result<CompactionResult> {
+        MemoryCompactor.compact(&mut self.store, mode, self.clock.as_ref())
+    }
+
+    /// Run a full active-reasoning cycle: reflect on recent episodes, detect belief drift,
+    /// identify recurring goal failures, and promote qualified procedures.
+    pub fn run_reasoning_cycle(&mut self) -> Result<ReasoningCycleResult> {
+        self.reasoning_engine
+            .run_cycle(&mut self.store, self.clock.as_ref())
+    }
+
     pub fn record_outcome_feedback(&mut self, feedback: OutcomeFeedback) -> Result<Option<String>> {
         let mut workflow_key = feedback
             .workflow_key
@@ -829,7 +888,7 @@ impl<S: MemoryStore> MemoryController<S> {
         &self.store
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test_helpers"))]
     pub fn store_mut(&mut self) -> &mut S {
         &mut self.store
     }

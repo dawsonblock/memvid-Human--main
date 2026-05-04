@@ -1,6 +1,7 @@
 //! Governed agent-memory layer built on top of the memvid kernel.
 
 pub mod adapters;
+pub mod admission;
 pub mod audit;
 pub mod belief_conflict_resolver;
 pub mod belief_store;
@@ -25,6 +26,7 @@ pub mod policy;
 pub mod procedure_store;
 pub mod query_intent;
 pub mod ranker;
+pub mod reasoning_engine;
 pub mod retention;
 pub mod schemas;
 pub mod self_model_store;
