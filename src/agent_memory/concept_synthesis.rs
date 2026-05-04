@@ -7,6 +7,7 @@ use super::adapters::memvid_store::MemoryStore;
 use super::clock::Clock;
 use super::enums::{MemoryLayer, MemoryType, Scope, SourceType};
 use super::errors::Result;
+use super::graph::{EdgeKind, GraphEdge, GraphEdgeStore};
 use super::ontology::{ConceptCanonicalizer, OntologyRegistry};
 use super::schemas::{DurableMemory, Provenance};
 
@@ -67,10 +68,11 @@ impl ConceptSynthesizer {
         store: &mut S,
         clock: &dyn Clock,
         ontology: &mut OntologyRegistry,
+        mut graph: Option<&mut GraphEdgeStore>,
     ) -> Result<SynthesisResult> {
         let mut result = SynthesisResult::default();
 
-        self.cluster_concepts(store, clock, ontology, &mut result)?;
+        self.cluster_concepts(store, clock, ontology, graph, &mut result)?;
         self.synthesize_profile(store, clock, &mut result)?;
         self.mine_procedures(store, clock, &mut result)?;
         self.mine_patterns(store, clock, &mut result)?;
@@ -88,6 +90,7 @@ impl ConceptSynthesizer {
         store: &mut S,
         clock: &dyn Clock,
         ontology: &mut OntologyRegistry,
+        mut graph: Option<&mut GraphEdgeStore>,
         result: &mut SynthesisResult,
     ) -> Result<()> {
         let beliefs = store.list_memories_by_layer(MemoryLayer::Belief)?;
@@ -211,6 +214,21 @@ impl ConceptSynthesizer {
             store.put_memory(&node)?;
             result.created_memory_ids.push(memory_id.clone());
             result.concepts_created += 1;
+
+            // Add DerivedFrom edges in the knowledge graph: concept node → each source belief.
+            if let Some(g) = graph.as_mut() {
+                for belief_id in &source_belief_ids {
+                    let edge = GraphEdge::new(
+                        memory_id.clone(),
+                        belief_id.clone(),
+                        EdgeKind::DerivedFrom,
+                        avg_confidence,
+                        Some(memory_id.clone()),
+                        now_ts,
+                    );
+                    g.add_edge(edge);
+                }
+            }
 
             // Register the new concept in the ontology for future deduplication.
             let _ = ontology.register(
@@ -692,7 +710,9 @@ mod tests {
             .unwrap();
 
         let synth = ConceptSynthesizer;
-        let result = synth.synthesize(&mut store, &clk, &mut OntologyRegistry::new()).unwrap();
+        let result = synth
+            .synthesize(&mut store, &clk, &mut OntologyRegistry::new(), None)
+            .unwrap();
 
         assert!(
             result.concepts_created >= 1,
@@ -721,8 +741,12 @@ mod tests {
             .unwrap();
 
         let synth = ConceptSynthesizer;
-        let r1 = synth.synthesize(&mut store, &clk, &mut OntologyRegistry::new()).unwrap();
-        let r2 = synth.synthesize(&mut store, &clk, &mut OntologyRegistry::new()).unwrap();
+        let r1 = synth
+            .synthesize(&mut store, &clk, &mut OntologyRegistry::new(), None)
+            .unwrap();
+        let r2 = synth
+            .synthesize(&mut store, &clk, &mut OntologyRegistry::new(), None)
+            .unwrap();
 
         assert_eq!(
             r2.concepts_created, 0,
@@ -750,7 +774,9 @@ mod tests {
         store.put_memory(&s3).unwrap();
 
         let synth = ConceptSynthesizer;
-        let result = synth.synthesize(&mut store, &clk, &mut OntologyRegistry::new()).unwrap();
+        let result = synth
+            .synthesize(&mut store, &clk, &mut OntologyRegistry::new(), None)
+            .unwrap();
 
         assert!(
             result.procedures_mined >= 1,

@@ -20,6 +20,7 @@ use super::episode_store::EpisodeStore;
 use super::errors::{AgentMemoryError, Result};
 use super::extraction::RawInputProcessor;
 use super::goal_state_store::GoalStateStore;
+use super::graph::GraphEdgeStore;
 use super::hybrid_retriever::HybridRetriever;
 use super::memory_classifier::MemoryClassifier;
 use super::memory_compactor::{CompactionMode, CompactionResult, MemoryCompactor};
@@ -53,6 +54,7 @@ pub struct MemoryController<S: MemoryStore> {
     reasoning_engine: ReasoningEngine,
     feedback_store: MemoryFeedbackStore,
     ontology: OntologyRegistry,
+    graph: GraphEdgeStore,
 }
 
 enum SelfModelGovernanceDecision {
@@ -100,6 +102,7 @@ impl<S: MemoryStore> MemoryController<S> {
             reasoning_engine,
             feedback_store: MemoryFeedbackStore::new(),
             ontology: OntologyRegistry::new(),
+            graph: GraphEdgeStore::new(),
         }
     }
 
@@ -733,7 +736,12 @@ impl<S: MemoryStore> MemoryController<S> {
     /// The pass is idempotent — calling it multiple times against the same store
     /// state will not create duplicate concept memories.
     pub fn run_synthesis(&mut self) -> Result<SynthesisResult> {
-        ConceptSynthesizer.synthesize(&mut self.store, self.clock.as_ref(), &mut self.ontology)
+        ConceptSynthesizer.synthesize(
+            &mut self.store,
+            self.clock.as_ref(),
+            &mut self.ontology,
+            Some(&mut self.graph),
+        )
     }
 
     /// Returns a structured context packet with hits partitioned by memory layer
@@ -774,6 +782,7 @@ impl<S: MemoryStore> MemoryController<S> {
             &durable_memories,
             self.clock.now(),
         )?;
+        self.graph.decay_all(1.0);
         let compactor = MemoryCompactor;
         let compactor_reason = compactor.unsupported_reason();
         let mut details = BTreeMap::from([

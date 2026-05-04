@@ -64,7 +64,7 @@ impl MemoryCompactor {
             CompactionMode::Distill => self.compact_distill(store, clock),
             CompactionMode::Synthesize => {
                 use super::concept_synthesis::ConceptSynthesizer;
-                let synthesis = ConceptSynthesizer.synthesize(store, clock, ontology)?;
+                let synthesis = ConceptSynthesizer.synthesize(store, clock, ontology, None)?;
                 Ok(CompactionResult {
                     mode: CompactionMode::Synthesize,
                     summaries_created: synthesis.concepts_created

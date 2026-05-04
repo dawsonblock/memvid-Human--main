@@ -17,6 +17,7 @@ pub mod episode_store;
 pub mod errors;
 pub mod extraction;
 pub mod goal_state_store;
+pub mod graph;
 pub mod hybrid_retriever;
 pub mod memory_classifier;
 pub mod memory_compactor;
