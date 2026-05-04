@@ -3,10 +3,10 @@ use std::collections::BTreeMap;
 use uuid::Uuid;
 
 use super::belief_conflict_resolver::{BeliefConflictResolution, ConflictContext};
-use super::conflict_resolution::ConflictArbiter;
 use super::clock::Clock;
 use super::enums::{BeliefAction, BeliefStatus};
 use super::schemas::{BeliefRecord, DurableMemory};
+use super::semantic_arbitration::{ArbitrationInput, SemanticArbitrationEngine};
 
 /// Result of belief mutation.
 #[derive(Debug, Clone)]
@@ -99,19 +99,19 @@ impl BeliefUpdater {
                 let new_trust = memory.source.trust_weight;
                 let comparable_confidence = memory.confidence + 0.05 >= current.confidence;
 
-                let conflict_ctx = ConflictContext {
+                let _conflict_ctx = ConflictContext {
                     existing: current.current_value.clone(),
                     incoming: memory.value.clone(),
                     source_type: memory.source.source_type,
                 };
-                let resolution = ConflictArbiter::resolve(
-                    &current.current_value,
-                    &memory.value,
-                    &conflict_ctx,
-                    None,
-                    None,
-                )
-                .resolution;
+                let arb_input = ArbitrationInput::new(
+                    current.current_value.clone(),
+                    memory.value.clone(),
+                    memory.entity.clone(),
+                    memory.slot.clone(),
+                );
+                let resolution =
+                    SemanticArbitrationEngine::arbitrate(&arb_input, None, None).resolution;
 
                 // ---- Reinforce: same value, high overlap, or contextually scoped variant ----
                 if matches!(

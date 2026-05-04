@@ -147,6 +147,39 @@ impl SemanticRetriever {
             .filter(|tok| !STOP_WORDS.contains(&tok.as_str()))
             .collect()
     }
+
+    /// Re-orders `hits` by embedding cosine similarity to `query_text`.
+    ///
+    /// Falls back to the original ordering when no embedder is supplied or
+    /// when embedding the query fails.  Per-hit embed failures silently
+    /// score that hit at `0.0` (it sinks to the bottom of the ranking).
+    pub fn contextual_rerank(
+        hits: Vec<RetrievalHit>,
+        query_text: &str,
+        embedder: Option<&dyn super::embedding_provider::AgentEmbeddingProvider>,
+    ) -> Vec<RetrievalHit> {
+        let provider = match embedder {
+            Some(p) => p,
+            None => return hits,
+        };
+        use super::embedding_provider::cosine;
+        let query_emb = match provider.embed(query_text) {
+            Ok(e) => e,
+            Err(_) => return hits,
+        };
+        let mut scored: Vec<(f32, RetrievalHit)> = hits
+            .into_iter()
+            .map(|hit| {
+                let score = provider
+                    .embed(&hit.text)
+                    .map(|doc_emb| cosine(&query_emb, &doc_emb))
+                    .unwrap_or(0.0);
+                (score, hit)
+            })
+            .collect();
+        scored.sort_by(|(a, _), (b, _)| b.total_cmp(a));
+        scored.into_iter().map(|(_, hit)| hit).collect()
+    }
 }
 
 // ── Embedding-based semantic retrieval (vec feature only) ────────────────────

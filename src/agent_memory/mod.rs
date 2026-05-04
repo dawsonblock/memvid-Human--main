@@ -37,6 +37,7 @@ pub mod retention;
 pub mod retrieval_feedback;
 pub mod schemas;
 pub mod self_model_store;
+pub mod semantic_arbitration;
 pub mod semantic_retrieval;
 pub mod source_trust;
 
