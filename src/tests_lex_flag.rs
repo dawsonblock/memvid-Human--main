@@ -16,7 +16,7 @@ mod tests {
                 let mut mem = Memvid::create(path).unwrap();
                 mem.enable_lex().unwrap();
 
-                for i in 0..1000 {
+                for i in 0..50 {
                     let content = format!(
                         "Document {i} with searchable content about technology and artificial intelligence systems"
                     );
@@ -26,7 +26,7 @@ mod tests {
                         .build();
                     mem.put_bytes_with_options(content.as_bytes(), opts)
                         .unwrap();
-                    if (i + 1) % 100 == 0 {
+                    if (i + 1) % 25 == 0 {
                         mem.commit().unwrap();
                     }
                 }

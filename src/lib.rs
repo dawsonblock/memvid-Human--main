@@ -360,7 +360,7 @@ static SERIAL_TEST_MUTEX: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 pub(crate) fn run_serial_test<T>(f: impl FnOnce() -> T) -> T {
     let _guard = SERIAL_TEST_MUTEX
         .lock()
-        .expect("memvid-core serial test mutex poisoned");
+        .unwrap_or_else(|e| e.into_inner());
     f()
 }
 
