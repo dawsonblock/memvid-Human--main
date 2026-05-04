@@ -287,6 +287,8 @@ impl ReflectionValidationLayer {
                 tags: vec!["reflection".to_string()],
                 metadata: BTreeMap::new(),
                 is_retraction: false,
+                thread_id: None,
+                parent_memory_id: None,
             };
 
             ReflectionReversibility::tag(&mut memory, &candidate.origin_rule, now);

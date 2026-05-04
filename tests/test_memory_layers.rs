@@ -440,7 +440,8 @@ fn procedure_requires_system_seed_or_repeated_evidence() {
             "repo_review".to_string(),
         )]),
         is_retraction: false,
-    };
+        parent_memory_id: None,
+        thread_id: None,    };
     controller
         .ingest(unseeded)
         .expect("unseeded ingest succeeds")
@@ -482,7 +483,8 @@ fn procedure_requires_system_seed_or_repeated_evidence() {
             ("seeded_by_system".to_string(), "true".to_string()),
         ]),
         is_retraction: false,
-    };
+        parent_memory_id: None,
+        thread_id: None,    };
     controller
         .ingest(seeded)
         .expect("seeded ingest succeeds")

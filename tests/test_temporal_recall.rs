@@ -54,6 +54,7 @@ fn historical_query_as_of_time_returns_past_value_rather_than_current_belief() {
                 user_id: None,
                 project_id: None,
                 task_id: None,
+                thread_id: None,
             },
             &FixedClock::new(ts(1_700_200_000)),
         )
@@ -96,6 +97,7 @@ fn retrieval_touch_does_not_move_historical_visibility_window() {
             user_id: None,
             project_id: None,
             task_id: None,
+            thread_id: None,
         })
         .expect("retrieval succeeds");
 
@@ -128,6 +130,7 @@ fn retrieval_touch_does_not_move_historical_visibility_window() {
             user_id: None,
             project_id: None,
             task_id: None,
+            thread_id: None,
         })
         .expect("historical retrieval succeeds");
 
@@ -185,6 +188,7 @@ fn multiple_access_touches_preserve_historical_visibility() {
                 user_id: None,
                 project_id: None,
                 task_id: None,
+                thread_id: None,
             },
             &FixedClock::new(ts(1_700_200_000)),
         )

@@ -61,6 +61,8 @@ pub fn candidate(entity: &str, slot: &str, value: &str, raw_text: &str) -> Candi
         tags: Vec::new(),
         metadata: BTreeMap::new(),
         is_retraction: false,
+        thread_id: None,
+        parent_memory_id: None,
     }
 }
 
@@ -102,6 +104,8 @@ pub fn durable(
         tags: Vec::new(),
         metadata: BTreeMap::new(),
         is_retraction: false,
+        thread_id: None,
+        parent_memory_id: None,
     }
 }
 
@@ -126,6 +130,8 @@ pub fn candidate_from_durable(memory: &DurableMemory) -> CandidateMemory {
         tags: memory.tags.clone(),
         metadata: memory.metadata.clone(),
         is_retraction: memory.is_retraction,
+        thread_id: memory.thread_id.clone(),
+        parent_memory_id: memory.parent_memory_id.clone(),
     }
 }
 

@@ -67,6 +67,12 @@ pub struct CandidateMemory {
     pub tags: Vec<String>,
     pub metadata: BTreeMap<String, String>,
     pub is_retraction: bool,
+    /// Optional thread this candidate belongs to.
+    #[serde(default)]
+    pub thread_id: Option<String>,
+    /// Optional ID of the memory this candidate is a reply to or derives from.
+    #[serde(default)]
+    pub parent_memory_id: Option<String>,
 }
 
 impl CandidateMemory {
@@ -164,6 +170,8 @@ impl CandidateMemory {
             tags: self.tags.clone(),
             metadata,
             is_retraction: false,
+            thread_id: self.thread_id.clone(),
+            parent_memory_id: self.parent_memory_id.clone(),
         }
     }
 }
@@ -192,6 +200,12 @@ pub struct DurableMemory {
     pub tags: Vec<String>,
     pub metadata: BTreeMap<String, String>,
     pub is_retraction: bool,
+    /// Optional thread this memory belongs to.
+    #[serde(default)]
+    pub thread_id: Option<String>,
+    /// Optional ID of the memory this record is a reply to or derives from.
+    #[serde(default)]
+    pub parent_memory_id: Option<String>,
 }
 
 impl DurableMemory {
@@ -851,6 +865,9 @@ pub struct RetrievalQuery {
     pub user_id: Option<String>,
     pub project_id: Option<String>,
     pub task_id: Option<String>,
+    /// When `Some`, only hits belonging to this thread are returned.
+    #[serde(default)]
+    pub thread_id: Option<String>,
 }
 
 impl RetrievalQuery {
@@ -876,6 +893,7 @@ impl RetrievalQuery {
             user_id: None,
             project_id: Some(project_id.into()),
             task_id: None,
+            thread_id: None,
         }
     }
 }

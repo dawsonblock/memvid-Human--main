@@ -640,6 +640,7 @@ impl ConsolidationEngine {
             user_id: None,
             project_id: None,
             task_id: None,
+            thread_id: None,
         })?;
         let mut saw_semantic_match = false;
         for hit in hits {

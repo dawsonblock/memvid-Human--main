@@ -39,6 +39,7 @@ use super::schemas::{
     RetrievalQuery, SelfModelRecord,
 };
 use super::self_model_store::SelfModelStore;
+use super::thread_store::MemoryThreadStore;
 
 /// Single governed write/read authority for agent memory.
 pub struct MemoryController<S: MemoryStore> {
@@ -55,6 +56,7 @@ pub struct MemoryController<S: MemoryStore> {
     feedback_store: MemoryFeedbackStore,
     ontology: OntologyRegistry,
     graph: GraphEdgeStore,
+    thread_store: MemoryThreadStore,
 }
 
 enum SelfModelGovernanceDecision {
@@ -103,7 +105,32 @@ impl<S: MemoryStore> MemoryController<S> {
             feedback_store: MemoryFeedbackStore::new(),
             ontology: OntologyRegistry::new(),
             graph: GraphEdgeStore::new(),
+            thread_store: MemoryThreadStore::new(),
         }
+    }
+
+    /// Open a new memory thread for the given entity; returns the thread ID.
+    pub fn open_thread(&mut self, entity: &str) -> String {
+        self.thread_store
+            .open_thread(entity, self.clock.as_ref())
+            .thread_id
+            .clone()
+    }
+
+    /// Close an existing thread. Returns `true` if the thread existed and was closed.
+    pub fn close_thread(&mut self, thread_id: &str) -> bool {
+        self.thread_store
+            .close_thread(thread_id, self.clock.as_ref())
+    }
+
+    /// Attach a memory (by ID) to an open thread.
+    pub fn attach_to_thread(&mut self, thread_id: &str, memory_id: &str) -> bool {
+        self.thread_store.attach_memory(thread_id, memory_id)
+    }
+
+    /// List all memory IDs associated with a thread.
+    pub fn get_thread_memories(&self, thread_id: &str) -> Vec<&str> {
+        self.thread_store.get_thread_memories(thread_id)
     }
 
     /// Forward a dense-embedding provider to the underlying retriever.
@@ -217,6 +244,8 @@ impl<S: MemoryStore> MemoryController<S> {
                 tags: classified.tags.clone(),
                 metadata: classified.metadata.clone(),
                 is_retraction: false,
+                thread_id: None,
+                parent_memory_id: None,
             };
             let memory_id = self.persist_durable_memory(
                 Some(classified.candidate_id.clone()),
@@ -610,6 +639,8 @@ impl<S: MemoryStore> MemoryController<S> {
             tags: Vec::new(),
             metadata,
             is_retraction: false,
+            thread_id: None,
+            parent_memory_id: None,
         };
         self.ingest(candidate)
     }
@@ -1212,6 +1243,8 @@ impl<S: MemoryStore> MemoryController<S> {
             tags: candidate.tags.clone(),
             metadata: candidate.metadata.clone(),
             is_retraction: false,
+            thread_id: None,
+            parent_memory_id: None,
         };
         self.persist_durable_memory(
             Some(candidate.candidate_id.clone()),

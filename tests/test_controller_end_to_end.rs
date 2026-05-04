@@ -103,6 +103,7 @@ fn ingest_verified_fact_promotes_belief_and_audits_route() {
             user_id: None,
             project_id: None,
             task_id: None,
+            thread_id: None,
         })
         .expect("retrieval succeeds");
 
@@ -202,6 +203,7 @@ fn retrieval_touches_returned_memories_and_persists_access_metadata() {
             user_id: None,
             project_id: None,
             task_id: None,
+            thread_id: None,
         })
         .expect("retrieval succeeds");
 
@@ -290,6 +292,7 @@ fn retrieval_can_skip_durable_touch_writes_when_touch_persistence_is_disabled() 
             user_id: None,
             project_id: None,
             task_id: None,
+            thread_id: None,
         })
         .expect("retrieval succeeds");
 
@@ -537,6 +540,7 @@ fn outcome_feedback_updates_belief_by_id_and_improves_effective_confidence() {
             user_id: None,
             project_id: None,
             task_id: None,
+            thread_id: None,
         })
         .expect("retrieval succeeds");
     let direct = hits.first().expect("direct belief hit");
@@ -806,6 +810,7 @@ fn retrieval_batches_access_touches_once_per_operation() {
             user_id: None,
             project_id: None,
             task_id: None,
+            thread_id: None,
         })
         .expect("retrieval succeeds");
 
@@ -877,6 +882,7 @@ fn retrieval_audit_reflects_store_level_touch_persistence_disablement() {
             user_id: None,
             project_id: None,
             task_id: None,
+            thread_id: None,
         })
         .expect("retrieval succeeds");
 

@@ -101,7 +101,7 @@ fn current_fact_query_checks_belief_state_first() {
                 user_id: None,
                 project_id: None,
                 task_id: None,
-            },
+                thread_id: None,            },
             &FixedClock::new(ts(1_700_000_200)),
         )
         .expect("retrieval works");
@@ -178,7 +178,7 @@ fn noisy_support_evidence_does_not_displace_direct_belief_answer() {
                 user_id: None,
                 project_id: None,
                 task_id: None,
-            },
+                thread_id: None,            },
             &FixedClock::new(ts(1_700_000_200)),
         )
         .expect("retrieval works");
@@ -242,7 +242,7 @@ fn historical_fact_queries_prefer_episodes_and_prior_state_evidence() {
                 user_id: None,
                 project_id: None,
                 task_id: None,
-            },
+                thread_id: None,            },
             &FixedClock::new(ts(1_700_000_200)),
         )
         .expect("historical retrieval works");
@@ -324,7 +324,7 @@ fn disputed_belief_surfaces_as_contested_current_fact_when_no_active_belief_exis
                 user_id: None,
                 project_id: None,
                 task_id: None,
-            },
+                thread_id: None,            },
             &FixedClock::new(ts(1_700_000_200)),
         )
         .expect("retrieval works");
@@ -404,7 +404,7 @@ fn score_breakdown_in_metadata_contains_all_named_factors() {
                 user_id: None,
                 project_id: None,
                 task_id: None,
-            },
+                thread_id: None,            },
             &FixedClock::new(ts(1_700_000_200)),
         )
         .expect("retrieval works");
@@ -470,7 +470,7 @@ fn score_breakdown_sums_to_final_score() {
                 user_id: None,
                 project_id: None,
                 task_id: None,
-            },
+                thread_id: None,            },
             &FixedClock::new(ts(1_700_000_100)),
         )
         .expect("retrieval works");
@@ -518,7 +518,7 @@ fn score_components_are_stable_across_runs() {
         user_id: None,
         project_id: None,
         task_id: None,
-    };
+        thread_id: None,    };
 
     let first = retriever
         .retrieve(&mut store, &query, &FixedClock::new(ts(1_700_000_100)))
@@ -581,7 +581,7 @@ fn ranking_explanation_documents_why_answer_is_primary() {
                 user_id: None,
                 project_id: None,
                 task_id: None,
-            },
+                thread_id: None,            },
             &FixedClock::new(ts(1_700_000_100)),
         )
         .expect("retrieval works");
@@ -659,7 +659,7 @@ fn positive_belief_feedback_increases_current_fact_evidence_strength() {
         user_id: None,
         project_id: None,
         task_id: None,
-    };
+        thread_id: None,    };
 
     let positive_hits = retriever
         .retrieve(
@@ -743,7 +743,7 @@ fn procedure_lifecycle_penalty_appears_in_breakdown_for_cooling_down_procedure()
                 user_id: None,
                 project_id: None,
                 task_id: None,
-            },
+                thread_id: None,            },
             &FixedClock::new(ts(1_700_000_100)),
         )
         .expect("retrieval works");
@@ -821,7 +821,7 @@ fn recently_accessed_memory_ranks_above_equally_relevant_peer() {
                 user_id: None,
                 project_id: None,
                 task_id: None,
-            },
+                thread_id: None,            },
             &FixedClock::new(ts(1_700_000_100)),
         )
         .expect("retrieval works");
@@ -901,7 +901,7 @@ fn positive_outcome_feedback_ranks_memory_above_negative_peer() {
                 user_id: None,
                 project_id: None,
                 task_id: None,
-            },
+                thread_id: None,            },
             &FixedClock::new(ts(1_700_000_100)),
         )
         .expect("retrieval works");
@@ -957,7 +957,7 @@ fn preference_query_ranks_preference_memory_above_generic_semantic_hits() {
                 user_id: None,
                 project_id: None,
                 task_id: None,
-            },
+                thread_id: None,            },
             &FixedClock::new(ts(1_700_000_100)),
         )
         .expect("retrieval works");
@@ -1001,7 +1001,7 @@ fn blank_semantic_query_returns_no_hits_without_error() {
                 user_id: None,
                 project_id: None,
                 task_id: None,
-            },
+                thread_id: None,            },
             &FixedClock::new(ts(1_700_000_100)),
         )
         .expect("retrieval succeeds");
@@ -1068,7 +1068,7 @@ fn task_query_ranks_goal_state_and_recent_episodes_above_background_text() {
                 user_id: None,
                 project_id: None,
                 task_id: None,
-            },
+                thread_id: None,            },
             &FixedClock::new(ts(1_700_000_100)),
         )
         .expect("retrieval works");
@@ -1188,7 +1188,7 @@ fn task_query_excludes_unaligned_episode_and_procedure_context() {
                 user_id: None,
                 project_id: None,
                 task_id: None,
-            },
+                thread_id: None,            },
             &FixedClock::new(ts(1_700_000_100)),
         )
         .expect("retrieval works");
@@ -1240,7 +1240,7 @@ fn preference_query_uses_direct_self_model_lookup_when_text_overlap_is_weak() {
                 user_id: None,
                 project_id: None,
                 task_id: None,
-            },
+                thread_id: None,            },
             &FixedClock::new(ts(1_700_000_100)),
         )
         .expect("retrieval works");
@@ -1313,7 +1313,7 @@ fn preference_query_returns_self_model_with_limited_support() {
                 user_id: None,
                 project_id: None,
                 task_id: None,
-            },
+                thread_id: None,            },
             &FixedClock::new(ts(1_700_000_100)),
         )
         .expect("retrieval works");
@@ -1400,7 +1400,7 @@ fn procedural_help_query_returns_direct_procedure_with_bounded_support() {
                 user_id: None,
                 project_id: None,
                 task_id: None,
-            },
+                thread_id: None,            },
             &FixedClock::new(ts(1_700_000_100)),
         )
         .expect("retrieval works");
@@ -1463,7 +1463,7 @@ fn preference_query_falls_back_to_search_when_self_model_store_is_empty() {
                 user_id: None,
                 project_id: None,
                 task_id: None,
-            },
+                thread_id: None,            },
             &FixedClock::new(ts(1_700_000_050)),
         )
         .expect("retrieval works");
@@ -1505,7 +1505,7 @@ fn task_query_uses_goal_state_store_when_text_overlap_is_weak() {
                 user_id: None,
                 project_id: None,
                 task_id: None,
-            },
+                thread_id: None,            },
             &FixedClock::new(ts(1_700_000_100)),
         )
         .expect("retrieval works");
@@ -1576,7 +1576,7 @@ fn task_query_deduplicates_supporting_and_recent_episode_hits() {
                 user_id: None,
                 project_id: None,
                 task_id: None,
-            },
+                thread_id: None,            },
             &FixedClock::new(ts(1_700_000_020)),
         )
         .expect("retrieval works");

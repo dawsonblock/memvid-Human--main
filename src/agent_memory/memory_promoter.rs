@@ -227,6 +227,8 @@ impl MemoryPromoter {
                 tags: candidate.tags.clone(),
                 metadata,
                 is_retraction: candidate.is_retraction,
+                thread_id: candidate.thread_id.clone(),
+                parent_memory_id: candidate.parent_memory_id.clone(),
             }),
             details,
         }

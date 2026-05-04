@@ -67,6 +67,7 @@ impl RetrievalQuery {
             user_id: None,
             project_id: None,
             task_id: None,
+            thread_id: None,
         }
     }
 }

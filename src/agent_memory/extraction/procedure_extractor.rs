@@ -55,6 +55,8 @@ impl ProcedureExtractor {
             tags: vec!["procedure".to_string()],
             metadata: BTreeMap::new(),
             is_retraction: false,
+            thread_id: None,
+            parent_memory_id: None,
         }]
     }
 }

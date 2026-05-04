@@ -127,5 +127,7 @@ fn generic_trace(text: &str, context: &IngestContext) -> CandidateMemory {
         tags: context.tags.clone(),
         metadata: context.metadata.clone(),
         is_retraction: false,
+        thread_id: None,
+        parent_memory_id: None,
     }
 }

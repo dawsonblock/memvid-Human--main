@@ -209,6 +209,8 @@ impl ConceptSynthesizer {
                 ],
                 metadata,
                 is_retraction: false,
+                thread_id: None,
+                parent_memory_id: None,
             };
 
             store.put_memory(&node)?;
@@ -337,6 +339,8 @@ impl ConceptSynthesizer {
                 tags: vec!["synthesized".to_string(), "profile".to_string()],
                 metadata,
                 is_retraction: false,
+                thread_id: None,
+                parent_memory_id: None,
             };
 
             store.put_memory(&profile_mem)?;
@@ -432,6 +436,8 @@ impl ConceptSynthesizer {
                 ],
                 metadata,
                 is_retraction: false,
+                thread_id: None,
+                parent_memory_id: None,
             };
 
             store.put_memory(&proc_mem)?;
@@ -513,6 +519,8 @@ impl ConceptSynthesizer {
                 tags: vec!["synthesized".to_string(), "pattern".to_string()],
                 metadata,
                 is_retraction: false,
+                thread_id: None,
+                parent_memory_id: None,
             };
 
             store.put_memory(&pattern_mem)?;
@@ -609,6 +617,8 @@ impl ConceptSynthesizer {
                 tags: vec!["synthesized".to_string(), "project_summary".to_string()],
                 metadata,
                 is_retraction: false,
+                thread_id: None,
+                parent_memory_id: None,
             };
 
             store.put_memory(&summary_mem)?;
@@ -686,6 +696,8 @@ mod tests {
             tags: Vec::new(),
             metadata: BTreeMap::new(),
             is_retraction: false,
+            thread_id: None,
+            parent_memory_id: None,
         }
     }
 

@@ -573,6 +573,8 @@ impl<'a, S: MemoryStore> ProcedureStore<'a, S> {
             tags: record.context_tags.clone(),
             metadata,
             is_retraction: false,
+            thread_id: None,
+            parent_memory_id: None,
         };
 
         self.store.put_memory(&memory)

@@ -212,6 +212,8 @@ mod tests {
             tags: Vec::new(),
             metadata: BTreeMap::new(),
             is_retraction: false,
+            parent_memory_id: None,
+            thread_id: None,
         }
     }
 

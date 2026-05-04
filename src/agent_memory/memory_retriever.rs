@@ -772,6 +772,13 @@ impl MemoryRetriever {
     ) -> RetrievalHit {
         let retention = self.retention.evaluate(memory, now);
         let mut metadata = memory.metadata.clone();
+        // Propagate thread linkage fields into metadata so they survive into RetrievalHit.
+        if let Some(ref tid) = memory.thread_id {
+            metadata.insert("thread_id".to_string(), tid.clone());
+        }
+        if let Some(ref pid) = memory.parent_memory_id {
+            metadata.insert("parent_memory_id".to_string(), pid.clone());
+        }
         metadata.insert(
             "memory_layer".to_string(),
             memory.memory_layer().as_str().to_string(),
@@ -1012,6 +1019,12 @@ impl MemoryRetriever {
                 }
             }
         }
+        // Thread filter: when set, only return hits whose thread_id matches.
+        if let Some(thread_id) = query.thread_id.as_deref() {
+            if hit.metadata.get("thread_id").map(String::as_str) != Some(thread_id) {
+                return false;
+            }
+        }
         true
     }
 
@@ -1186,6 +1199,8 @@ impl MemoryRetriever {
             tags: Vec::new(),
             metadata: hit.metadata.clone(),
             is_retraction: false,
+            thread_id: None,
+            parent_memory_id: None,
         };
 
         self.retention.evaluate(&synthetic, now).decayed_salience
@@ -1570,6 +1585,8 @@ impl MemoryRetriever {
             tags: record.tags,
             metadata: record.metadata,
             is_retraction: false,
+            thread_id: None,
+            parent_memory_id: None,
         }
     }
 

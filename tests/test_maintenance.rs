@@ -92,6 +92,7 @@ fn maintenance_reports_current_memories_expires_due_entries_and_audits_activity(
             user_id: None,
             project_id: None,
             task_id: None,
+            thread_id: None,
         })
         .expect("search succeeds");
     assert!(

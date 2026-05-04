@@ -208,6 +208,7 @@ fn task_state_query_downranks_cooling_down_procedures_and_filters_retired_ones()
                 user_id: None,
                 project_id: None,
                 task_id: None,
+                thread_id: None,
             },
             &FixedClock::new(ts(1_700_000_060)),
         )
@@ -260,7 +261,8 @@ fn system_seeded_procedure_candidate_promotes_without_repetition() {
             ("procedure_name".to_string(), "repo_review".to_string()),
         ]),
         is_retraction: false,
-    };
+        parent_memory_id: None,
+        thread_id: None,    };
 
     let stored_id = controller
         .ingest(seeded)
@@ -608,6 +610,7 @@ fn controller_surfaces_failure_transition_reason_and_history_query() {
             user_id: None,
             project_id: None,
             task_id: None,
+            thread_id: None,
         })
         .expect("history retrieval succeeds");
 

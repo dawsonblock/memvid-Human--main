@@ -249,6 +249,7 @@ fn retrieve_context_places_correction_in_corrections_bucket() {
         user_id: None,
         project_id: None,
         task_id: None,
+        thread_id: None,
     };
     let packet = ctrl.retrieve_context(query).unwrap();
     assert!(
@@ -298,6 +299,7 @@ fn expired_memory_routed_to_stale_items_bucket() {
         user_id: None,
         project_id: None,
         task_id: None,
+        thread_id: None,
     };
     let packet = ctrl.retrieve_context(query).unwrap();
     assert!(

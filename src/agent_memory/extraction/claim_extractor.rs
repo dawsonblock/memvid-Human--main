@@ -158,6 +158,8 @@ fn make_fact(entity: Option<String>, slot: &str, value: &str, raw: &str) -> Cand
         tags: Vec::new(),
         metadata: BTreeMap::new(),
         is_retraction: false,
+        thread_id: None,
+        parent_memory_id: None,
     }
 }
 
@@ -220,6 +222,8 @@ fn try_instruction(sentence: &str, resolver: &EntityResolver) -> Option<Candidat
                 tags: vec!["instruction".to_string()],
                 metadata: meta,
                 is_retraction: false,
+                thread_id: None,
+                parent_memory_id: None,
             });
         }
     }
@@ -285,6 +289,8 @@ fn try_negation_constraint(sentence: &str, resolver: &EntityResolver) -> Option<
                 tags: vec!["constraint".to_string()],
                 metadata: meta,
                 is_retraction: true,
+                thread_id: None,
+                parent_memory_id: None,
             });
         }
     }
@@ -346,6 +352,8 @@ fn try_conditional(sentence: &str, resolver: &EntityResolver) -> Option<Candidat
         tags: vec!["conditional".to_string()],
         metadata: meta,
         is_retraction: false,
+        thread_id: None,
+        parent_memory_id: None,
     })
 }
 
@@ -407,6 +415,8 @@ fn try_self_correction(sentence: &str, _resolver: &EntityResolver) -> Option<Can
         tags: vec!["correction".to_string(), "self_correction".to_string()],
         metadata: meta,
         is_retraction: true,
+        thread_id: None,
+        parent_memory_id: None,
     })
 }
 

@@ -253,6 +253,15 @@ fn retrieval_metadata(memory: &DurableMemory) -> BTreeMap<String, String> {
     if let Some(valid_to) = memory.valid_to {
         metadata.insert("valid_to".to_string(), valid_to.to_rfc3339());
     }
+    // Thread fields — always written from the typed struct fields so that
+    // `hit_matches_query` can rely on a consistent key, regardless of
+    // whether the caller also put the value into `memory.metadata`.
+    if let Some(thread_id) = &memory.thread_id {
+        metadata.insert("thread_id".to_string(), thread_id.clone());
+    }
+    if let Some(parent_memory_id) = &memory.parent_memory_id {
+        metadata.insert("parent_memory_id".to_string(), parent_memory_id.clone());
+    }
     metadata
 }
 
@@ -831,6 +840,8 @@ impl MemvidStore {
             is_retraction: extra_metadata
                 .get("agent_is_retraction")
                 .is_some_and(|value| value == "true"),
+            thread_id: extra_metadata.get("agent_thread_id").cloned(),
+            parent_memory_id: extra_metadata.get("agent_parent_memory_id").cloned(),
         })
     }
 

@@ -88,6 +88,7 @@ fn memvid_adapter_maps_governed_memory_to_real_memvid_interfaces() {
                 user_id: None,
                 project_id: None,
                 task_id: None,
+                thread_id: None,
             },
             &FixedClock::new(ts(1_700_000_020)),
         )
@@ -131,6 +132,7 @@ fn memvid_adapter_search_hits_surface_internal_memory_layer() {
             user_id: None,
             project_id: None,
             task_id: None,
+            thread_id: None,
         })
         .expect("search works");
 
@@ -211,6 +213,7 @@ fn memvid_adapter_keeps_ingest_time_stable_across_access_and_feedback_updates() 
             user_id: None,
             project_id: None,
             task_id: None,
+            thread_id: None,
         })
         .expect("search works");
     let historical = historical_hits
@@ -292,6 +295,7 @@ fn memvid_adapter_batch_touch_path_updates_effective_access_metadata() {
             user_id: None,
             project_id: None,
             task_id: None,
+            thread_id: None,
         })
         .expect("search works");
     let first_hit = hits

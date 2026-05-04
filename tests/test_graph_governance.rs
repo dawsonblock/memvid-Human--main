@@ -1,4 +1,4 @@
-use memvid::agent_memory::graph::{
+use memvid_core::agent_memory::graph::{
     EdgeKind, GraphEdge, GraphEdgeStore, GraphGovernancePolicy, TraversalNoiseSuppressor,
 };
 

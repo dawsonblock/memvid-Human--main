@@ -37,6 +37,7 @@ fn parity_query(as_of: Option<chrono::DateTime<chrono::Utc>>) -> RetrievalQuery 
         user_id: None,
         project_id: None,
         task_id: None,
+        thread_id: None,
     }
 }
 

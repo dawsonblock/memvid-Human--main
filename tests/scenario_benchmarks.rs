@@ -266,6 +266,7 @@ fn wrong_feedback_suppresses_memory_from_retrieve() {
             user_id: None,
             project_id: None,
             task_id: None,
+            thread_id: None,
         })
         .unwrap();
 
@@ -331,6 +332,7 @@ fn namespace_strict_query_excludes_other_project_memories() {
             user_id: None,
             project_id: Some("alpha".into()),
             task_id: None,
+            thread_id: None,
         })
         .unwrap();
 
@@ -380,6 +382,7 @@ fn shared_scope_memory_survives_namespace_strict_filter() {
             user_id: None,
             project_id: Some("unrelated_project".into()),
             task_id: None,
+            thread_id: None,
         })
         .unwrap();
 
@@ -493,6 +496,7 @@ fn higher_salience_memory_ranks_above_lower_salience() {
             user_id: None,
             project_id: None,
             task_id: None,
+            thread_id: None,
         })
         .unwrap();
 

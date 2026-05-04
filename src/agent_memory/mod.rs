@@ -41,6 +41,7 @@ pub mod self_model_store;
 pub mod semantic_arbitration;
 pub mod semantic_retrieval;
 pub mod source_trust;
+pub mod thread_store;
 
 pub use memory_controller::MemoryController;
 pub use ontology::OntologyRegistry;

@@ -53,6 +53,7 @@ fn retrieve_text_is_convenience_over_typed_retrieval() {
             user_id: None,
             project_id: None,
             task_id: None,
+            thread_id: None,
         })
         .expect("typed retrieval succeeds");
 

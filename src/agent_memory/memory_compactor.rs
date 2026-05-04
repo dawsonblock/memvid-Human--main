@@ -213,6 +213,8 @@ impl MemoryCompactor {
                     "summarize".to_string(),
                 )]),
                 is_retraction: false,
+                thread_id: None,
+                parent_memory_id: None,
             };
 
             store.put_memory(&new_memory)?;
@@ -271,6 +273,8 @@ impl MemoryCompactor {
                 tags: trace.tags.clone(),
                 metadata,
                 is_retraction: false,
+                thread_id: None,
+                parent_memory_id: None,
             };
 
             store.put_memory(&new_memory)?;
@@ -361,6 +365,8 @@ mod tests {
             tags: vec![],
             metadata: BTreeMap::new(),
             is_retraction: false,
+            thread_id: None,
+            parent_memory_id: None,
         }
     }
 

@@ -60,6 +60,8 @@ impl MemoryIntake {
             tags: input.tags,
             metadata: input.metadata,
             is_retraction: input.is_retraction,
+            thread_id: None,
+            parent_memory_id: None,
         }
     }
 }
