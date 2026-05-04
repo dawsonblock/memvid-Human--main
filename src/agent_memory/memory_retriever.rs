@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use super::adapters::memvid_store::MemoryStore;
 use super::clock::Clock;
+use super::embedding_provider::EmbedderSlot;
 use super::enums::{
     BeliefStatus, BeliefViewStatus, MemoryLayer, MemoryType, ProcedureStatus, QueryIntent, Scope,
     SourceType,
@@ -47,12 +48,34 @@ struct TaskContext {
 pub struct MemoryRetriever {
     ranker: Ranker,
     retention: RetentionManager,
+    /// Optional dense-embedding provider for the semantic retrieval path.
+    /// Populated via [`MemoryRetriever::with_embedder`].
+    embedder: EmbedderSlot,
 }
 
 impl MemoryRetriever {
     #[must_use]
     pub fn new(ranker: Ranker, retention: RetentionManager) -> Self {
-        Self { ranker, retention }
+        Self {
+            ranker,
+            retention,
+            embedder: EmbedderSlot::default(),
+        }
+    }
+
+    /// Attach a dense-embedding provider for the embedding-based retrieval
+    /// path.  Returns `self` for builder-style chaining.
+    ///
+    /// When a provider is set, [`retrieve`] will additionally call
+    /// [`SemanticRetriever::semantic_hits_with_embedder`] (compiled only under
+    /// the `vec` feature) and merge the resulting hits.
+    #[must_use]
+    pub fn with_embedder(
+        mut self,
+        provider: impl super::embedding_provider::AgentEmbeddingProvider + 'static,
+    ) -> Self {
+        self.embedder = EmbedderSlot(Some(std::sync::Arc::new(provider)));
+        self
     }
 
     pub fn retrieve<S: MemoryStore>(
@@ -100,6 +123,29 @@ impl MemoryRetriever {
                 query,
             )?,
         );
+
+        // Dense-embedding re-ranking path (requires `vec` feature + a provider
+        // installed via `with_embedder`).  Silently skipped when unavailable so
+        // the call-site never needs to know whether the feature is active.
+        #[cfg(feature = "vec")]
+        let hits = {
+            if let Some(provider) = self.embedder.as_deref() {
+                let mut embed_cache = super::embedding_provider::EmbeddingCache::new(256);
+                match SemanticRetriever::semantic_hits_with_embedder(
+                    &query.query_text,
+                    store,
+                    query.top_k.saturating_mul(2),
+                    query,
+                    provider,
+                    &mut embed_cache,
+                ) {
+                    Ok(embed_hits) => Self::merge_embedding_hits(hits, embed_hits),
+                    Err(_) => hits,
+                }
+            } else {
+                hits
+            }
+        };
 
         let mut filtered = self.filter_hits(hits, query);
         if !query.include_expired {
@@ -948,6 +994,24 @@ impl MemoryRetriever {
         {
             return false;
         }
+        // Namespace enforcement: Shared-scope hits always pass.
+        if query.namespace_strict && hit.scope != Some(Scope::Shared) {
+            if let Some(proj) = query.project_id.as_deref() {
+                if hit.metadata.get("ns_project_id").map(String::as_str) != Some(proj) {
+                    return false;
+                }
+            }
+            if let Some(uid) = query.user_id.as_deref() {
+                if hit.metadata.get("ns_user_id").map(String::as_str) != Some(uid) {
+                    return false;
+                }
+            }
+            if let Some(tid) = query.task_id.as_deref() {
+                if hit.metadata.get("ns_task_id").map(String::as_str) != Some(tid) {
+                    return false;
+                }
+            }
+        }
         true
     }
 
@@ -1541,6 +1605,43 @@ impl MemoryRetriever {
             } else {
                 // Novel semantic hit — let the ranker evaluate it normally.
                 hits.push(sem_hit);
+            }
+        }
+        hits
+    }
+
+    /// Merge dense-embedding hits into an existing hit list.
+    ///
+    /// * Hits already present in `hits` receive an additional boost based on
+    ///   their cosine similarity (stored in [`SCORE_SIGNAL_EMBEDDING_KEY`]
+    ///   metadata).  The boost weight (0.3) is intentionally lower than the
+    ///   semantic path (0.5) to keep embedding influence proportional.
+    /// * Genuinely new embedding-only hits are appended for downstream
+    ///   ranking.
+    #[cfg(feature = "vec")]
+    fn merge_embedding_hits(
+        mut hits: Vec<RetrievalHit>,
+        embed_hits: Vec<RetrievalHit>,
+    ) -> Vec<RetrievalHit> {
+        use super::ranker::SCORE_SIGNAL_EMBEDDING_KEY;
+
+        let existing_ids: HashSet<Option<String>> =
+            hits.iter().map(|h| h.memory_id.clone()).collect();
+
+        for embed_hit in embed_hits {
+            if embed_hit.memory_id.is_some() && existing_ids.contains(&embed_hit.memory_id) {
+                if let Some(existing) = hits.iter_mut().find(|h| h.memory_id == embed_hit.memory_id)
+                {
+                    if let Some(sim_str) = embed_hit.metadata.get(SCORE_SIGNAL_EMBEDDING_KEY) {
+                        let boost: f32 = sim_str.parse().unwrap_or(0.0);
+                        existing.score += boost * 0.3;
+                        existing
+                            .metadata
+                            .insert(SCORE_SIGNAL_EMBEDDING_KEY.to_string(), sim_str.clone());
+                    }
+                }
+            } else {
+                hits.push(embed_hit);
             }
         }
         hits

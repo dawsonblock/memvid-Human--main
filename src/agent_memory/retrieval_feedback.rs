@@ -177,6 +177,50 @@ impl FeedbackAdjuster {
     }
 }
 
+impl FeedbackAdjuster {
+    /// Convert signals from a [`MemoryFeedbackStore`] into polarity values and
+    /// apply them to this adjuster.
+    ///
+    /// Signal → polarity mapping:
+    /// - [`Helpful`]        → `+1.0`
+    /// - [`Promote`]        → `+1.5`
+    /// - [`Wrong`]          → `-1.0`
+    /// - [`CausedBadOutput`]→ `-1.0`
+    /// - [`Irrelevant`]     → `-0.5`
+    /// - [`Suppress`]       → `-0.5`
+    ///
+    /// Only hits whose `memory_id` has a recorded signal are processed; others
+    /// are silently skipped.
+    ///
+    /// [`Helpful`]: crate::agent_memory::memory_feedback::FeedbackSignal::Helpful
+    /// [`Promote`]: crate::agent_memory::memory_feedback::FeedbackSignal::Promote
+    /// [`Wrong`]: crate::agent_memory::memory_feedback::FeedbackSignal::Wrong
+    /// [`CausedBadOutput`]: crate::agent_memory::memory_feedback::FeedbackSignal::CausedBadOutput
+    /// [`Irrelevant`]: crate::agent_memory::memory_feedback::FeedbackSignal::Irrelevant
+    /// [`Suppress`]: crate::agent_memory::memory_feedback::FeedbackSignal::Suppress
+    pub fn apply_from_store(
+        &mut self,
+        store: &super::memory_feedback::MemoryFeedbackStore,
+        hits: &[RetrievalHit],
+    ) {
+        use super::memory_feedback::FeedbackSignal;
+        for hit in hits {
+            let memory_id = match hit.memory_id.as_deref() {
+                Some(id) => id,
+                None => continue,
+            };
+            let polarity = match store.signal_for(memory_id) {
+                Some(FeedbackSignal::Helpful) => 1.0_f32,
+                Some(FeedbackSignal::Promote) => 1.5_f32,
+                Some(FeedbackSignal::Wrong | FeedbackSignal::CausedBadOutput) => -1.0_f32,
+                Some(FeedbackSignal::Irrelevant | FeedbackSignal::Suppress) => -0.5_f32,
+                None => continue,
+            };
+            self.apply(hit, polarity);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

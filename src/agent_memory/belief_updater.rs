@@ -2,7 +2,8 @@ use std::collections::BTreeMap;
 
 use uuid::Uuid;
 
-use super::belief_conflict_resolver::{BeliefConflictResolution, BeliefConflictResolver, ConflictContext};
+use super::belief_conflict_resolver::{BeliefConflictResolution, ConflictContext};
+use super::conflict_resolution::ConflictArbiter;
 use super::clock::Clock;
 use super::enums::{BeliefAction, BeliefStatus};
 use super::schemas::{BeliefRecord, DurableMemory};
@@ -103,11 +104,14 @@ impl BeliefUpdater {
                     incoming: memory.value.clone(),
                     source_type: memory.source.source_type,
                 };
-                let resolution = BeliefConflictResolver::resolve(
+                let resolution = ConflictArbiter::resolve(
                     &current.current_value,
                     &memory.value,
                     &conflict_ctx,
-                );
+                    None,
+                    None,
+                )
+                .resolution;
 
                 // ---- Reinforce: same value, high overlap, or contextually scoped variant ----
                 if matches!(

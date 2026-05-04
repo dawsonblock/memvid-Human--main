@@ -517,6 +517,18 @@ impl MemoryStore for InMemoryMemoryStore {
             {
                 continue;
             }
+            // Namespace early-exit (optimisation; hit_matches_query is authoritative)
+            if query.namespace_strict && memory.scope != Scope::Shared {
+                if query.project_id.as_deref().is_some_and(|p| {
+                    memory.metadata.get("ns_project_id").map(String::as_str) != Some(p)
+                }) || query.user_id.as_deref().is_some_and(|u| {
+                    memory.metadata.get("ns_user_id").map(String::as_str) != Some(u)
+                }) || query.task_id.as_deref().is_some_and(|t| {
+                    memory.metadata.get("ns_task_id").map(String::as_str) != Some(t)
+                }) {
+                    continue;
+                }
+            }
             if self.expired.contains(&memory.memory_id) && !query.include_expired {
                 continue;
             }
@@ -840,6 +852,18 @@ impl MemvidStore {
                 && memory.scope != scope
             {
                 continue;
+            }
+            // Namespace early-exit (optimisation; hit_matches_query is authoritative)
+            if query.namespace_strict && memory.scope != Scope::Shared {
+                if query.project_id.as_deref().is_some_and(|p| {
+                    memory.metadata.get("ns_project_id").map(String::as_str) != Some(p)
+                }) || query.user_id.as_deref().is_some_and(|u| {
+                    memory.metadata.get("ns_user_id").map(String::as_str) != Some(u)
+                }) || query.task_id.as_deref().is_some_and(|t| {
+                    memory.metadata.get("ns_task_id").map(String::as_str) != Some(t)
+                }) {
+                    continue;
+                }
             }
             if let Some(as_of) = query.as_of
                 && memory_as_of_anchor(query, &memory) > as_of

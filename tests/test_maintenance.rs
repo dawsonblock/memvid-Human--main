@@ -88,6 +88,10 @@ fn maintenance_reports_current_memories_expires_due_entries_and_audits_activity(
             top_k: 5,
             as_of: None,
             include_expired: false,
+            namespace_strict: false,
+            user_id: None,
+            project_id: None,
+            task_id: None,
         })
         .expect("search succeeds");
     assert!(

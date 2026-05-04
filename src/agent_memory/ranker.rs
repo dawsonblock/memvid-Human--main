@@ -46,6 +46,7 @@ pub(crate) const SCORE_SIGNAL_EVIDENCE_STRENGTH_KEY: &str = "score_signal_eviden
 pub(crate) const SCORE_SIGNAL_CONTRADICTION_KEY: &str = "score_signal_contradiction_penalty";
 pub(crate) const SCORE_SIGNAL_PROCEDURE_SUCCESS_KEY: &str = "score_signal_procedure_success";
 pub(crate) const SCORE_SIGNAL_SEMANTIC_SCORE_KEY: &str = "score_signal_semantic_score";
+pub(crate) const SCORE_SIGNAL_EMBEDDING_KEY: &str = "score_signal_embedding";
 pub(crate) const SCORE_COMPONENT_SEMANTIC_SCORE_KEY: &str = "score_component_semantic_score";
 
 #[derive(Debug, Clone, Copy, Default)]

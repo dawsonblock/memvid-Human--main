@@ -245,6 +245,10 @@ fn retrieve_context_places_correction_in_corrections_bucket() {
         top_k: 10,
         as_of: None,
         include_expired: false,
+        namespace_strict: false,
+        user_id: None,
+        project_id: None,
+        task_id: None,
     };
     let packet = ctrl.retrieve_context(query).unwrap();
     assert!(
@@ -290,6 +294,10 @@ fn expired_memory_routed_to_stale_items_bucket() {
         top_k: 10,
         as_of: None,
         include_expired: true,
+        namespace_strict: false,
+        user_id: None,
+        project_id: None,
+        task_id: None,
     };
     let packet = ctrl.retrieve_context(query).unwrap();
     assert!(

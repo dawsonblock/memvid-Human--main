@@ -149,6 +149,61 @@ impl SemanticRetriever {
     }
 }
 
+// ── Embedding-based semantic retrieval (vec feature only) ────────────────────
+
+#[cfg(feature = "vec")]
+impl SemanticRetriever {
+    /// Returns candidate hits scored by dense embedding cosine similarity.
+    ///
+    /// Fetches a wider candidate pool via the existing [`MemoryStore::search`]
+    /// lexical path, reranks candidates by embedding cosine similarity against
+    /// the query, filters below [`EMBEDDING_THRESHOLD`], and annotates each
+    /// surviving hit with [`super::ranker::SCORE_SIGNAL_EMBEDDING_KEY`].
+    pub fn semantic_hits_with_embedder<S: MemoryStore>(
+        query_text: &str,
+        store: &mut S,
+        top_k: usize,
+        base_query: &RetrievalQuery,
+        provider: &dyn super::embedding_provider::AgentEmbeddingProvider,
+        cache: &mut super::embedding_provider::EmbeddingCache,
+    ) -> Result<Vec<RetrievalHit>> {
+        use super::embedding_provider::cosine;
+        use super::ranker::SCORE_SIGNAL_EMBEDDING_KEY;
+
+        // Minimum cosine similarity to surface an embedding hit.
+        const EMBEDDING_THRESHOLD: f32 = 0.50;
+
+        // Embed the query (or retrieve from cache on repeated calls).
+        let query_embedding = cache.get_or_embed(query_text, provider)?;
+
+        // Fetch a wider pool of candidates via the existing lexical search.
+        let mut search_q = base_query.clone();
+        search_q.query_text = query_text.to_string();
+        search_q.top_k = (top_k * 3).max(12);
+        let candidates = store.search(&search_q)?;
+
+        let mut scored: Vec<(f32, RetrievalHit)> = Vec::new();
+        for mut hit in candidates {
+            let doc_embedding = match cache.get_or_embed(&hit.text, provider) {
+                Ok(e) => e,
+                // Skip hits whose text we cannot embed (e.g. model not loaded).
+                Err(_) => continue,
+            };
+            let sim = cosine(&query_embedding, &doc_embedding);
+            if sim < EMBEDDING_THRESHOLD {
+                continue;
+            }
+            hit.metadata
+                .insert(SCORE_SIGNAL_EMBEDDING_KEY.to_string(), format!("{sim:.6}"));
+            scored.push((sim, hit));
+        }
+
+        scored.sort_by(|(a, _), (b, _)| b.total_cmp(a));
+        scored.truncate(top_k);
+        Ok(scored.into_iter().map(|(_, hit)| hit).collect())
+    }
+}
+
 /// Common English stop words filtered during tokenisation.
 const STOP_WORDS: &[&str] = &[
     "the", "and", "for", "are", "but", "not", "you", "all", "any", "can", "had", "her", "was",

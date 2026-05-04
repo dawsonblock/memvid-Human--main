@@ -636,6 +636,10 @@ impl ConsolidationEngine {
             top_k: 128,
             as_of: None,
             include_expired: true,
+            namespace_strict: false,
+            user_id: None,
+            project_id: None,
+            task_id: None,
         })?;
         let mut saw_semantic_match = false;
         for hit in hits {

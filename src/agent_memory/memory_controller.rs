@@ -9,6 +9,7 @@ use super::audit::AuditLogger;
 use super::belief_store::BeliefStore;
 use super::belief_updater::{BeliefUpdateOutcome, BeliefUpdater};
 use super::clock::Clock;
+use super::concept_synthesis::{ConceptSynthesizer, SynthesisResult};
 use super::consolidation_engine::{ConsolidationEngine, ConsolidationOutcome};
 use super::correction_store::CorrectionStore;
 use super::enums::{
@@ -23,6 +24,7 @@ use super::hybrid_retriever::HybridRetriever;
 use super::memory_classifier::MemoryClassifier;
 use super::memory_compactor::{CompactionMode, CompactionResult, MemoryCompactor};
 use super::memory_decay::MemoryDecay;
+use super::memory_feedback::{FeedbackSignal, MemoryFeedbackStore};
 use super::memory_promoter::MemoryPromoter;
 use super::memory_retriever::MemoryRetriever;
 use super::policy::ReasonCode;
@@ -47,6 +49,7 @@ pub struct MemoryController<S: MemoryStore> {
     consolidation_engine: ConsolidationEngine,
     correction_store: CorrectionStore,
     reasoning_engine: ReasoningEngine,
+    feedback_store: MemoryFeedbackStore,
 }
 
 enum SelfModelGovernanceDecision {
@@ -92,7 +95,23 @@ impl<S: MemoryStore> MemoryController<S> {
             consolidation_engine,
             correction_store: CorrectionStore::new(),
             reasoning_engine,
+            feedback_store: MemoryFeedbackStore::new(),
         }
+    }
+
+    /// Forward a dense-embedding provider to the underlying retriever.
+    ///
+    /// Only compiled when the `vec` feature is active — at other times the
+    /// method simply does not exist so callers must gate their usage with
+    /// `#[cfg(feature = "vec")]` as well.
+    #[cfg(feature = "vec")]
+    #[must_use]
+    pub fn with_embedder(
+        mut self,
+        provider: impl crate::agent_memory::embedding_provider::AgentEmbeddingProvider + 'static,
+    ) -> Self {
+        self.retriever = self.retriever.with_embedder(provider);
+        self
     }
 
     pub fn ingest(&mut self, candidate: CandidateMemory) -> Result<Option<String>> {
@@ -589,9 +608,25 @@ impl<S: MemoryStore> MemoryController<S> {
     }
 
     pub fn retrieve(&mut self, query: RetrievalQuery) -> Result<Vec<RetrievalHit>> {
-        let hits = self
+        let mut hits = self
             .retriever
             .retrieve(&mut self.store, &query, self.clock.as_ref())?;
+        // Apply per-memory feedback: filter suppressed, boost promoted.
+        let suppressed = self.feedback_store.all_suppressed();
+        let wrong = self.feedback_store.all_wrong();
+        hits.retain(|h| {
+            h.memory_id
+                .as_deref()
+                .map_or(true, |id| !suppressed.contains(&id) && !wrong.contains(&id))
+        });
+        let promoted = self.feedback_store.all_promoted();
+        for hit in &mut hits {
+            if let Some(id) = hit.memory_id.as_deref() {
+                if promoted.contains(&id) {
+                    hit.score += 0.2;
+                }
+            }
+        }
         let touched_memory_ids = self.touch_retrieved_memories(&hits)?;
         let touch_persistence_enabled = self.retrieval_touch_persistence_enabled();
         let mut details = BTreeMap::from([
@@ -638,6 +673,63 @@ impl<S: MemoryStore> MemoryController<S> {
     /// semantics. It shares the same optional retrieval-touch side effects as `retrieve`.
     pub fn retrieve_text(&mut self, query_text: impl Into<String>) -> Result<Vec<RetrievalHit>> {
         self.retrieve(RetrievalQuery::from_text(query_text))
+    }
+
+    /// Retrieves memories scoped to a specific project namespace.
+    /// Only hits whose `ns_project_id` metadata matches `project_id`
+    /// (or whose scope is [`Scope::Shared`]) are returned.
+    pub fn retrieve_scoped(
+        &mut self,
+        query_text: impl Into<String>,
+        scope: Scope,
+        project_id: impl Into<String>,
+    ) -> Result<Vec<RetrievalHit>> {
+        self.retrieve(RetrievalQuery::with_namespace(
+            query_text, scope, project_id,
+        ))
+    }
+
+    /// Record explicit feedback for a specific memory.
+    ///
+    /// - [`FeedbackSignal::Suppress`] and [`FeedbackSignal::Wrong`] exclude the
+    ///   memory from future `retrieve()` results in this session.
+    /// - [`FeedbackSignal::Promote`] adds +0.2 to the hit's score.
+    /// - [`FeedbackSignal::Wrong`] additionally marks the durable memory with
+    ///   `metadata["feedback_wrong"] = "true"` for downstream use.
+    pub fn record_memory_feedback(
+        &mut self,
+        memory_id: &str,
+        signal: FeedbackSignal,
+        context: Option<&str>,
+    ) -> Result<()> {
+        let now = self.clock.now();
+        if signal == FeedbackSignal::Wrong {
+            if let Some(mut memory) = self.store.get_memory(memory_id)? {
+                memory
+                    .metadata
+                    .insert("feedback_wrong".to_string(), "true".to_string());
+                // Advance updated_at by 1 ns past the stored version_timestamp so that
+                // latest_stored_memory always prefers this updated copy over the original,
+                // even when the controller clock is fixed at the same instant as stored_at.
+                memory.updated_at =
+                    Some(memory.version_timestamp() + chrono::Duration::nanoseconds(1));
+                self.store.put_memory(&memory)?;
+            }
+        }
+        self.feedback_store.record(memory_id, signal, context, now);
+        Ok(())
+    }
+
+    /// Run a concept-synthesis pass over the current store.
+    ///
+    /// Clusters belief-layer memories into concept nodes, builds entity profiles,
+    /// mines procedure sequences from tagged episodes, detects recurring slot→value
+    /// patterns, and produces project-scoped summaries.
+    ///
+    /// The pass is idempotent — calling it multiple times against the same store
+    /// state will not create duplicate concept memories.
+    pub fn run_synthesis(&mut self) -> Result<SynthesisResult> {
+        ConceptSynthesizer.synthesize(&mut self.store, self.clock.as_ref())
     }
 
     /// Returns a structured context packet with hits partitioned by memory layer

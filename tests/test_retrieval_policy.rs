@@ -97,6 +97,10 @@ fn current_fact_query_checks_belief_state_first() {
                 top_k: 3,
                 as_of: None,
                 include_expired: false,
+                namespace_strict: false,
+                user_id: None,
+                project_id: None,
+                task_id: None,
             },
             &FixedClock::new(ts(1_700_000_200)),
         )
@@ -170,6 +174,10 @@ fn noisy_support_evidence_does_not_displace_direct_belief_answer() {
                 top_k: 8,
                 as_of: None,
                 include_expired: false,
+                namespace_strict: false,
+                user_id: None,
+                project_id: None,
+                task_id: None,
             },
             &FixedClock::new(ts(1_700_000_200)),
         )
@@ -230,6 +238,10 @@ fn historical_fact_queries_prefer_episodes_and_prior_state_evidence() {
                 top_k: 4,
                 as_of: Some(ts(1_700_000_100)),
                 include_expired: false,
+                namespace_strict: false,
+                user_id: None,
+                project_id: None,
+                task_id: None,
             },
             &FixedClock::new(ts(1_700_000_200)),
         )
@@ -308,6 +320,10 @@ fn disputed_belief_surfaces_as_contested_current_fact_when_no_active_belief_exis
                 top_k: 4,
                 as_of: None,
                 include_expired: false,
+                namespace_strict: false,
+                user_id: None,
+                project_id: None,
+                task_id: None,
             },
             &FixedClock::new(ts(1_700_000_200)),
         )
@@ -384,6 +400,10 @@ fn score_breakdown_in_metadata_contains_all_named_factors() {
                 top_k: 1,
                 as_of: None,
                 include_expired: false,
+                namespace_strict: false,
+                user_id: None,
+                project_id: None,
+                task_id: None,
             },
             &FixedClock::new(ts(1_700_000_200)),
         )
@@ -446,6 +466,10 @@ fn score_breakdown_sums_to_final_score() {
                 top_k: 1,
                 as_of: None,
                 include_expired: false,
+                namespace_strict: false,
+                user_id: None,
+                project_id: None,
+                task_id: None,
             },
             &FixedClock::new(ts(1_700_000_100)),
         )
@@ -490,6 +514,10 @@ fn score_components_are_stable_across_runs() {
         top_k: 1,
         as_of: None,
         include_expired: false,
+        namespace_strict: false,
+        user_id: None,
+        project_id: None,
+        task_id: None,
     };
 
     let first = retriever
@@ -549,6 +577,10 @@ fn ranking_explanation_documents_why_answer_is_primary() {
                 top_k: 1,
                 as_of: None,
                 include_expired: false,
+                namespace_strict: false,
+                user_id: None,
+                project_id: None,
+                task_id: None,
             },
             &FixedClock::new(ts(1_700_000_100)),
         )
@@ -623,6 +655,10 @@ fn positive_belief_feedback_increases_current_fact_evidence_strength() {
         top_k: 1,
         as_of: None,
         include_expired: false,
+        namespace_strict: false,
+        user_id: None,
+        project_id: None,
+        task_id: None,
     };
 
     let positive_hits = retriever
@@ -703,6 +739,10 @@ fn procedure_lifecycle_penalty_appears_in_breakdown_for_cooling_down_procedure()
                 top_k: 3,
                 as_of: None,
                 include_expired: false,
+                namespace_strict: false,
+                user_id: None,
+                project_id: None,
+                task_id: None,
             },
             &FixedClock::new(ts(1_700_000_100)),
         )
@@ -777,6 +817,10 @@ fn recently_accessed_memory_ranks_above_equally_relevant_peer() {
                 top_k: 2,
                 as_of: None,
                 include_expired: false,
+                namespace_strict: false,
+                user_id: None,
+                project_id: None,
+                task_id: None,
             },
             &FixedClock::new(ts(1_700_000_100)),
         )
@@ -853,6 +897,10 @@ fn positive_outcome_feedback_ranks_memory_above_negative_peer() {
                 top_k: 2,
                 as_of: None,
                 include_expired: false,
+                namespace_strict: false,
+                user_id: None,
+                project_id: None,
+                task_id: None,
             },
             &FixedClock::new(ts(1_700_000_100)),
         )
@@ -905,6 +953,10 @@ fn preference_query_ranks_preference_memory_above_generic_semantic_hits() {
                 top_k: 3,
                 as_of: None,
                 include_expired: false,
+                namespace_strict: false,
+                user_id: None,
+                project_id: None,
+                task_id: None,
             },
             &FixedClock::new(ts(1_700_000_100)),
         )
@@ -945,6 +997,10 @@ fn blank_semantic_query_returns_no_hits_without_error() {
                 top_k: 3,
                 as_of: None,
                 include_expired: false,
+                namespace_strict: false,
+                user_id: None,
+                project_id: None,
+                task_id: None,
             },
             &FixedClock::new(ts(1_700_000_100)),
         )
@@ -1008,6 +1064,10 @@ fn task_query_ranks_goal_state_and_recent_episodes_above_background_text() {
                 top_k: 3,
                 as_of: None,
                 include_expired: false,
+                namespace_strict: false,
+                user_id: None,
+                project_id: None,
+                task_id: None,
             },
             &FixedClock::new(ts(1_700_000_100)),
         )
@@ -1124,6 +1184,10 @@ fn task_query_excludes_unaligned_episode_and_procedure_context() {
                 top_k: 5,
                 as_of: None,
                 include_expired: false,
+                namespace_strict: false,
+                user_id: None,
+                project_id: None,
+                task_id: None,
             },
             &FixedClock::new(ts(1_700_000_100)),
         )
@@ -1172,6 +1236,10 @@ fn preference_query_uses_direct_self_model_lookup_when_text_overlap_is_weak() {
                 top_k: 3,
                 as_of: None,
                 include_expired: false,
+                namespace_strict: false,
+                user_id: None,
+                project_id: None,
+                task_id: None,
             },
             &FixedClock::new(ts(1_700_000_100)),
         )
@@ -1241,6 +1309,10 @@ fn preference_query_returns_self_model_with_limited_support() {
                 top_k: 4,
                 as_of: None,
                 include_expired: false,
+                namespace_strict: false,
+                user_id: None,
+                project_id: None,
+                task_id: None,
             },
             &FixedClock::new(ts(1_700_000_100)),
         )
@@ -1324,6 +1396,10 @@ fn procedural_help_query_returns_direct_procedure_with_bounded_support() {
                 top_k: 5,
                 as_of: None,
                 include_expired: false,
+                namespace_strict: false,
+                user_id: None,
+                project_id: None,
+                task_id: None,
             },
             &FixedClock::new(ts(1_700_000_100)),
         )
@@ -1383,6 +1459,10 @@ fn preference_query_falls_back_to_search_when_self_model_store_is_empty() {
                 top_k: 3,
                 as_of: None,
                 include_expired: false,
+                namespace_strict: false,
+                user_id: None,
+                project_id: None,
+                task_id: None,
             },
             &FixedClock::new(ts(1_700_000_050)),
         )
@@ -1421,6 +1501,10 @@ fn task_query_uses_goal_state_store_when_text_overlap_is_weak() {
                 top_k: 3,
                 as_of: None,
                 include_expired: false,
+                namespace_strict: false,
+                user_id: None,
+                project_id: None,
+                task_id: None,
             },
             &FixedClock::new(ts(1_700_000_100)),
         )
@@ -1488,6 +1572,10 @@ fn task_query_deduplicates_supporting_and_recent_episode_hits() {
                 top_k: 5,
                 as_of: None,
                 include_expired: false,
+                namespace_strict: false,
+                user_id: None,
+                project_id: None,
+                task_id: None,
             },
             &FixedClock::new(ts(1_700_000_020)),
         )

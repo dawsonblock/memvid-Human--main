@@ -204,6 +204,10 @@ fn task_state_query_downranks_cooling_down_procedures_and_filters_retired_ones()
                 top_k: 5,
                 as_of: None,
                 include_expired: false,
+                namespace_strict: false,
+                user_id: None,
+                project_id: None,
+                task_id: None,
             },
             &FixedClock::new(ts(1_700_000_060)),
         )
@@ -600,6 +604,10 @@ fn controller_surfaces_failure_transition_reason_and_history_query() {
             top_k: 3,
             as_of: None,
             include_expired: false,
+            namespace_strict: false,
+            user_id: None,
+            project_id: None,
+            task_id: None,
         })
         .expect("history retrieval succeeds");
 

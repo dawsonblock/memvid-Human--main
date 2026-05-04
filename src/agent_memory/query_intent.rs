@@ -63,6 +63,10 @@ impl RetrievalQuery {
             top_k: 5,
             as_of: None,
             include_expired: false,
+            namespace_strict: false,
+            user_id: None,
+            project_id: None,
+            task_id: None,
         }
     }
 }

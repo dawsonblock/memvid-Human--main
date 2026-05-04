@@ -50,6 +50,10 @@ fn historical_query_as_of_time_returns_past_value_rather_than_current_belief() {
                 top_k: 3,
                 as_of: Some(ts(1_700_050_000)),
                 include_expired: false,
+                namespace_strict: false,
+                user_id: None,
+                project_id: None,
+                task_id: None,
             },
             &FixedClock::new(ts(1_700_200_000)),
         )
@@ -88,6 +92,10 @@ fn retrieval_touch_does_not_move_historical_visibility_window() {
             top_k: 1,
             as_of: None,
             include_expired: false,
+            namespace_strict: false,
+            user_id: None,
+            project_id: None,
+            task_id: None,
         })
         .expect("retrieval succeeds");
 
@@ -116,6 +124,10 @@ fn retrieval_touch_does_not_move_historical_visibility_window() {
             top_k: 1,
             as_of: Some(ts(1_700_050_000)),
             include_expired: false,
+            namespace_strict: false,
+            user_id: None,
+            project_id: None,
+            task_id: None,
         })
         .expect("historical retrieval succeeds");
 
@@ -169,6 +181,10 @@ fn multiple_access_touches_preserve_historical_visibility() {
                 top_k: 1,
                 as_of: Some(ts(1_700_010_000)),
                 include_expired: false,
+                namespace_strict: false,
+                user_id: None,
+                project_id: None,
+                task_id: None,
             },
             &FixedClock::new(ts(1_700_200_000)),
         )

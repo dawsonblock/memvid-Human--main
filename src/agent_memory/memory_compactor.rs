@@ -19,6 +19,10 @@ pub enum CompactionMode {
     /// Promote high-confidence Trace-layer memories to the Episode layer and expire
     /// the originating traces.
     Distill,
+    /// Run the concept-synthesis pass: cluster beliefs into concept nodes, build
+    /// entity profiles, mine procedure sequences, detect recurring patterns, and
+    /// produce project-scoped summaries.
+    Synthesize,
 }
 
 impl Default for CompactionMode {
@@ -56,6 +60,20 @@ impl MemoryCompactor {
             CompactionMode::Dedupe => self.compact_dedupe(store),
             CompactionMode::Summarize => self.compact_summarize(store, clock),
             CompactionMode::Distill => self.compact_distill(store, clock),
+            CompactionMode::Synthesize => {
+                use super::concept_synthesis::ConceptSynthesizer;
+                let synthesis = ConceptSynthesizer.synthesize(store, clock)?;
+                Ok(CompactionResult {
+                    mode: CompactionMode::Synthesize,
+                    summaries_created: synthesis.concepts_created
+                        + synthesis.profiles_updated
+                        + synthesis.procedures_mined
+                        + synthesis.patterns_found
+                        + synthesis.project_summaries,
+                    created_memory_ids: synthesis.created_memory_ids,
+                    ..Default::default()
+                })
+            }
         }
     }
 

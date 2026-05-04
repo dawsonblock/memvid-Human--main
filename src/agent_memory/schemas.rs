@@ -843,6 +843,41 @@ pub struct RetrievalQuery {
     pub top_k: usize,
     pub as_of: Option<DateTime<Utc>>,
     pub include_expired: bool,
+    /// When `true`, hits whose namespace metadata (`ns_project_id`, `ns_user_id`,
+    /// `ns_task_id`) does not match the query namespace fields are excluded.
+    /// Hits with `Scope::Shared` always pass regardless.
+    #[serde(default)]
+    pub namespace_strict: bool,
+    pub user_id: Option<String>,
+    pub project_id: Option<String>,
+    pub task_id: Option<String>,
+}
+
+impl RetrievalQuery {
+    /// Build a namespace-scoped query. Sets `namespace_strict = true` and
+    /// pre-fills `project_id` so that only memories belonging to `project_id`
+    /// (or marked `Scope::Shared`) are returned.
+    #[must_use]
+    pub fn with_namespace(
+        query_text: impl Into<String>,
+        scope: Scope,
+        project_id: impl Into<String>,
+    ) -> Self {
+        Self {
+            query_text: query_text.into(),
+            intent: QueryIntent::CurrentFact,
+            entity: None,
+            slot: None,
+            scope: Some(scope),
+            top_k: 10,
+            as_of: None,
+            include_expired: false,
+            namespace_strict: true,
+            user_id: None,
+            project_id: Some(project_id.into()),
+            task_id: None,
+        }
+    }
 }
 
 /// External outcome signal attached to a memory id or workflow key.

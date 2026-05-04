@@ -49,6 +49,10 @@ fn retrieve_text_is_convenience_over_typed_retrieval() {
             top_k: 5,
             as_of: None,
             include_expired: false,
+            namespace_strict: false,
+            user_id: None,
+            project_id: None,
+            task_id: None,
         })
         .expect("typed retrieval succeeds");
 
