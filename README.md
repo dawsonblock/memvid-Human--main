@@ -289,11 +289,14 @@ audits every memory candidate before storage. Typed retrieval through `Retrieval
 canonical read path; `MemoryController::retrieve_text(...)` and `RetrievalQuery::from_text(...)`
 are convenience helpers for obvious text-only queries, not the authoritative semantic router.
 Durable memories now preserve immutable ingest time separately from mutable update/access time.
-Retrieval-touch persistence is explicit policy: `PolicySet` defaults `persist_retrieval_touches` to
-enabled, so retrieval may append durable access-touch records and update effective
-`retrieval_count`/`last_accessed_at`; callers can disable that policy without changing retrieval
-results. Access-touch history remains append-only today — there is no logical rollup or compaction
-pass for those records. `MemoryController::run_maintenance()` is the explicit, caller-driven
+Retrieval-touch persistence is explicit opt-in policy: `PolicySet` defaults
+`persist_retrieval_touches` to **false**, so retrieval is read-only by default and never appends
+durable access-touch records or updates `retrieval_count`/`last_accessed_at` unless the caller
+explicitly enables it via `PolicySet::with_persist_retrieval_touches(true)` (and similarly
+`MemvidStore::with_access_touch_persistence(memvid, true)` for the production store). Historical
+queries (`RetrievalQuery { as_of: Some(t), .. }`) never touch regardless of policy. Access-touch
+history remains append-only today — there is no logical rollup or compaction pass for those
+records. `MemoryController::run_maintenance()` is the explicit, caller-driven
 maintenance entrypoint: it lists current durable memories, runs `MemoryDecay`, emits a maintenance
 audit event, returns expired ids, and reports `MemoryCompactor` as unsupported together with its
 unsupported reason. See

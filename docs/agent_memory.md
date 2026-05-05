@@ -322,10 +322,12 @@ effective salience used by ranking. Read touches do not rewrite immutable ingest
 memories now keep `stored_at` as ingest chronology, `updated_at` as mutable version/activity time,
 and event/history time separately. The visible score surface stays the same: the `salience`
 component now reflects both write-time salience and bounded repeated-recall boosts.
-That read-side write behavior is explicit policy rather than an implicit cost:
-`PolicySet::persist_retrieval_touches()` defaults to `true`, so retrieval persists durable
-access-touch records unless a caller disables it. When disabled, typed retrieval behavior and
-returned hits stay the same, but retrieval does not append durable access-touch records.
+That read-side write behavior is explicit opt-in policy rather than an implicit cost:
+`PolicySet::persist_retrieval_touches()` defaults to `false`, so retrieval is read-only by default
+and does not append durable access-touch records unless the caller enables opt-in via
+`PolicySet::with_persist_retrieval_touches(true)`. Historical queries (`as_of` set) never touch
+regardless of policy. When touch is disabled, typed retrieval behavior and returned hits stay the
+same, but retrieval does not append durable access-touch records.
 
 Phase 6 extends that same controller-owned retrieval and feedback path with explicit outcome feedback.
 External callers can now attach positive or negative feedback to a durable memory id or

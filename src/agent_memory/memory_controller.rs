@@ -665,7 +665,7 @@ impl<S: MemoryStore> MemoryController<S> {
                 }
             }
         }
-        let touched_memory_ids = self.touch_retrieved_memories(&hits)?;
+        let touched_memory_ids = self.touch_retrieved_memories(&hits, query.as_of)?;
         let touch_persistence_enabled = self.retrieval_touch_persistence_enabled();
         let mut details = BTreeMap::from([
             (
@@ -1268,7 +1268,14 @@ impl<S: MemoryStore> MemoryController<S> {
         self.store.update_belief(&belief)
     }
 
-    fn touch_retrieved_memories(&mut self, hits: &[RetrievalHit]) -> Result<Vec<String>> {
+    fn touch_retrieved_memories(
+        &mut self,
+        hits: &[RetrievalHit],
+        as_of: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Result<Vec<String>> {
+        if as_of.is_some() {
+            return Ok(Vec::new());
+        }
         if !self.retrieval_touch_persistence_enabled() {
             return Ok(Vec::new());
         }

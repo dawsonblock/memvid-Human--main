@@ -48,7 +48,7 @@ impl Default for PolicySet {
             belief_stability_min_days: 3,
             trusted_belief_source_weight: 0.8,
             trusted_self_model_source_weight: 0.9,
-            persist_retrieval_touches: true,
+            persist_retrieval_touches: false,
         }
     }
 }

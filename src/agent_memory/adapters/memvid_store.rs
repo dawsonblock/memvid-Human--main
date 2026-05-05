@@ -663,7 +663,7 @@ pub struct MemvidStore {
 impl MemvidStore {
     #[must_use]
     pub fn new(memvid: Memvid) -> Self {
-        Self::with_access_touch_persistence(memvid, true)
+        Self::with_access_touch_persistence(memvid, false)
     }
 
     #[must_use]

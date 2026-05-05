@@ -6,7 +6,7 @@ LABEL org.opencontainers.image.description="AI memory CLI with semantic search"
 LABEL org.opencontainers.image.url="https://memvid.com"
 LABEL org.opencontainers.image.source="https://github.com/memvid/memvid"
 LABEL org.opencontainers.image.vendor="Memvid"
-LABEL org.opencontainers.image.version="2.0.131"
+LABEL org.opencontainers.image.version="2.0.139"
 
 # Install system deps + Node.js 24
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -17,8 +17,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-# Install memvid CLI (pinned version)
-RUN npm install -g memvid-cli@latest \
+# EXTERNAL COMPONENT: memvid-cli is an npm package maintained separately from this crate.
+# The version pin below must match org.opencontainers.image.version above and Cargo.toml.
+# Run scripts/check_version_consistency.py to verify all three stay in sync.
+RUN npm install -g memvid-cli@2.0.139 \
     && npm cache clean --force
 
 # Create non-root user (recommended)

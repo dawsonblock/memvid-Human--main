@@ -73,7 +73,10 @@ fn ingest_low_trust_fact_preserves_episode_evidence_without_promoting_truth() {
 
 #[test]
 fn ingest_verified_fact_promotes_belief_and_audits_route() {
-    let (mut controller, sink) = controller(ts(1_700_000_000));
+    let (mut controller, sink) = controller_with_policy(
+        ts(1_700_000_000),
+        PolicySet::default().with_persist_retrieval_touches(true),
+    );
     let mut verified = candidate(
         "user",
         "location",
@@ -174,7 +177,10 @@ fn ingest_verified_fact_promotes_belief_and_audits_route() {
 fn retrieval_touches_returned_memories_and_persists_access_metadata() {
     let stored_at = ts(1_700_000_000);
     let now = ts(1_700_000_100);
-    let (mut controller, sink) = controller(now);
+    let (mut controller, sink) = controller_with_policy(
+        now,
+        PolicySet::default().with_persist_retrieval_touches(true),
+    );
     let memory = durable(
         "user",
         "favorite_editor",
@@ -711,7 +717,7 @@ fn retrieval_batches_access_touches_once_per_operation() {
     let now = ts(1_700_000_180);
     let sink = InMemoryAuditSink::default();
     let clock = Arc::new(FixedClock::new(now));
-    let policy = PolicySet::default();
+    let policy = PolicySet::default().with_persist_retrieval_touches(true);
     let first = durable(
         "user",
         "favorite_editor",

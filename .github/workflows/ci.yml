@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
   pull_request:
-    branches: [main]
+    branches: [ main ]
 
 env:
   CARGO_TERM_COLOR: always
@@ -16,8 +16,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        rust: [stable]
+        os: [ ubuntu-latest, macos-latest, windows-latest ]
+        rust: [ stable ]
 
     steps:
       - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
@@ -36,13 +36,15 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-${{ matrix.rust }}-default-profile-${{ hashFiles('**/Cargo.toml') }}
+          key: ${{ runner.os }}-${{ matrix.rust }}-default-profile-${{
+            hashFiles('**/Cargo.toml') }}
 
       - name: Build default profile
         run: cargo build --verbose --features "lex,pdf_extract,simd"
 
       - name: Run default profile tests
-        run: cargo test --verbose --features "lex,pdf_extract,simd" ${{ runner.os == 'Windows' && '-- --test-threads=1' || '' }}
+        run: cargo test --verbose --features "lex,pdf_extract,simd" ${{ runner.os ==
+          'Windows' && '-- --test-threads=1' || '' }}
 
   test-minimal-kernel:
     name: Test minimal kernel
@@ -115,3 +117,12 @@ jobs:
 
       - name: Clippy
         run: cargo clippy -- -D warnings -A clippy::non_std_lazy_statics
+
+  version-consistency:
+    name: Version consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Check version consistency (Cargo.toml ↔ Dockerfile label ↔ npm pin)
+        run: python3 scripts/check_version_consistency.py
