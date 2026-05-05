@@ -523,3 +523,15 @@ kind = "expect"
 snippet_contains = "checked above"
 rationale = "Option was verified to be Some by an explicit check immediately preceding this call; None is structurally impossible."
 remediation = "Restructure to pass the unwrapped value directly from the check arm."
+
+# ===========================================================================
+# src/io/temporal_index.rs
+# ===========================================================================
+
+[[allow]]
+id = "temporal-index-checksum-try-into"
+file = "src/io/temporal_index.rs"
+kind = "unwrap"
+snippet_contains = ".unwrap();"
+rationale = "Chained .try_into().unwrap() across lines; converting header[CHECKSUM_OFFSET..CHECKSUM_OFFSET+32] into [u8;32] is infallible because the slice is exactly 32 bytes wide (compile-time constant range validated by HEADER_SIZE)."
+remediation = "Combine onto one line as .try_into().unwrap() or add .expect() with a descriptive message."

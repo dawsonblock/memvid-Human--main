@@ -1,6 +1,6 @@
 # Panic / Unwrap Audit — memvid-core v2.0.139
 
-**Audit date:** 2026-05-04  
+**Audit date:** 2026-05-05  
 **Auditor:** governance-automation  
 **Crate:** `memvid-core` v2.0.139 (MSRV 1.85.0, edition 2024)  
 **Scope:** `src/**/*.rs` — production code only; test sites are classified separately  
@@ -12,14 +12,22 @@
 
 No unallowlisted production panic sites were found.  All 648 detected
 panic-family lines fall into one of three buckets: **test-only** (the vast
-majority), **allowlisted production** (124 sites across 44 allowlist entries),
+majority), **allowlisted production** (129 sites across 50 allowlist entries),
 or **review-flagged** (0).  The codebase has zero calls to `unimplemented!()`.
 
 | Verdict | Count |
 |---------|-------|
 | Unallowlisted production panic sites | **0** |
-| Allowlisted production sites | 124 |
-| Test-only sites | 524 |
+| Allowlisted production sites | 129 |
+| Test-only sites | 519 |
+
+> **Classifier note (2026-05-05):** The test-scope heuristic was upgraded from
+> a first-boundary scan to a brace-depth-aware algorithm.  Previously, the first
+> `#[cfg(test)]` marker in a file incorrectly classified all subsequent lines as
+> test-only regardless of enclosing braces.  The corrected classifier reduced the
+> test bucket from 524 → 519 (5 lines re-classified) and increased the allowlisted
+> bucket from 124 → 129 (the newly visible production sites already had correct
+> allowlist entries or were added in this revision).
 
 ---
 
@@ -70,7 +78,7 @@ All production panic-family sites match an approved category in
 
 | File | Count | Category | Notes |
 |------|-------|----------|-------|
-| `src/io/temporal_index.rs` | 9 | `byte-slice-to-array` | `try_into().unwrap()` on fixed-length slices; length guaranteed by `SLOT_BYTES` constant |
+| `src/io/temporal_index.rs` | 10 | `byte-slice-to-array`, `temporal-index-checksum-try-into` | `try_into().unwrap()` on fixed-length slices; length guaranteed by `SLOT_BYTES` / `HEADER_SIZE` constants.  One site uses a multi-line chain (`.try_into()` on one line, `.unwrap()` on the next) and is covered by the dedicated `temporal-index-checksum-try-into` allowlist entry. |
 | `src/analysis/temporal.rs` | ~20 | `regex-literal`, `regex-literal-init`, `date-from-valid-args`, `temporal-checked-add`, `temporal-month-bounded`, `temporal-time-from-hms` | Regex literals (incl. multi-line `.expect("regex literal")` form); calendar arithmetic with bounded operands |
 | `src/analysis/auto_tag.rs` | 2 | `regex-literal` | Multi-line `Regex::new(…).expect("regex literal")` inside `LazyLock::new` |
 | `src/text_embed.rs` | 1 | `static-config-sentinel` | `.expect("No default text embedding model configured")` on a file-local static table |
@@ -303,8 +311,18 @@ python3 scripts/audit_panics.py --allowlist tools/panic_allowlist.toml --strict
 
 **Audit result: PASS.**  
 memvid-core v2.0.139 contains zero unallowlisted production panic sites.
-All 124 production uses of `unwrap()`, `expect()`, `unreachable!()` have been
-reviewed and documented across 44 allowlist entries in
+All 129 production uses of `unwrap()`, `expect()`, `unreachable!()` have been
+reviewed and documented across 50 allowlist entries in
 `tools/panic_allowlist.toml`.  The `scripts/audit_panics.py --strict` gate is
 run in CI (`.github/workflows/ci.yml` `panic-audit` job) to prevent
 regressions.  Output is archived as `artifacts/audits/panic_report.tsv`.
+
+The audit script was also upgraded in this revision:
+- **Brace-aware test-scope classifier** — `#[cfg(test)]` / `#[test]` scopes are
+  now tracked with brace-depth counting, preventing false classification of
+  production code that follows a closed test module.
+- **`--src DIR` flag** — allows targeting an alternative source tree without
+  modifying the script.
+- **Multi-match per line** — both `.unwrap()` and `panic!` on the same source
+  line are now each reported as separate findings (previously only the first
+  matching pattern was emitted).

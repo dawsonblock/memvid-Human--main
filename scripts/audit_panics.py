@@ -2,7 +2,7 @@
 """audit_panics.py — Scan src/**/*.rs for panic-family macros and classify them.
 
 Usage:
-  python3 scripts/audit_panics.py [--strict] [--out FILE] [--allowlist FILE] [--format tsv|json]
+  python3 scripts/audit_panics.py [--strict] [--out FILE] [--allowlist FILE] [--format tsv|json] [--src DIR]
 
 Options:
   --strict          Exit 1 if any 'review' finding exists or if the allowlist fails to parse.
@@ -14,11 +14,12 @@ Output columns (TSV):
   file  line  kind  snippet  classification
 
 Classification values:
-  test        — line is inside or after the first #[cfg(test)] / #[test] boundary in the file
+  test        — line is inside a #[cfg(test)] or #[test] scoped block (brace-aware)
   allowlisted — matches an approved entry in the allowlist TOML
   review      — production site that requires manual review
 
-Note: Only the FIRST matching panic-family kind on each line is reported.
+Note: All matching panic-family kinds on each line are reported; a line with both
+      .unwrap() and panic! emits two rows.
       Lines whose non-whitespace content starts with '//' are skipped (comments).
 
 Requires Python 3.11+.
@@ -56,11 +57,46 @@ _PATTERNS: list[tuple[str, re.Pattern[str]]] = [
 # module-level doc comments (//!).
 _COMMENT_RE = re.compile(r"^\s*//")
 
-# Test-boundary markers: when either pattern matches a line, every subsequent
-# line in the same file is classified as "test".
+# Test-boundary markers: either pattern marks the start of a test-scoped block.
 _TEST_BOUNDARY_RE = re.compile(
     r"#\s*\[\s*cfg\s*\(\s*test\s*\)\s*\]" r"|" r"#\s*\[\s*test\s*\]"
 )
+
+
+def _build_test_scope_set(lines: list[str]) -> frozenset[int]:
+    """Return 0-based line indices inside #[cfg(test)] or #[test] scoped blocks.
+
+    Uses a simple brace-counting heuristic (str.count('{') / str.count('}'));
+    accurate for well-formed Rust but may misclassify lines with braces in
+    strings or comments.
+    """
+    in_test_scope: set[int] = set()
+    pending_test = False  # saw marker, waiting for opening brace
+    test_entry_depth: int | None = None
+    depth = 0
+
+    for i, line in enumerate(lines):
+        if _TEST_BOUNDARY_RE.search(line):
+            pending_test = True
+            in_test_scope.add(i)
+
+        opens = line.count("{")
+        closes = line.count("}")
+
+        if pending_test and opens > 0:
+            test_entry_depth = depth
+            pending_test = False
+            in_test_scope.add(i)
+
+        if test_entry_depth is not None:
+            in_test_scope.add(i)
+
+        depth += opens - closes
+
+        if test_entry_depth is not None and depth <= test_entry_depth:
+            test_entry_depth = None
+
+    return frozenset(in_test_scope)
 
 
 # ---------------------------------------------------------------------------
@@ -193,13 +229,7 @@ def _scan_file(
         print(f"WARNING: could not read {rs_file}: {exc}", file=sys.stderr)
         return []
 
-    # Determine the first test-boundary line (0-based index).
-    test_boundary: int | None = None
-    for i, line in enumerate(lines):
-        if _TEST_BOUNDARY_RE.search(line):
-            test_boundary = i
-            break
-
+    test_scope = _build_test_scope_set(lines)
     findings: list[Finding] = []
 
     for i, line in enumerate(lines):
@@ -207,33 +237,28 @@ def _scan_file(
         if _COMMENT_RE.match(line):
             continue
 
-        # Check each pattern (first match wins)
-        matched_kind: str | None = None
+        # Check all patterns — emit one Finding per matched kind
         for kind, pat in _PATTERNS:
-            if pat.search(line):
-                matched_kind = kind
-                break
+            if not pat.search(line):
+                continue
 
-        if matched_kind is None:
-            continue
+            # Classify
+            if i in test_scope:
+                classification = "test"
+            elif _is_allowlisted(rel, kind, line, entries):
+                classification = "allowlisted"
+            else:
+                classification = "review"
 
-        # Classify
-        if test_boundary is not None and i >= test_boundary:
-            classification = "test"
-        elif _is_allowlisted(rel, matched_kind, line, entries):
-            classification = "allowlisted"
-        else:
-            classification = "review"
-
-        findings.append(
-            Finding(
-                file=rel,
-                line=i + 1,
-                kind=matched_kind,
-                snippet=line.rstrip("\r\n"),
-                classification=classification,
+            findings.append(
+                Finding(
+                    file=rel,
+                    line=i + 1,
+                    kind=kind,
+                    snippet=line.rstrip("\r\n"),
+                    classification=classification,
+                )
             )
-        )
 
     return findings
 
@@ -310,6 +335,11 @@ def _build_parser() -> argparse.ArgumentParser:
         default="tsv",
         help="Output format (default: tsv)",
     )
+    p.add_argument(
+        "--src",
+        metavar="DIR",
+        help="Source directory to scan (default: <repo>/src)",
+    )
     return p
 
 
@@ -317,7 +347,7 @@ def main() -> None:
     args = _build_parser().parse_args()
 
     repo_root = Path(__file__).resolve().parent.parent
-    src_root = repo_root / "src"
+    src_root = Path(args.src) if args.src else repo_root / "src"
 
     allowlist_path = (
         Path(args.allowlist)

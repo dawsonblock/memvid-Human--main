@@ -377,3 +377,53 @@ def test_isolated_malformed_toml_fails(tmp_path):
         cwd=str(REPO_ROOT),
     )
     assert result.returncode != 0, "Malformed TOML allowlist must cause non-zero exit"
+
+
+def test_isolated_malformed_toml_direct(tmp_path):
+    """_parse_allowlist() must raise SystemExit on malformed TOML."""
+    bad = tmp_path / "bad.toml"
+    bad.write_text("this is not valid toml ][[\n", encoding="utf-8")
+    with pytest.raises(SystemExit):
+        _audit_mod._parse_allowlist(bad)
+
+
+def test_isolated_prod_after_test_module_is_review(tmp_path):
+    """Production unwrap after a test module must be classified 'review', not 'test'."""
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "lib.rs").write_text(
+        "#[cfg(test)]\nmod tests {\n"
+        "    fn t() { let _: Option<i32> = None; let _ = Some(1).unwrap(); }\n"
+        "}\n"
+        "pub fn prod() { let _ = Some(2).unwrap(); }\n",
+        encoding="utf-8",
+    )
+    allowlist = tmp_path / "allow.toml"
+    allowlist.write_text("[meta]\nversion = 1\n\n", encoding="utf-8")
+    findings, _ = _audit_mod.scan(src, allowlist)
+    test_cls = [f for f in findings if f["classification"] == "test"]
+    review_cls = [f for f in findings if f["classification"] == "review"]
+    assert (
+        len(test_cls) >= 1
+    ), f"Expected test finding inside cfg(test) block: {findings}"
+    assert (
+        len(review_cls) >= 1
+    ), f"Expected review finding for prod() after test module: {findings}"
+
+
+def test_isolated_multiple_panics_per_line(tmp_path):
+    """Both unwrap and panic! on the same line must both be reported."""
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "lib.rs").write_text(
+        'pub fn foo() { Some(1).unwrap(); panic!("x"); }\n',
+        encoding="utf-8",
+    )
+    allowlist = tmp_path / "allow.toml"
+    allowlist.write_text("[meta]\nversion = 1\n\n", encoding="utf-8")
+    findings, _ = _audit_mod.scan(src, allowlist)
+    assert (
+        len(findings) >= 2
+    ), f"Expected at least 2 findings (unwrap + panic), got: {findings}"
+    line_nums = {f["line"] for f in findings}
+    assert len(line_nums) == 1, f"Both findings must be on the same line: {findings}"
