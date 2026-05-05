@@ -14,7 +14,7 @@ on:
     - cron: '31 1 * * 0'
 
 jobs:
-  lint:
+  devskim:
     name: DevSkim
     runs-on: ubuntu-latest
     permissions:
