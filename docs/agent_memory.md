@@ -2,7 +2,7 @@
 
 `src/agent_memory` is a bounded, policy-governed layer built on top of `Memvid`. It does not add
 new storage backends or widen the architecture. It adds deterministic routing, promotion,
-consolidation, retrieval, retention, and audit behavior around six internal layers.
+consolidation, retrieval, retention, and audit behavior around seven internal layers.
 
 This subsystem is always compiled and is part of the supported public surface of `memvid-core`.
 The canonical entry point is `MemoryController`; lower-level stores and helpers remain public for
@@ -54,6 +54,7 @@ Public memory types map to internal storage layers as follows:
 | `GoalState` | Active tasks, blockers, and waiting states | Latest logical record per `(entity, slot)`; active reads keep only current active or blocked states | TTL 14 days, decay 0.03/day |
 | `SelfModel` | Durable preferences, constraints, and operating traits | One logical trait per `(entity, slot)`; repetition reinforces instead of duplicating | No default TTL, decay 0.002/day |
 | `Procedure` | Reusable workflows and operational habits | One logical procedure per `workflow_key`; lifecycle can be `active`, `cooling_down`, or `retired` | TTL 90 days, decay 0.01/day |
+| `Correction` | Explicit corrections to prior beliefs | Always bypasses the eligibility gate; route basis `correction_bypass`; 1.1× retrieval scoring multiplier | TTL 30 days, decay 0.04/day |
 
 ## Policy-Backed Thresholds
 
@@ -377,11 +378,14 @@ maintenance does not roll it up, supersede it, or claim logical compaction.
 - lists the current durable memories that governed maintenance can act on
 - runs `MemoryDecay`
 - returns the expired ids
-- reports `MemoryCompactor` status as unsupported together with the stable unsupported reason
+- runs `MemoryCompactor` (active, modes: `Dedupe`, `Summarize`, `Distill`, `Synthesize`)
 - emits a `maintenance` audit event through the same append-only audit sink used for other major controller operations
 
-`MemoryCompactor` is still an explicit stub; `Memvid` owns low-level storage compaction and
-governed memory does not currently add a separate logical compaction pass.
+`MemoryCompactor` is active. It reports `status() → "active"` and supports four compaction modes:
+`Dedupe` (remove duplicate or near-duplicate memories), `Summarize` (collapse episode clusters into
+a single representative summary), `Distill` (extract high-confidence facts from episode evidence),
+and `Synthesize` (merge related beliefs into a unified view). `Memvid` owns low-level storage
+compaction; `MemoryCompactor` adds the governed logical compaction pass on top of that.
 
 There is no hidden background maintenance loop in `MemoryController`.
 

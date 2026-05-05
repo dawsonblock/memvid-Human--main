@@ -84,7 +84,7 @@ let clock = Arc::new(SystemClock);
 let controller = MemoryController::new(
     store,
     clock.clone(),
-    AuditLogger::new(clock.clone()),
+    AuditLogger::new(clock.clone(), Arc::new(InMemoryAuditSink::default())),
     MemoryClassifier,
     MemoryPromoter::new(policy.clone()),
     BeliefUpdater,

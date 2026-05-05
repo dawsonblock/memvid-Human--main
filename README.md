@@ -21,7 +21,7 @@
 | Surface | Entry point | Notes |
 |---|---|---|
 | **Storage kernel** | `Memvid` | WAL-backed writes, BM25 + HNSW search, timeline queries, encryption |
-| **Agent memory** | `agent_memory::MemoryController` | Policy-governed six-layer bounded memory built on the storage kernel |
+| **Agent memory** | `agent_memory::MemoryController` | Policy-governed seven-layer bounded memory built on the storage kernel |
 
 The crate is synchronous, single-file first, and has no required network dependency. The `.mv2` format is fully specified in [MV2_SPEC.md](MV2_SPEC.md).
 
@@ -258,7 +258,7 @@ The `encryption` feature wraps a `.mv2` file into a password-protected `.mv2e` c
 | `RetrievalQuery` | Query contract for agent-memory retrieval |
 | `PolicySet` | Thresholds and semantic governance knobs |
 
-### Six-layer memory architecture
+### Seven-layer memory architecture
 
 | Layer | Purpose |
 |---|---|
@@ -268,6 +268,7 @@ The `encryption` feature wraps a `.mv2` file into a password-protected `.mv2e` c
 | `GoalState` | Active task objectives and their status |
 | `SelfModel` | Agent self-description and capability model |
 | `Procedure` | Learned procedural knowledge with lifecycle governance |
+| `Correction` | Explicit corrections to prior beliefs; bypasses eligibility gate; 1.1× retrieval score; TTL 30 days, decay 0.04/day |
 
 ### Key behaviours
 
