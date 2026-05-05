@@ -69,7 +69,7 @@ python3 scripts/audit_panics.py --out artifacts/audits/panic_report.tsv
 ```
 
 Approved production sites are recorded in `tools/panic_allowlist.toml`
-(44 entries as of v2.0.139).  Add new entries there whenever a
+(50 entries as of v2.0.139).  Add new entries there whenever a
 legitimate panic site would otherwise block `--strict`.
 
 The `panic-audit` CI job runs `--strict` on every push and uploads
