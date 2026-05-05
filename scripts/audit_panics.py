@@ -41,7 +41,7 @@ import tomllib
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
-# Pattern definitions — checked in order; first match per line wins.
+# Pattern definitions — all matching patterns on a line are reported.
 # ---------------------------------------------------------------------------
 _PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("unwrap", re.compile(r"\.unwrap\s*\(\s*\)")),
@@ -69,9 +69,16 @@ def _build_test_scope_set(lines: list[str]) -> frozenset[int]:
     Uses a simple brace-counting heuristic (str.count('{') / str.count('}'));
     accurate for well-formed Rust but may misclassify lines with braces in
     strings or comments.
+
+    Scoping rules:
+    - Braced items (mod, fn, impl …): the attribute scopes the entire braced
+      body; tracking ends when brace depth returns to the pre-opening level.
+    - Non-braced items (use, const, static, type, extern crate …): only the
+      attribute line(s) and the item line itself (ending in ';') are scoped.
+      The next item is NOT considered test-scoped.
     """
     in_test_scope: set[int] = set()
-    pending_test = False  # saw marker, waiting for opening brace
+    pending_test = False  # saw marker, waiting for opening brace or ';'
     test_entry_depth: int | None = None
     depth = 0
 
@@ -83,10 +90,22 @@ def _build_test_scope_set(lines: list[str]) -> frozenset[int]:
         opens = line.count("{")
         closes = line.count("}")
 
-        if pending_test and opens > 0:
-            test_entry_depth = depth
-            pending_test = False
-            in_test_scope.add(i)
+        if pending_test:
+            if opens > 0:
+                # Braced item (mod tests { … }, fn … { … }, impl … { … })
+                # Track until the matching close brace.
+                test_entry_depth = depth
+                pending_test = False
+                in_test_scope.add(i)
+            elif ";" in line:
+                # Non-braced item ends here (use …; const …; static …; type …;)
+                # Scope only this line — do NOT let pending_test bleed further.
+                in_test_scope.add(i)
+                pending_test = False
+            else:
+                # Continuation: attribute/item spanning multiple lines before
+                # the first '{' or ';'.  Keep pending_test=True and mark line.
+                in_test_scope.add(i)
 
         if test_entry_depth is not None:
             in_test_scope.add(i)

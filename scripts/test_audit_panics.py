@@ -427,3 +427,20 @@ def test_isolated_multiple_panics_per_line(tmp_path):
     ), f"Expected at least 2 findings (unwrap + panic), got: {findings}"
     line_nums = {f["line"] for f in findings}
     assert len(line_nums) == 1, f"Both findings must be on the same line: {findings}"
+
+
+def test_isolated_cfg_test_non_braced_item_does_not_bleed(tmp_path):
+    """#[cfg(test)] on a non-braced item must not classify the next production item as test."""
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "lib.rs").write_text(
+        "#[cfg(test)] const X: i32 = 1;\n" "pub fn prod() { Some(1).unwrap(); }\n",
+        encoding="utf-8",
+    )
+    allowlist = tmp_path / "allow.toml"
+    allowlist.write_text("[meta]\nversion = 1\n\n", encoding="utf-8")
+    findings, _ = _audit_mod.scan(src, allowlist)
+    review_cls = [f for f in findings if f["classification"] == "review"]
+    assert (
+        len(review_cls) >= 1
+    ), f"prod() unwrap after non-braced cfg(test) must be 'review', not 'test': {findings}"
