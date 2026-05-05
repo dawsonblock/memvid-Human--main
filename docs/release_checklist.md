@@ -179,8 +179,13 @@ git push origin main --tags
 The signed tag triggers:
 - **`ci.yml`** — full test matrix
 - **`docker-release.yml`** — Docker image `memvid/cli:X.Y.Z` on Docker Hub
+
+After pushing the tag, create a GitHub Release in the web UI (or via
+`gh release create vX.Y.Z`). Creating the Release triggers:
 - **`generator-generic-ossf-slsa3-publish.yml`** — SLSA Level 3 provenance
   artifact attached to the GitHub Release
+  (also triggerable via `workflow_dispatch` for re-attestation without a
+  new release)
 
 ### 6.3 Dry-run publish
 
@@ -205,7 +210,7 @@ cargo publish
 - [ ] Verify Docker image is available:
 
   ```bash
-  docker pull ghcr.io/<org>/memvid-core:X.Y.Z
+  docker pull memvid/cli:X.Y.Z
   ```
 
 - [ ] Verify SLSA provenance attestation is attached to the GitHub Release
@@ -235,5 +240,5 @@ If a critical bug is discovered within 24 h of a release:
 | `lint` | push / PR | `cargo clippy --all-targets --features "lex,pdf_extract,simd" -- -D warnings` |
 | `version-consistency` | push / PR | `python3 scripts/check_version_consistency.py` |
 | `panic-audit` | push / PR | `python3 scripts/audit_panics.py --strict` |
-| `docker-release` | tag `v*` | Docker build + push to GHCR |
-| `ossf-slsa3` | tag `v*` | SLSA Level 3 provenance generation |
+| `docker-release` | tag `v*`, `workflow_dispatch` | Docker build + push to Docker Hub (`memvid/cli`) |
+| `ossf-slsa3` | GitHub Release created, `workflow_dispatch` | SLSA Level 3 provenance generation |

@@ -93,6 +93,32 @@ Log files follow the naming convention `baseline-<YYYYMMDDTHHMMSSZ>.log`.
 
 ---
 
+## Clean-Clone Proof
+
+`scripts/proof_clean_clone.sh` proves the crate builds and all tests pass starting from a fresh
+local clone — simulating a first-checkout environment.
+
+> **Requires:** A real git checkout with a `.git` directory.  This script uses `git clone --local`
+> internally; it will fail on zip exports or directories without `.git`.
+
+```bash
+bash scripts/proof_clean_clone.sh
+# optionally: bash scripts/proof_clean_clone.sh --out /tmp/myproof
+```
+
+Log files are written to `artifacts/proof/` with the naming convention
+`clean_clone-<YYYYMMDDTHHMMSSZ>.log`.
+
+Steps performed:
+1. Clones the repo into a temporary directory using `git clone --local`
+2. Runs `cargo fmt --check`
+3. Runs `cargo clippy --all-targets`
+4. Runs `cargo test --features "lex,pdf_extract,simd"` (default profile)
+5. Runs `cargo test --no-default-features` (minimal kernel)
+6. Cleans up the temporary clone on exit
+
+---
+
 ## Retrieval-Touch Semantics
 
 As of **v2.0.139**, `persist_retrieval_touches` and `persist_access_touches` default to **false**.
