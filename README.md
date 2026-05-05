@@ -1,60 +1,56 @@
+<div align="center">
+
 # memvid-core
 
-A Rust crate for crash-safe single-file `.mv2` storage with a governed `agent_memory` subsystem.
-`memvid-core` packages frames, indices, and metadata into one portable file — no database and no
-sidecar files.
+**Crash-safe single-file `.mv2` storage with governed agent memory — in pure Rust**
 
 [![Crates.io](https://img.shields.io/crates/v/memvid-core)](https://crates.io/crates/memvid-core)
+[![docs.rs](https://img.shields.io/docsrs/memvid-core)](https://docs.rs/memvid-core)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
-[![Rust](https://img.shields.io/badge/rust-1.85%2B-orange)](https://www.rust-lang.org)
+[![Rust 1.85+](https://img.shields.io/badge/rust-1.85%2B-orange)](https://www.rust-lang.org)
+[![CI](https://img.shields.io/github/actions/workflow/status/memvid/memvid/ci.yml?branch=main&label=CI)](https://github.com/memvid/memvid/actions)
+
+[Quick Start](#quick-start) · [API Reference](#core-api) · [Features](#features) · [Agent Memory](#agent-memory-subsystem) · [File Format](#file-format) · [Examples](#examples)
+
+</div>
 
 ---
 
-## What it is
+`memvid-core` packages document frames, full-text and vector indices, and metadata into **one portable `.mv2` file** — no database, no sidecar files, crash-safe by design. It exposes two supported public surfaces:
 
-`memvid-core` is a Rust crate, not a CLI contract or hosted service contract. It exposes two
-supported public surfaces:
+| Surface | Entry point | Notes |
+|---|---|---|
+| **Storage kernel** | `Memvid` | WAL-backed writes, BM25 + HNSW search, timeline queries, encryption |
+| **Agent memory** | `agent_memory::MemoryController` | Policy-governed six-layer bounded memory built on the storage kernel |
 
-- The storage kernel centered on `Memvid`, which owns a single `.mv2` file and its indices.
-- The always-on `agent_memory` subsystem centered on `MemoryController`, which adds bounded,
-  policy-governed agent memory semantics on top of that storage kernel.
+The crate is synchronous, single-file first, and has no required network dependency. The `.mv2` format is fully specified in [MV2_SPEC.md](MV2_SPEC.md).
 
-Adjacent CLI and Docker assets live in this repository, but the crate contract is defined here.
+### What lives in a `.mv2` file
 
-The `.mv2` storage kernel contains:
+- **Document frames** — arbitrary bytes: text, PDF chunks, Markdown, audio transcripts, image embeddings
+- **Full-text index** — BM25 via [Tantivy](https://github.com/quickwit-oss/tantivy) (`lex` feature, on by default)
+- **Vector index** — approximate nearest-neighbour via HNSW (`vec` feature, optional)
+- **Time index** — chronological ordering and range filtering
+- **Crash-safe WAL** — all writes stage through an embedded write-ahead log; the file is always consistent after a crash
+- **Self-describing footer** — table of contents with segment offsets; no external metadata
 
-- **Document frames** — arbitrary bytes (text, PDF text, markdown, audio transcripts, image embeddings)
-- **Full-text index** — BM25 search via [Tantivy](https://github.com/quickwit-oss/tantivy) (feature `lex`, on by default)
-- **Vector index** — approximate nearest-neighbour search via HNSW (feature `vec`, optional)
-- **Time index** — chronological ordering and filtering
-- **Crash-safe WAL** — all writes stage through an embedded write-ahead log; the file is always in a consistent state after a crash
-- **Table of contents footer** — self-describing format; no external metadata files
+### Supported build profiles
 
-The format is defined in [MV2_SPEC.md](MV2_SPEC.md).
-
-## Supported Public Surfaces
-
-| Surface | Entry points | Status | Notes |
-|---|---|---|---|
-| Storage kernel | `Memvid`, `PutOptions`, `SearchRequest`, `TimelineQuery`, verification/report types | Blocking-tested | `--no-default-features` keeps the single-file kernel available; the default profile adds the standard search and extraction stack. |
-| Governed agent memory | `agent_memory::MemoryController`, `CandidateMemory`, `DurableMemory`, `RetrievalQuery`, `PolicySet` | Supported public subsystem | Always compiled. `MemoryController` is the canonical ingest/retrieval path; lower-level stores remain public for advanced integrations and test coverage. |
-
-## Supported Profiles
-
-| Profile | Features | Status | Notes |
-|---|---|---|---|
-| Minimal storage kernel | `--no-default-features` | Blocking-tested | Single-file storage, commit/reopen, manifests, and direct frame access without the default search or extraction stack. |
-| Default crate profile | `lex,pdf_extract,simd` | Blocking-tested | Recommended cross-platform baseline and the profile used for the main docs, examples, and CI. |
-| Search + local vectors | `lex,pdf_extract,simd,vec` | Best effort | Requires local ONNX model files and adds HNSW search plus local text embeddings. |
-| Encryption | `lex,pdf_extract,simd,encryption` | Best effort | Password-protected `.mv2e` capsules layered around the storage kernel. |
-| Media, platform, and specialist integrations | `clip`, `whisper`, `pdfium`, `extractous`, `pdf_oxide`, `logic_mesh`, `api_embed`, `temporal_*`, `parallel_segments`, `symspell_cleanup`, `replay` | Best effort or platform-sensitive | Available opt-ins, but not part of the blocking compatibility matrix in this pass. |
+| Profile | Feature flags | Status |
+|---|---|---|
+| Minimal kernel | `--no-default-features` | Blocking-tested |
+| Default *(recommended)* | `lex,pdf_extract,simd` | Blocking-tested |
+| + Local vector search | `lex,pdf_extract,simd,vec` | Best effort |
+| + Encryption | `lex,pdf_extract,simd,encryption` | Best effort |
+| Media / specialist | `clip`, `whisper`, `pdfium`, `extractous`, `logic_mesh`, … | Best effort / platform-sensitive |
 
 ---
 
-## Quick start
+## Quick Start
+
+Add to your `Cargo.toml`:
 
 ```toml
-# Cargo.toml
 [dependencies]
 memvid-core = "2"
 ```
@@ -63,10 +59,9 @@ memvid-core = "2"
 use memvid_core::{Memvid, PutOptions, Result, SearchRequest, TimelineQuery};
 
 fn main() -> Result<()> {
-    // Create a new memory file
+    // --- Write ---
     let mut mem = Memvid::create("notes.mv2")?;
 
-    // Insert documents
     mem.put_bytes(b"Attention Is All You Need introduces the Transformer architecture.")?;
 
     let opts = PutOptions::builder()
@@ -76,10 +71,9 @@ fn main() -> Result<()> {
         .build();
     mem.put_bytes_with_options(b"Q3 goal: ship the alpha release.", opts)?;
 
-    // Persist (flushes WAL, rebuilds indices)
-    mem.commit()?;
+    mem.commit()?; // flush WAL, rebuild indices
 
-    // Full-text search (requires feature `lex`, which is on by default)
+    // --- Search ---
     let results = mem.search(SearchRequest {
         query: "transformer architecture".to_string(),
         top_k: 5,
@@ -87,17 +81,17 @@ fn main() -> Result<()> {
         ..Default::default()
     })?;
 
-    for hit in results.hits {
+    for hit in &results.hits {
         println!("[{}] {:.3} — {}", hit.frame_id, hit.score.unwrap_or(0.0), hit.text);
     }
 
-    // Browse by insertion order
+    // --- Browse chronologically ---
     let entries = mem.timeline(TimelineQuery::default())?;
-    for e in entries {
+    for e in &entries {
         println!("{} — {}", e.frame_id, e.preview);
     }
 
-    // Reopen later
+    // --- Reopen later ---
     drop(mem);
     let mem = Memvid::open("notes.mv2")?;
     println!("{} frames", mem.stats()?.frame_count);
@@ -110,6 +104,8 @@ fn main() -> Result<()> {
 
 ## Core API
 
+### `Memvid` — storage kernel
+
 | Method | Description |
 |---|---|
 | `Memvid::create(path)` | Create a new `.mv2` file |
@@ -117,10 +113,10 @@ fn main() -> Result<()> {
 | `mem.put_bytes(bytes)` | Insert raw bytes as a frame |
 | `mem.put_bytes_with_options(bytes, opts)` | Insert with title, URI, and key/value tags |
 | `mem.commit()` | Flush WAL and rebuild indices |
-| `mem.search(request)` | Full-text search (requires `lex` feature) |
-| `mem.ask(request, embedder)` | Context-retrieval for RAG (requires `lex` feature) |
+| `mem.search(request)` | BM25 full-text search (requires `lex`) |
+| `mem.ask(request, embedder)` | Context-retrieval for RAG (requires `lex`) |
 | `mem.timeline(query)` | Chronological browse with optional filters |
-| `mem.stats()` | Frame count, index presence, size |
+| `mem.stats()` | Frame count, index presence, size on disk |
 | `Memvid::verify(path, deep)` | Integrity check — returns a `VerificationReport` |
 | `mem.doctor(opts)` | Diagnostic scan and repair plan |
 
@@ -150,30 +146,27 @@ let req = SearchRequest {
 
 ## Features
 
-| Feature | Default | Support | Description |
-|---|---|---|---|
+| Feature | Default | Tier | Description |
+|---|:---:|---|---|
 | `lex` | ✅ | Blocking-tested | BM25 full-text search via Tantivy. Required for `search` and `ask`. |
-| `pdf_extract` | ✅ | Blocking-tested | Pure-Rust PDF text extraction used by the default profile. |
-| `simd` | ✅ | Blocking-tested | SIMD-accelerated distance computation for search and embedding utilities. |
-| `vec` | ❌ | Best effort | HNSW vector search with local ONNX embeddings. Requires manually downloaded model files. |
+| `pdf_extract` | ✅ | Blocking-tested | Pure-Rust PDF text extraction. |
+| `simd` | ✅ | Blocking-tested | SIMD-accelerated distance computation. |
+| `vec` | ❌ | Best effort | HNSW vector search with local ONNX embeddings. Requires downloaded model files. |
 | `encryption` | ❌ | Best effort | AES-256-GCM `.mv2e` capsules with Argon2 key derivation. |
-| `api_embed` | ❌ | Best effort | OpenAI-compatible API embeddings. Requires network access and provider credentials. |
+| `api_embed` | ❌ | Best effort | OpenAI-compatible API embeddings. Requires network + credentials. |
 | `temporal_track` | ❌ | Best effort | Natural-language date parsing and temporal filtering. |
 | `temporal_enrich` | ❌ | Best effort | Post-ingest temporal enrichment of relative time references. |
 | `parallel_segments` | ❌ | Best effort | Multi-threaded segment ingestion. |
-| `symspell_cleanup` | ❌ | Best effort | Spell-correction pass for noisy PDF text. |
+| `symspell_cleanup` | ❌ | Best effort | Spell-correction pre-pass for noisy OCR/PDF text. |
 | `replay` | ❌ | Best effort | Time-travel replay of agent sessions and state changes. |
 | `logic_mesh` | ❌ | Experimental | Entity-relationship graph extraction and hybrid retrieval helpers. |
-| `clip` | ❌ | Platform-sensitive | CLIP visual embeddings for image search. Pulls in ONNX and image-runtime dependencies. |
-| `whisper` | ❌ | Platform-sensitive | On-device audio transcription via Candle. Heavy dependency stack and optional GPU backends. |
-| `pdf_oxide` | ❌ | Experimental | Alternate high-accuracy PDF extraction path with different tradeoffs than the default extractor. |
-| `pdfium` | ❌ | Platform-sensitive | PDFium-backed PDF processing path. Useful for some rendering-heavy workflows, but not part of the blocking matrix. |
-| `extractous` | ❌ | Platform-sensitive | GraalVM-backed rich document extraction for PDFs and office-style formats. |
+| `clip` | ❌ | Platform-sensitive | CLIP visual embeddings for image search (ONNX + image runtime). |
+| `whisper` | ❌ | Platform-sensitive | On-device audio transcription via Candle (heavy deps, optional GPU). |
+| `pdf_oxide` | ❌ | Experimental | Alternate high-accuracy PDF extraction path. |
+| `pdfium` | ❌ | Platform-sensitive | PDFium-backed PDF processing for rendering-heavy workflows. |
+| `extractous` | ❌ | Platform-sensitive | GraalVM-backed rich document extraction (PDFs, office formats). |
 
-Platform/backend and developer-only feature flags remain available but are not part of the main
-support contract in this pass: `mmap`, `metal`, `cuda`, `accelerate`, and `hnsw_bench`.
-
-Build with specific features:
+> Platform/backend and developer-only flags (`mmap`, `metal`, `cuda`, `accelerate`, `hnsw_bench`) are available but not part of the blocking support contract.
 
 ```bash
 cargo build --features "lex,vec,temporal_track"
@@ -185,26 +178,27 @@ cargo build --features "lex,vec,temporal_track"
 
 `memvid-core` can ingest several document types beyond raw bytes:
 
-- **Plain text and Markdown** — always available
-- **PDF** — the default profile uses `pdf_extract` (pure Rust); `pdf_oxide`, `pdfium`, and `extractous` are alternate opt-in paths with different compatibility and platform tradeoffs
-- **XLSX / spreadsheets** — structured extraction into rows
-- **DOCX and broader rich document formats** — best effort via `extractous`
-- **Audio transcripts** — via `whisper` feature (model downloaded on first use)
-- **Images** — via `clip` feature (visual embedding, CLIP model)
+| Format | How |
+|---|---|
+| Plain text / Markdown | Always available |
+| PDF | `pdf_extract` (default, pure Rust); or `pdf_oxide` / `pdfium` / `extractous` for alternate paths |
+| XLSX / spreadsheets | Structured row extraction |
+| DOCX and rich formats | Best effort via `extractous` |
+| Audio | Transcription via `whisper` (model downloaded on first use) |
+| Images | Visual embedding via `clip` (CLIP model) |
 
-For PDFs, the raw text is chunked and each chunk is stored as a separate frame so search results
-point to specific passages rather than whole documents.
+PDFs are chunked at ingest time — each chunk is its own frame, so search results point to specific passages rather than whole documents.
 
 ---
 
-## Vector search setup
+## Vector search
 
-The `vec` feature requires downloading ONNX model weights before use. Example for the default
-BGE-small model (384 dimensions, ~120 MB):
+The `vec` feature adds HNSW vector search with local ONNX embeddings. Download model weights before use:
 
 ```bash
 mkdir -p ~/.cache/memvid/text-models
 
+# BGE-small (384d, ~120 MB) — default
 curl -L 'https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/onnx/model.onnx' \
   -o ~/.cache/memvid/text-models/bge-small-en-v1.5.onnx
 
@@ -212,10 +206,9 @@ curl -L 'https://huggingface.co/BAAI/bge-small-en-v1.5/resolve/main/tokenizer.js
   -o ~/.cache/memvid/text-models/bge-small-en-v1.5_tokenizer.json
 ```
 
-Other supported models: `bge-base-en-v1.5` (768d), `nomic-embed-text-v1.5` (768d),
-`gte-large` (1024d). See the example at `examples/text_embedding.rs`.
+Other supported models: `bge-base-en-v1.5` (768d), `nomic-embed-text-v1.5` (768d), `gte-large` (1024d). See [`examples/text_embedding.rs`](examples/text_embedding.rs).
 
-To prevent accidental model mixing, pin the model after first write:
+Pin the model after first write to prevent accidental dimension mismatches:
 
 ```rust
 mem.set_vec_model("bge-small-en-v1.5")?;
@@ -225,89 +218,81 @@ mem.set_vec_model("bge-small-en-v1.5")?;
 
 ## Whisper audio transcription
 
-The `whisper` feature runs speech-to-text locally using Candle. Weights are downloaded on first
-use from Hugging Face.
+The `whisper` feature runs speech-to-text locally via Candle. Weights are downloaded automatically on first use.
 
 ```rust
 use memvid_core::{WhisperConfig, WhisperTranscriber};
 
-let config = WhisperConfig::default(); // whisper-small-en (244 MB FP32)
-let transcriber = WhisperTranscriber::new(&config)?;
+let transcriber = WhisperTranscriber::new(&WhisperConfig::default())?;
 let result = transcriber.transcribe_file("interview.mp3")?;
 println!("{}", result.text);
 ```
 
 | Model | Size | Notes |
 |---|---|---|
-| `whisper-small-en` | 244 MB | Default; highest accuracy |
+| `whisper-small-en` | 244 MB | Default — highest accuracy |
 | `whisper-tiny-en` | 75 MB | Faster |
-| `whisper-tiny-en-q8k` | 19 MB | Fastest; lowest accuracy |
+| `whisper-tiny-en-q8k` | 19 MB | Fastest, lowest accuracy |
 
 ---
 
 ## Encryption
 
-The `encryption` feature wraps a `.mv2` file into a password-protected `.mv2e` capsule using
-Argon2 key derivation and AES-256-GCM authenticated encryption.
+The `encryption` feature wraps a `.mv2` file into a password-protected `.mv2e` capsule using Argon2 key derivation and AES-256-GCM authenticated encryption.
 
 ---
 
 ## Agent memory subsystem
 
-`agent_memory` is the governed memory subsystem built on top of the `Memvid` kernel. It is always
-compiled and treated as a supported public subsystem in this crate. The canonical path is
-`MemoryController`, which classifies, routes, promotes, consolidates, retrieves, and audits memory
-records while keeping storage in the same `.mv2` kernel.
+`agent_memory` is a policy-governed, bounded memory layer built on top of the `Memvid` kernel. It is always compiled and treated as a supported public subsystem. The canonical path is `MemoryController`, which classifies, routes, promotes, consolidates, retrieves, and audits memory records — all within the same `.mv2` file.
 
-By "human memory" this repository means bounded operational memory for agents: evidence,
-current facts, task state, self-model, and procedures. It does not claim to model human cognition
-or consciousness.
+> **Terminology**: "agent memory" means bounded operational memory for software agents — evidence, current facts, task state, self-model, and learned procedures. It does not model human cognition.
 
-Key public entry points live under `memvid_core::agent_memory`:
+### Public entry points (`memvid_core::agent_memory`)
 
-| Entry point | Role |
+| Type | Role |
 |---|---|
-| `memory_controller::MemoryController` | Canonical ingest and retrieval authority |
-| `schemas::CandidateMemory` | Ingest payload before routing and promotion |
-| `schemas::DurableMemory` | Persisted memory representation used by stores and adapters |
-| `schemas::RetrievalQuery` | Query contract for agent-memory retrieval |
-| `policy::PolicySet` | Thresholds and semantic governance knobs |
+| `MemoryController` | Canonical ingest and retrieval authority |
+| `CandidateMemory` | Ingest payload before routing and promotion |
+| `DurableMemory` | Persisted memory representation |
+| `RetrievalQuery` | Query contract for agent-memory retrieval |
+| `PolicySet` | Thresholds and semantic governance knobs |
 
-The subsystem provides a **six-layer bounded memory architecture**:
+### Six-layer memory architecture
 
 | Layer | Purpose |
 |---|---|
-| `Trace` | Raw observations; high volume, short retention |
+| `Trace` | Raw observations — high volume, short retention |
 | `Episode` | Consolidated event records |
 | `Belief` | Long-lived factual assertions with conflict detection |
 | `GoalState` | Active task objectives and their status |
 | `SelfModel` | Agent self-description and capability model |
 | `Procedure` | Learned procedural knowledge with lifecycle governance |
 
-Ingest is done through `MemoryController::ingest(candidate)`, which classifies, promotes, and
-audits every memory candidate before storage. Typed retrieval through `RetrievalQuery` remains the
-canonical read path; `MemoryController::retrieve_text(...)` and `RetrievalQuery::from_text(...)`
-are convenience helpers for obvious text-only queries, not the authoritative semantic router.
-Durable memories now preserve immutable ingest time separately from mutable update/access time.
-Retrieval-touch persistence is explicit opt-in policy: `PolicySet` defaults
-`persist_retrieval_touches` to **false**, so retrieval is read-only by default and never appends
-durable access-touch records or updates `retrieval_count`/`last_accessed_at` unless the caller
-explicitly enables it via `PolicySet::with_persist_retrieval_touches(true)` (and similarly
-`MemvidStore::with_access_touch_persistence(memvid, true)` for the production store). Historical
-queries (`RetrievalQuery { as_of: Some(t), .. }`) never touch regardless of policy. Access-touch
-history remains append-only today — there is no logical rollup or compaction pass for those
-records. `MemoryController::run_maintenance()` is the explicit, caller-driven
-maintenance entrypoint: it lists current durable memories, runs `MemoryDecay`, emits a maintenance
-audit event, returns expired ids, and reports `MemoryCompactor` as unsupported together with its
-unsupported reason. See
-[docs/agent_memory.md](docs/agent_memory.md) for details.
+### Key behaviours
+
+- **Ingest**: `MemoryController::ingest(candidate)` classifies, promotes, and audits every candidate before storage.
+- **Retrieval**: `MemoryController::retrieve_text(...)` and `RetrievalQuery::from_text(...)` are convenience helpers; `RetrievalQuery` is the authoritative semantic router.
+- **Immutable ingest time**: durable memories preserve ingest time separately from mutable update/access timestamps.
+- **Read-only by default**: `PolicySet` defaults `persist_retrieval_touches` to **`false`** — retrieval never writes access-touch records or updates `retrieval_count` / `last_accessed_at` unless the caller opts in:
+
+  ```rust
+  // Opt in to touch persistence
+  let policy = PolicySet::default().with_persist_retrieval_touches(true);
+  // Also enable at the store level for the production store
+  let store = MemvidStore::with_access_touch_persistence(memvid, true);
+  ```
+
+- **Historical queries are always read-only**: `RetrievalQuery { as_of: Some(t), .. }` never records touches regardless of policy.
+- **Maintenance**: call `MemoryController::run_maintenance()` explicitly — it runs `MemoryDecay`, emits a maintenance audit event, and returns expired IDs.
+
+See [docs/agent_memory.md](docs/agent_memory.md) for the full specification.
 
 ---
 
 ## File format
 
-This section and [MV2_SPEC.md](MV2_SPEC.md) describe the storage-kernel contract only. They do not
-define the `agent_memory` policy surface, CLI behavior, or Docker image semantics.
+> This section and [MV2_SPEC.md](MV2_SPEC.md) describe the storage-kernel contract only. They do not define agent memory policy, CLI behaviour, or Docker image semantics.
 
 ```
 ┌────────────────────────────┐
@@ -327,11 +312,10 @@ define the `agent_memory` policy surface, CLI behavior, or Docker image semantic
 └────────────────────────────┘
 ```
 
-Invariants: no sidecar files; append-only frames; all integers little-endian;
-Blake3 checksums per frame; Ed25519 signatures optional.
+**Invariants:** no sidecar files · append-only frames · all integers little-endian · Blake3 checksums per frame · Ed25519 signatures optional
 
-Full specification: [MV2_SPEC.md](MV2_SPEC.md)  
-Architecture overview: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- Full specification: [MV2_SPEC.md](MV2_SPEC.md)
+- Architecture overview: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
 ---
 
@@ -342,7 +326,7 @@ Architecture overview: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 cargo test --no-default-features
 cargo test --features "lex,pdf_extract,simd"
 
-# Full default-path verification
+# Full default profile
 cargo test
 cargo test -- --nocapture
 cargo test --test lifecycle
@@ -351,12 +335,11 @@ cargo test --test lifecycle
 cargo clippy
 cargo fmt
 
-# Example opt-in builds
+# Release builds
 cargo build --release --features "lex,vec,temporal_track"
 ```
 
-**Minimum supported Rust version:** 1.85.0  
-**Edition:** 2024
+**Minimum supported Rust version:** 1.85.0 · **Edition:** 2024
 
 ---
 
@@ -368,8 +351,14 @@ cargo run --example pdf_ingestion
 cargo run --example text_embedding           --features vec
 cargo run --example openai_embedding         --features api_embed
 cargo run --example clip_visual_search       --features clip
-cargo run --example test_whisper --features whisper -- /path/to/audio.mp3
+cargo run --example test_whisper             --features whisper -- /path/to/audio.mp3
 ```
+
+---
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). Security issues: [SECURITY.md](SECURITY.md).
 
 ---
 
