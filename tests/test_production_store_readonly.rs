@@ -38,10 +38,7 @@ fn access_touch_count(path: &std::path::Path, memory_id: &str) -> usize {
 }
 
 /// Build a `MemoryController<MemvidStore>` using the supplied store and policy.
-fn make_controller(
-    store: MemvidStore,
-    policy: PolicySet,
-) -> MemoryController<MemvidStore> {
+fn make_controller(store: MemvidStore, policy: PolicySet) -> MemoryController<MemvidStore> {
     let now = ts(1_700_000_000);
     let clock = Arc::new(FixedClock::new(now));
     MemoryController::new(
@@ -125,7 +122,10 @@ fn controller_with_default_store_writes_no_touch_frames_on_retrieve() {
             })
             .expect("retrieve succeeds");
 
-        assert!(!hits.is_empty(), "at least one hit expected for the imported memory");
+        assert!(
+            !hits.is_empty(),
+            "at least one hit expected for the imported memory"
+        );
         // controller (and its MemvidStore) are dropped here, flushing to disk
     }
 
