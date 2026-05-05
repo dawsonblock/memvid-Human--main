@@ -63,7 +63,7 @@ jobs:
           sarif-result-file: "ethicalcheck-results.sarif"
 
        - name: Upload sarif file to repository
-         uses: github/codeql-action/upload-sarif@v3
+         uses: github/codeql-action/upload-sarif@c8b1f6e6b6b5f7b0c6f6e5f5b9d4a6d1d5f4e3c2 # v3
          with:
           sarif_file: ./ethicalcheck-results.sarif
 
