@@ -82,6 +82,9 @@ impl RetrievalPlanner {
     ) -> Result<PlannerResult> {
         let now: DateTime<Utc> = clock.now();
         let mut stats = PoolStats::default();
+        stats.vector_pool_available = false;
+        stats.vector_pool_skipped_reason =
+            Some("no independent vector index/provider configured".to_string());
 
         // Accumulate hits keyed by memory_id → (hit, pools).
         let mut merged: HashMap<String, (RetrievalHit, Vec<CandidatePool>)> = HashMap::new();
@@ -182,7 +185,7 @@ impl RetrievalPlanner {
                 let key = hit_key(&hit);
                 let pools = merged.get(&key).map(|(_, p)| p.clone()).unwrap_or_default();
                 let layer = hit.memory_layer.unwrap_or(MemoryLayer::Trace);
-                let scores = scores_from_hit(&hit);
+                let scores = scores_from_hit(&hit, now);
                 RetrievalCandidate {
                     memory_id: hit.memory_id.clone().unwrap_or_default(),
                     layer,
@@ -212,6 +215,15 @@ fn hit_key(hit: &RetrievalHit) -> String {
 
 /// Convert a `DurableMemory` to a minimal `RetrievalHit` for metadata / time / correction pools.
 fn durable_to_hit(memory: &DurableMemory, now: DateTime<Utc>) -> RetrievalHit {
+    let mut metadata = memory.metadata.clone();
+    metadata.insert(
+        "_planner_confidence".to_string(),
+        memory.confidence.to_string(),
+    );
+    metadata.insert(
+        "_planner_source_trust".to_string(),
+        memory.source.trust_weight.to_string(),
+    );
     RetrievalHit {
         memory_id: Some(memory.memory_id.clone()),
         belief_id: None,
@@ -229,20 +241,32 @@ fn durable_to_hit(memory: &DurableMemory, now: DateTime<Utc>) -> RetrievalHit {
         expired: memory.ttl.map_or(false, |ttl| {
             memory.stored_at + chrono::Duration::seconds(ttl) < now
         }),
-        metadata: memory.metadata.clone(),
+        metadata,
     }
 }
 
 /// Build a `CandidateScores` snapshot from a ranked hit.
-fn scores_from_hit(hit: &RetrievalHit) -> CandidateScores {
+fn scores_from_hit(hit: &RetrievalHit, now: DateTime<Utc>) -> CandidateScores {
+    let age_secs = (now - hit.timestamp).num_seconds().max(0) as f32;
+    let recency = (-age_secs / 2_592_000.0_f32).exp();
+    let confidence: f32 = hit
+        .metadata
+        .get("_planner_confidence")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0.0);
+    let source_trust: f32 = hit
+        .metadata
+        .get("_planner_source_trust")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1.0);
     CandidateScores {
         lexical_score: hit.score,
         vector_score: None,
         entity_slot_match: hit.entity.is_some() && hit.slot.is_some(),
-        recency: 0.0,
+        recency,
         salience: hit.score,
-        confidence: 0.0,
-        source_trust: 1.0,
+        confidence,
+        source_trust,
         correction_status: None,
         scope_match: true,
     }

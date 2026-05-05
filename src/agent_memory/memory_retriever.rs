@@ -18,6 +18,8 @@ use super::ranker::{
     SCORE_SIGNAL_SEMANTIC_SCORE_KEY,
 };
 use super::retention::RetentionManager;
+use super::retrieval_candidates::RetrievalCandidate;
+use super::retrieval_planner::RetrievalPlanner;
 use super::schemas::{BeliefRecord, DurableMemory, ProcedureRecord, RetrievalHit, RetrievalQuery};
 use super::self_model_store::SelfModelStore;
 use super::semantic_retrieval::SemanticRetriever;
@@ -51,6 +53,8 @@ pub struct MemoryRetriever {
     /// Optional dense-embedding provider for the semantic retrieval path.
     /// Populated via [`MemoryRetriever::with_embedder`].
     embedder: EmbedderSlot,
+    /// Multi-pool retrieval planner that widens the candidate set before ranking.
+    planner: RetrievalPlanner,
 }
 
 impl MemoryRetriever {
@@ -60,6 +64,7 @@ impl MemoryRetriever {
             ranker,
             retention,
             embedder: EmbedderSlot::default(),
+            planner: RetrievalPlanner::new(),
         }
     }
 
@@ -110,6 +115,24 @@ impl MemoryRetriever {
                     self.search_hits(store, query, "archive_fallback", now)?
                 }
             }
+        };
+
+        // Widen the candidate set using the multi-pool planner.  The planner
+        // is strictly read-only and skipped for historical (as_of) queries
+        // because the lexical and metadata pools are not as_of-aware.
+        let hits = if query.as_of.is_none() {
+            let planner_query = RetrievalQuery {
+                top_k: query.top_k.saturating_mul(3),
+                ..query.clone()
+            };
+            match self.planner.plan(store, &planner_query, clock) {
+                Ok(planner_result) => {
+                    Self::merge_planner_candidates(hits, planner_result.candidates)
+                }
+                Err(_) => hits,
+            }
+        } else {
+            hits
         };
 
         // Merge semantic path results.  Hits already found by the lexical path
@@ -1659,6 +1682,40 @@ impl MemoryRetriever {
                 }
             } else {
                 hits.push(embed_hit);
+            }
+        }
+        hits
+    }
+
+    fn merge_planner_candidates(
+        mut hits: Vec<RetrievalHit>,
+        candidates: Vec<RetrievalCandidate>,
+    ) -> Vec<RetrievalHit> {
+        let existing_ids: HashSet<Option<String>> =
+            hits.iter().map(|h| h.memory_id.clone()).collect();
+        for candidate in candidates {
+            let mid = if candidate.memory_id.is_empty() {
+                None
+            } else {
+                Some(candidate.memory_id.clone())
+            };
+            if mid.is_some() && existing_ids.contains(&mid) {
+                // Boost the existing hit with the planner's multi-pool attribution.
+                if let Some(existing) = hits.iter_mut().find(|h| h.memory_id == mid) {
+                    let pool_count = candidate.source_pools.len() as f32;
+                    existing.score += candidate.scores.salience * 0.1 * pool_count;
+                    existing.metadata.insert(
+                        "planner_pools".to_string(),
+                        candidate
+                            .source_pools
+                            .iter()
+                            .map(|p| format!("{p:?}").to_lowercase())
+                            .collect::<Vec<_>>()
+                            .join(","),
+                    );
+                }
+            } else {
+                hits.push(candidate.hit);
             }
         }
         hits
