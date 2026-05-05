@@ -171,6 +171,17 @@ fn planner_broadens_results_via_metadata_pool() {
          with raw_text; hits returned: {:?}",
         hits
     );
+    // D1: a planner-only new hit must carry the planner_pools metadata key (A1 fix).
+    let broadened = hits
+        .iter()
+        .find(|h| h.entity.as_deref() == Some("project") && h.slot.as_deref() == Some("deadline"))
+        .expect("metadata pool hit must be present");
+    assert!(
+        broadened.metadata.contains_key("planner_pools"),
+        "planner-only hit must have planner_pools injected by merge_planner_candidates; \
+         got metadata: {:?}",
+        broadened.metadata
+    );
 }
 
 /// Historical queries (`as_of.is_some()`) must bypass the planner without
@@ -237,5 +248,45 @@ fn vector_pool_always_unavailable_in_default_build() {
     assert!(
         result.pool_stats.vector_pool_skipped_reason.is_some(),
         "a descriptive reason must be provided when vector pool is skipped"
+    );
+}
+
+/// A memory surfaced *only* by the metadata pool (zero text overlap with the query)
+/// must carry the `planner_pools` metadata key in the returned `RetrievalHit`.
+/// This is a dedicated regression test for the A1 fix: the `else` branch in
+/// `merge_planner_candidates` must inject `planner_pools` before pushing new hits.
+#[test]
+fn planner_new_hit_carries_planner_pools_metadata() {
+    let mut store = InMemoryMemoryStore::default();
+    let t = ts(1_700_000_000);
+    store
+        .put_memory(&durable(
+            "system",
+            "config",
+            "dark-mode",
+            // Deliberate nonsense — zero overlap with the query tokens below.
+            "zzzz-config-sentinel-new-hit",
+            MemoryType::Preference,
+            SourceType::Chat,
+            0.8,
+            t,
+        ))
+        .unwrap();
+    let clock = FixedClock::new(ts(1_700_001_000));
+    let query = RetrievalQuery {
+        entity: Some("system".to_string()),
+        slot: Some("config".to_string()),
+        query_text: "qwerty-irrelevant-tokens".to_string(),
+        ..base_query("qwerty-irrelevant-tokens")
+    };
+    let hits = retriever().retrieve(&mut store, &query, &clock).unwrap();
+    let hit = hits
+        .iter()
+        .find(|h| h.entity.as_deref() == Some("system") && h.slot.as_deref() == Some("config"))
+        .expect("metadata pool must surface the memory when entity+slot match");
+    assert!(
+        hit.metadata.contains_key("planner_pools"),
+        "A1: new planner-only hit must have planner_pools injected; metadata: {:?}",
+        hit.metadata
     );
 }

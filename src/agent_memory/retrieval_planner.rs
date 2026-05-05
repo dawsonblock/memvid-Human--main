@@ -7,7 +7,7 @@ use chrono::{DateTime, Utc};
 
 use super::adapters::memvid_store::MemoryStore;
 use super::clock::Clock;
-use super::enums::MemoryLayer;
+use super::enums::{MemoryLayer, MemoryType, Scope};
 use super::errors::Result;
 use super::policy::PolicyProfile;
 use super::ranker::Ranker;
@@ -185,7 +185,7 @@ impl RetrievalPlanner {
                 let key = hit_key(&hit);
                 let pools = merged.get(&key).map(|(_, p)| p.clone()).unwrap_or_default();
                 let layer = hit.memory_layer.unwrap_or(MemoryLayer::Trace);
-                let scores = scores_from_hit(&hit, now);
+                let scores = scores_from_hit(&hit, now, query.scope);
                 RetrievalCandidate {
                     memory_id: hit.memory_id.clone().unwrap_or_default(),
                     layer,
@@ -246,7 +246,13 @@ fn durable_to_hit(memory: &DurableMemory, now: DateTime<Utc>) -> RetrievalHit {
 }
 
 /// Build a `CandidateScores` snapshot from a ranked hit.
-fn scores_from_hit(hit: &RetrievalHit, now: DateTime<Utc>) -> CandidateScores {
+///
+/// `query_scope` is the caller's requested scope; `None` means "any scope matches".
+fn scores_from_hit(
+    hit: &RetrievalHit,
+    now: DateTime<Utc>,
+    query_scope: Option<Scope>,
+) -> CandidateScores {
     let age_secs = (now - hit.timestamp).num_seconds().max(0) as f32;
     let recency = (-age_secs / 2_592_000.0_f32).exp();
     let confidence: f32 = hit
@@ -259,6 +265,16 @@ fn scores_from_hit(hit: &RetrievalHit, now: DateTime<Utc>) -> CandidateScores {
         .get("_planner_source_trust")
         .and_then(|s| s.parse().ok())
         .unwrap_or(1.0);
+    // B1: derive scope_match from the query's requested scope vs the hit's scope.
+    // Scope::Shared always passes; a missing scope on either side is permissive.
+    let scope_match =
+        query_scope.is_none_or(|qs| hit.scope.is_none_or(|hs| hs == Scope::Shared || hs == qs));
+    // B2: surface correction provenance instead of always emitting None.
+    let correction_status = if hit.memory_type == Some(MemoryType::Correction) {
+        Some("correction".to_string())
+    } else {
+        None
+    };
     CandidateScores {
         lexical_score: hit.score,
         vector_score: None,
@@ -267,7 +283,7 @@ fn scores_from_hit(hit: &RetrievalHit, now: DateTime<Utc>) -> CandidateScores {
         salience: hit.score,
         confidence,
         source_trust,
-        correction_status: None,
-        scope_match: true,
+        correction_status,
+        scope_match,
     }
 }

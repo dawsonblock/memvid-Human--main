@@ -348,6 +348,33 @@ Before returning results, retrieval performs semantic dedup rather than id-only 
 combines entity, slot, value, `workflow_key`, source identity, and a coarse time bucket where
 possible, then falls back to belief id, memory id, or normalized text.
 
+### Multi-Pool Candidate Widening
+
+`RetrievalPlanner` runs ahead of the main retriever on all non-historical queries
+(`as_of.is_none()`). It aggregates candidates from up to five pools:
+
+| Pool | Source | Notes |
+|------|--------|-------|
+| Lexical | `store.search()` | Primary text-match pool |
+| Lexical (TF-IDF) | `SemanticRetriever` | Synonym/expansion widening |
+| Metadata | Entity/slot scan over durable layers | Active when `entity` or `slot` is set |
+| Time | Timestamp window scan | Active when a temporal constraint is present |
+| Correction | Correction-layer scan | Active when corrections exist |
+| Vector | _Not configured_ | Always skipped; `pool_stats.vector_pool_available = false` |
+
+Candidates from new planner-only pools are injected into the hit list with a
+`planner_pools` metadata key listing the originating pools (e.g. `"metadata,time"`).
+Candidates already present in the lexical result are boosted in score and their
+`planner_pools` key is extended (not overwritten) with any additional pool names.
+
+Historical queries (`as_of.is_some()` with `QueryIntent::HistoricalFact`) bypass
+the planner entirely and use the store's native time-window path instead.
+
+`CandidateScores.scope_match` reflects whether the hit's scope is compatible with
+the query's requested scope (`Scope::Shared` always passes regardless of the query
+scope). `correction_status` is `Some("correction")` for hits sourced from the
+correction pool and `None` otherwise.
+
 ## Adapter And Audit Preservation
 
 `MemvidStore` preserves the metadata needed by ranking, dedup, support linkage, and lifecycle logic.

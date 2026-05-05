@@ -1691,7 +1691,8 @@ impl MemoryRetriever {
         mut hits: Vec<RetrievalHit>,
         candidates: Vec<RetrievalCandidate>,
     ) -> Vec<RetrievalHit> {
-        let existing_ids: HashSet<Option<String>> =
+        // A2: mutable so we can track newly-pushed ids and prevent duplicates.
+        let mut seen_ids: HashSet<Option<String>> =
             hits.iter().map(|h| h.memory_id.clone()).collect();
         for candidate in candidates {
             let mid = if candidate.memory_id.is_empty() {
@@ -1699,23 +1700,41 @@ impl MemoryRetriever {
             } else {
                 Some(candidate.memory_id.clone())
             };
-            if mid.is_some() && existing_ids.contains(&mid) {
+            if mid.is_some() && seen_ids.contains(&mid) {
                 // Boost the existing hit with the planner's multi-pool attribution.
                 if let Some(existing) = hits.iter_mut().find(|h| h.memory_id == mid) {
                     let pool_count = candidate.source_pools.len() as f32;
                     existing.score += candidate.scores.salience * 0.1 * pool_count;
-                    existing.metadata.insert(
-                        "planner_pools".to_string(),
-                        candidate
-                            .source_pools
-                            .iter()
-                            .map(|p| format!("{p:?}").to_lowercase())
-                            .collect::<Vec<_>>()
-                            .join(","),
-                    );
+                    // A3: extend rather than overwrite so previously-written pool names survive.
+                    let entry = existing
+                        .metadata
+                        .entry("planner_pools".to_string())
+                        .or_insert_with(String::new);
+                    for pool in &candidate.source_pools {
+                        let p = format!("{pool:?}").to_lowercase();
+                        if !entry.split(',').any(|e| e == p) {
+                            if !entry.is_empty() {
+                                entry.push(',');
+                            }
+                            entry.push_str(&p);
+                        }
+                    }
                 }
             } else {
-                hits.push(candidate.hit);
+                // A1: inject planner_pools metadata before pushing the new hit.
+                let mut hit = candidate.hit;
+                let pools_str = candidate
+                    .source_pools
+                    .iter()
+                    .map(|p| format!("{p:?}").to_lowercase())
+                    .collect::<Vec<_>>()
+                    .join(",");
+                if !pools_str.is_empty() {
+                    hit.metadata.insert("planner_pools".to_string(), pools_str);
+                }
+                // A2: record this id so a later candidate for the same id gets the boost path.
+                seen_ids.insert(mid);
+                hits.push(hit);
             }
         }
         hits
