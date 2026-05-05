@@ -2,7 +2,7 @@
 
 Containerized CLI workflow built alongside the `memvid-core` crate.
 
-The CLI image is adjacent tooling: it uses the crate's storage kernel, but it does not redefine the
+The CLI image is adjacent tooling: it installs `memvid-cli` as an npm package (external to this repository), but it does not redefine the
 crate's supported feature matrix. For crate guarantees, see [../../README.md](../../README.md).
 
 ## Quick Start

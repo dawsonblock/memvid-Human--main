@@ -40,6 +40,19 @@ log ""
 log "--- toolchain versions ---"
 rustc --version 2>&1 | tee -a "${LOG}"
 cargo --version 2>&1 | tee -a "${LOG}"
+uname -a 2>&1 | tee -a "${LOG}" || true
+cargo metadata --locked --no-deps --format-version 1 2>&1 | head -5 | tee -a "${LOG}"
+log ""
+
+# --- fmt + lint ---
+log "--- fmt check ---"
+cargo fmt --all -- --check 2>&1 | tee -a "${LOG}"
+log "fmt: PASS"
+log ""
+log "--- clippy ---"
+cargo clippy --features "lex,pdf_extract,simd" -- -D warnings -A clippy::non_std_lazy_statics \
+  2>&1 | tee -a "${LOG}"
+log "clippy: PASS"
 log ""
 
 # --- profile 1: default feature set ---
@@ -56,11 +69,14 @@ cargo test --no-default-features \
 log "profile minimal: PASS"
 log ""
 
-# --- profile 3: MSRV smoke (default features, current stable proxy) ---
-log "--- profile: MSRV build smoke (default features) ---"
-cargo build --features "lex,pdf_extract,simd" \
+# --- profile 3: MSRV smoke (1.85.0) ---
+log "--- profile: MSRV build + test (rustup 1.85.0) ---"
+rustup install 1.85.0 --no-self-update 2>&1 | tee -a "${LOG}"
+rustup run 1.85.0 cargo build --features "lex,pdf_extract,simd" \
   2>&1 | tee -a "${LOG}"
-log "profile MSRV build: PASS"
+rustup run 1.85.0 cargo test --features "lex,pdf_extract,simd" \
+  2>&1 | tee -a "${LOG}"
+log "profile MSRV build+test: PASS"
 log ""
 
 log "=== all profiles passed ==="

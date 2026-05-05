@@ -28,7 +28,7 @@ pub trait MemoryStore {
     fn put_trace(&mut self, raw_text: &str, metadata: BTreeMap<String, String>) -> Result<String>;
     fn put_memory(&mut self, memory: &DurableMemory) -> Result<String>;
     fn persists_access_touches(&self) -> bool {
-        true
+        false
     }
     fn touch_memory_access(&mut self, memory_id: &str, accessed_at: DateTime<Utc>) -> Result<()>;
     fn touch_memory_accesses(&mut self, touches: &[(String, DateTime<Utc>)]) -> Result<()> {
@@ -440,6 +440,10 @@ impl InMemoryMemoryStore {
 }
 
 impl MemoryStore for InMemoryMemoryStore {
+    fn persists_access_touches(&self) -> bool {
+        true
+    }
+
     fn put_trace(&mut self, raw_text: &str, metadata: BTreeMap<String, String>) -> Result<String> {
         let trace_id = Uuid::new_v4().to_string();
         self.traces

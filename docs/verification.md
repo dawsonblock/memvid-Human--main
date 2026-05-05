@@ -16,8 +16,8 @@ cargo test --features "lex,pdf_extract,simd"
 ```
 
 Covers: full-text search, PDF ingestion, SIMD acceleration, agent-memory controller, retrieval
-policy, touch-persistence opt-in semantics, encryption capsule, lifecycle, replay integrity, and
-all structured/table tests.
+policy, touch-persistence opt-in semantics, lifecycle, replay integrity, and all structured/table
+tests.
 
 ### Minimal kernel — no features
 
@@ -29,7 +29,7 @@ cargo test --no-default-features
 
 ### MSRV — 1.85.0
 
-The minimum supported Rust version is **1.85.0** (see `rust-toolchain.toml`).
+The minimum supported Rust version is **1.85.0** (declared as `rust-version` in `Cargo.toml`; development uses `stable` via `rust-toolchain.toml`).
 
 To verify on MSRV explicitly:
 
@@ -53,8 +53,8 @@ not required for correctness verification:
 
 ## Automated Baseline Script
 
-`scripts/proof_baseline.sh` runs all three verifiable profiles (default, minimal, MSRV build) and
-writes timestamped logs to `artifacts/proof/`:
+`scripts/proof_baseline.sh` runs format check, Clippy, and all three verifiable profiles (default,
+minimal, MSRV build+test via `rustup run 1.85.0`) and writes timestamped logs to `artifacts/proof/`:
 
 ```bash
 bash scripts/proof_baseline.sh
@@ -72,8 +72,24 @@ As of **v2.0.139**, `persist_retrieval_touches` and `persist_access_touches` def
 Retrieval is now read-only by default. To opt in to access-touch tracking:
 
 ```rust
+// 1. Use a store with touch persistence enabled
+let memvid = Memvid::open("file.mv2")?;
+let store = MemvidStore::with_access_touch_persistence(memvid, true);
+
+// 2. Build a policy that writes touch frames on retrieval
 let policy = PolicySet::default().with_persist_retrieval_touches(true);
-let controller = MemoryController::new_with_policy(store, now, policy);
+
+// 3. Construct the controller with the full 7-argument signature
+let clock = Arc::new(SystemClock);
+let controller = MemoryController::new(
+    store,
+    clock.clone(),
+    AuditLogger::new(clock.clone()),
+    MemoryClassifier,
+    MemoryPromoter::new(policy.clone()),
+    BeliefUpdater,
+    MemoryRetriever::new(Ranker, RetentionManager::new(policy)),
+);
 ```
 
 Historical queries (`RetrievalQuery { as_of: Some(t), .. }`) never write touch metadata even when
