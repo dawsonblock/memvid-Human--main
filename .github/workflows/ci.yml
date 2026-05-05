@@ -116,7 +116,8 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Clippy
-        run: cargo clippy --all-targets --features "lex,pdf_extract,simd" -- -D warnings -A clippy::non_std_lazy_statics
+        run: cargo clippy --all-targets --features "lex,pdf_extract,simd" -- -D warnings
+          -A clippy::non_std_lazy_statics
 
   version-consistency:
     name: Version consistency
