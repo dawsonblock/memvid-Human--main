@@ -389,12 +389,12 @@ fn pipeline_context_scope_stamped_on_all_candidates() {
     use memvid_core::agent_memory::enums::Scope;
     let pipeline = RawInputProcessor::new();
     let mut ctx = IngestContext::default();
-    ctx.scope = Scope::Session;
+    ctx.scope = Scope::Task;
     let results = pipeline.process("I prefer dark mode.", &ctx);
     for c in &results {
         assert_eq!(
             c.scope,
-            Scope::Session,
+            Scope::Task,
             "every candidate should inherit context scope"
         );
     }
@@ -421,7 +421,8 @@ fn pipeline_deduplicates_overlapping_extractions() {
 #[cfg(feature = "test_helpers")]
 mod llm_mock_tests {
     use memvid_core::agent_memory::extraction::{
-        LLMStructuredExtractor, MockLLMExtractionBackend, MockLLMExtractionBackendKeyword,
+        LLMStructuredExtractor, MemoryExtractionProvider, MockLLMExtractionBackend,
+        MockLLMExtractionBackendKeyword,
     };
     use memvid_core::agent_memory::schemas::IngestContext;
 

@@ -47,6 +47,27 @@ cargo +1.85.0 test
 
 - [ ] All three pass
 
+### 1.4 Extraction quality tests
+
+```bash
+# Without test-helper mocks (24 tests)
+cargo test --features "lex,pdf_extract,simd" --test extraction_quality
+
+# With test-helper mocks enabled (26 tests — includes LLM mock coverage)
+cargo test --features "lex,pdf_extract,simd,test_helpers" --test extraction_quality
+```
+
+- [ ] 24 tests pass without `test_helpers`
+- [ ] 26 tests pass with `test_helpers`
+
+### 1.5 Extraction pipeline benchmarks (compile check)
+
+```bash
+cargo bench --bench extraction_pipeline_benchmark --no-run
+```
+
+- [ ] Benchmark binary compiles without errors or warnings
+
 ### 1.4 Panic audit
 
 ```bash
@@ -194,6 +215,15 @@ cargo publish --dry-run
 ```
 
 - [ ] No errors, no warnings about missing metadata
+
+> **`test_helpers` feature note:** The `test_helpers` feature exposes
+> `MockLLMExtractionBackend` and `MockLLMExtractionBackendKeyword` for
+> downstream test suites.  These types are gated with
+> `#[cfg(any(test, feature = "test_helpers"))]` and **must not** appear
+> in the crate's public documentation (run `cargo doc --no-deps` and
+> confirm none of the mock types are visible in the rendered output).
+> The feature itself is intentionally *not* in the `[features]` default
+> set and must remain that way.
 
 ### 6.4 Publish
 

@@ -211,6 +211,10 @@ name = "vec_search_benchmark"
 harness = false
 required-features = ["hnsw_bench"]
 
+[[bench]]
+name = "extraction_pipeline_benchmark"
+harness = false
+
 [[test]]
 name = "test_self_model"
 required-features = ["test_helpers"]
