@@ -64,8 +64,8 @@ fn maintenance_reports_current_memories_expires_due_entries_and_audits_activity(
             .any(|memory| memory.memory_id == expired_id)
     );
     assert_eq!(report.expired_ids, vec![expired_id.clone()]);
-    assert!(!report.compaction_supported);
-    assert_eq!(report.compactor_status, "unsupported");
+    assert!(report.compaction_supported);
+    assert_eq!(report.compactor_status, "active");
     assert_eq!(
         report.compactor_reason,
         MemoryCompactor.unsupported_reason()
@@ -125,7 +125,7 @@ fn maintenance_reports_current_memories_expires_due_entries_and_audits_activity(
             .details
             .get("compactor_status")
             .map(String::as_str),
-        Some("unsupported")
+        Some("active")
     );
     assert_eq!(
         maintenance_event

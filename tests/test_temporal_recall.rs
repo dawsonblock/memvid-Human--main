@@ -9,7 +9,7 @@ use memvid_core::agent_memory::ranker::Ranker;
 use memvid_core::agent_memory::retention::RetentionManager;
 use memvid_core::agent_memory::schemas::RetrievalQuery;
 
-use common::{apply_durable, controller, durable, ts};
+use common::{apply_durable, controller_with_policy, durable, ts};
 
 #[test]
 fn historical_query_as_of_time_returns_past_value_rather_than_current_belief() {
@@ -70,7 +70,10 @@ fn historical_query_as_of_time_returns_past_value_rather_than_current_belief() {
 fn retrieval_touch_does_not_move_historical_visibility_window() {
     let ingested_at = ts(1_700_000_000);
     let accessed_at = ts(1_700_100_000);
-    let (mut controller, _) = controller(accessed_at);
+    let (mut controller, _) = controller_with_policy(
+        accessed_at,
+        PolicySet::default().with_persist_retrieval_touches(true),
+    );
     let memory = durable(
         "user",
         "timezone",

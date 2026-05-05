@@ -18,7 +18,7 @@ fn parity_stores(name: &str) -> (InMemoryMemoryStore, MemvidStore, TempDir) {
     let memvid = Memvid::create(&path).expect("memvid created");
     (
         InMemoryMemoryStore::default(),
-        MemvidStore::new(memvid),
+        MemvidStore::with_access_touch_persistence(memvid, true),
         dir,
     )
 }

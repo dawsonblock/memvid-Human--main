@@ -152,7 +152,7 @@ fn memvid_adapter_keeps_ingest_time_stable_across_access_and_feedback_updates() 
     let dir = tempdir().expect("tempdir");
     let path = dir.path().join("agent-memory-updates.mv2");
     let memvid = Memvid::create(&path).expect("memvid created");
-    let mut store = MemvidStore::new(memvid);
+    let mut store = MemvidStore::with_access_touch_persistence(memvid, true);
 
     let stored_at = ts(1_700_000_000);
     let accessed_at = ts(1_700_000_100);
@@ -231,7 +231,7 @@ fn memvid_adapter_batch_touch_path_updates_effective_access_metadata() {
     let dir = tempdir().expect("tempdir");
     let path = dir.path().join("agent-memory-batch-touch.mv2");
     let memvid = Memvid::create(&path).expect("memvid created");
-    let mut store = MemvidStore::new(memvid);
+    let mut store = MemvidStore::with_access_touch_persistence(memvid, true);
 
     let first = durable(
         "user",
@@ -362,7 +362,7 @@ fn memvid_adapter_persists_durable_touch_records_when_enabled() {
     let dir = tempdir().expect("tempdir");
     let path = dir.path().join("agent-memory-enabled-touch.mv2");
     let memvid = Memvid::create(&path).expect("memvid created");
-    let mut store = MemvidStore::new(memvid);
+    let mut store = MemvidStore::with_access_touch_persistence(memvid, true);
 
     let memory = durable(
         "user",
@@ -399,7 +399,7 @@ fn memvid_adapter_cache_tracks_touch_updates_without_stale_reads() {
     let dir = tempdir().expect("tempdir");
     let path = dir.path().join("agent-memory-cache.mv2");
     let memvid = Memvid::create(&path).expect("memvid created");
-    let mut store = MemvidStore::new(memvid);
+    let mut store = MemvidStore::with_access_touch_persistence(memvid, true);
 
     let memory = durable(
         "user",
@@ -453,7 +453,7 @@ fn memvid_adapter_preserves_feedback_then_touch_order_in_effective_metadata() {
     let dir = tempdir().expect("tempdir");
     let path = dir.path().join("agent-memory-feedback-touch-order.mv2");
     let memvid = Memvid::create(&path).expect("memvid created");
-    let mut store = MemvidStore::new(memvid);
+    let mut store = MemvidStore::with_access_touch_persistence(memvid, true);
 
     let stored_at = ts(1_700_000_000);
     let feedback_at = ts(1_700_000_100);
