@@ -1,0 +1,649 @@
+file	line	kind	snippet	classification
+src/agent_memory/concept_synthesis.rs	661	unwrap	        FixedClock::new(chrono::Utc.timestamp_opt(1_700_000_000, 0).unwrap())	test
+src/agent_memory/concept_synthesis.rs	674	unwrap	            stored_at: chrono::Utc.timestamp_opt(1_700_000_000, 0).unwrap(),	test
+src/agent_memory/concept_synthesis.rs	719	unwrap	            .unwrap();	test
+src/agent_memory/concept_synthesis.rs	722	unwrap	            .unwrap();	test
+src/agent_memory/concept_synthesis.rs	727	unwrap	            .unwrap();	test
+src/agent_memory/concept_synthesis.rs	735	unwrap	        let beliefs = store.list_memories_by_layer(MemoryLayer::Belief).unwrap();	test
+src/agent_memory/concept_synthesis.rs	750	unwrap	            .unwrap();	test
+src/agent_memory/concept_synthesis.rs	753	unwrap	            .unwrap();	test
+src/agent_memory/concept_synthesis.rs	758	unwrap	            .unwrap();	test
+src/agent_memory/concept_synthesis.rs	761	unwrap	            .unwrap();	test
+src/agent_memory/concept_synthesis.rs	784	unwrap	        store.put_memory(&s1).unwrap();	test
+src/agent_memory/concept_synthesis.rs	785	unwrap	        store.put_memory(&s2).unwrap();	test
+src/agent_memory/concept_synthesis.rs	786	unwrap	        store.put_memory(&s3).unwrap();	test
+src/agent_memory/concept_synthesis.rs	791	unwrap	            .unwrap();	test
+src/agent_memory/consolidation_engine.rs	129	unreachable	                            ConsolidationDisposition::Duplicate => unreachable!(),	allowlisted
+src/agent_memory/consolidation_engine.rs	208	unreachable	                            ConsolidationDisposition::Duplicate => unreachable!(),	allowlisted
+src/agent_memory/consolidation_engine.rs	310	unreachable	            ConsolidationDisposition::Duplicate => unreachable!(),	allowlisted
+src/agent_memory/consolidation_engine.rs	407	unreachable	            ConsolidationDisposition::Duplicate => unreachable!(),	allowlisted
+src/agent_memory/consolidation_engine.rs	511	unreachable	            ConsolidationDisposition::Duplicate => unreachable!(),	allowlisted
+src/agent_memory/extraction/procedure_extractor.rs	75	unreachable	    let numbered_re = Regex::new(r"(?m)^\s*\d+[.)]\s").unwrap_or_else(|_| unreachable!());	allowlisted
+src/agent_memory/goal_state_store.rs	32	expect	        let entity = memory.entity_non_empty().expect("validated entity");	allowlisted
+src/agent_memory/goal_state_store.rs	33	expect	        let slot = memory.slot_non_empty().expect("validated slot");	allowlisted
+src/agent_memory/goal_state_store.rs	34	expect	        let value = memory.value_non_empty().expect("validated value");	allowlisted
+src/agent_memory/memory_compactor.rs	324	unwrap	        FixedClock::new(chrono::Utc.timestamp_opt(1_700_000_000, 0).unwrap())	test
+src/agent_memory/memory_compactor.rs	343	unwrap	            stored_at: chrono::Utc.timestamp_opt(1_700_000_000, 0).unwrap(),	test
+src/agent_memory/memory_compactor.rs	394	unwrap	        s.put_memory(&high).unwrap();	test
+src/agent_memory/memory_compactor.rs	395	unwrap	        s.put_memory(&low).unwrap();	test
+src/agent_memory/memory_compactor.rs	404	unwrap	            .unwrap();	test
+src/agent_memory/memory_compactor.rs	409	unwrap	        assert!(s.get_memory("m1").unwrap().is_some());	test
+src/agent_memory/memory_compactor.rs	433	unwrap	        s.put_memory(&a).unwrap();	test
+src/agent_memory/memory_compactor.rs	434	unwrap	        s.put_memory(&b).unwrap();	test
+src/agent_memory/memory_compactor.rs	443	unwrap	            .unwrap();	test
+src/agent_memory/memory_compactor.rs	461	unwrap	            s.put_memory(&m).unwrap();	test
+src/agent_memory/memory_compactor.rs	471	unwrap	            .unwrap();	test
+src/agent_memory/memory_compactor.rs	477	unwrap	        assert!(s.get_memory(created_id).unwrap().is_some());	test
+src/agent_memory/memory_compactor.rs	493	unwrap	            s.put_memory(&m).unwrap();	test
+src/agent_memory/memory_compactor.rs	503	unwrap	            .unwrap();	test
+src/agent_memory/memory_compactor.rs	519	unwrap	        s.put_memory(&t).unwrap();	test
+src/agent_memory/memory_compactor.rs	528	unwrap	            .unwrap();	test
+src/agent_memory/memory_compactor.rs	535	unwrap	        let new_mem = s.get_memory(new_id).unwrap().unwrap();	test
+src/agent_memory/memory_compactor.rs	554	unwrap	        s.put_memory(&t).unwrap();	test
+src/agent_memory/memory_compactor.rs	563	unwrap	            .unwrap();	test
+src/agent_memory/memory_feedback.rs	172	unwrap	        let record = store.records().last().unwrap();	test
+src/agent_memory/procedure_store.rs	158	expect	            .expect("validated workflow key")	allowlisted
+src/agent_memory/procedure_store.rs	164	expect	            .expect("validated entity")	allowlisted
+src/agent_memory/procedure_store.rs	166	expect	        procedure_memory.slot = memory.slot_non_empty().expect("validated slot").to_string();	allowlisted
+src/agent_memory/procedure_store.rs	169	expect	            .expect("validated value")	allowlisted
+src/agent_memory/reasoning_engine.rs	183	unwrap	        FixedClock::new(chrono::Utc.timestamp_opt(ts, 0).unwrap())	test
+src/agent_memory/reasoning_engine.rs	190	unwrap	            stored_at: chrono::Utc.timestamp_opt(stored_at_ts, 0).unwrap(),	test
+src/agent_memory/reasoning_engine.rs	237	unwrap	                .unwrap();	test
+src/agent_memory/reasoning_engine.rs	239	unwrap	        let result = engine().run_cycle(&mut store, &clock).unwrap();	test
+src/agent_memory/reasoning_engine.rs	256	unwrap	            .unwrap();	test
+src/agent_memory/reasoning_engine.rs	259	unwrap	            .unwrap();	test
+src/agent_memory/reasoning_engine.rs	260	unwrap	        let result = engine().run_cycle(&mut store, &clock).unwrap();	test
+src/agent_memory/reasoning_engine.rs	271	unwrap	                .unwrap();	test
+src/agent_memory/reasoning_engine.rs	273	unwrap	        let result = engine().run_cycle(&mut store, &clock).unwrap();	test
+src/agent_memory/reasoning_engine.rs	282	unwrap	        let result = engine().run_cycle(&mut store, &clock).unwrap();	test
+src/agent_memory/reasoning_engine.rs	283	unwrap	        let expected = chrono::Utc.timestamp_opt(NOW, 0).unwrap();	test
+src/agent_memory/reasoning_engine.rs	291	unwrap	        let result = engine().run_cycle(&mut store, &clock).unwrap();	test
+src/agent_memory/self_model_store.rs	36	expect	        let entity = memory.entity_non_empty().expect("validated entity");	allowlisted
+src/agent_memory/self_model_store.rs	37	expect	        let slot = memory.slot_non_empty().expect("validated slot");	allowlisted
+src/agent_memory/self_model_store.rs	38	expect	        let value = memory.value_non_empty().expect("validated value");	allowlisted
+src/analysis/auto_tag.rs	44	unwrap	        std::sync::LazyLock::new(|| Regex::new(r"(?i)[a-z0-9][a-z0-9'-]+").unwrap());	allowlisted
+src/analysis/auto_tag.rs	138	unwrap	        Regex::new(r"(?m)^(?P<phrase>[A-Z][A-Za-z0-9 &/-]{3,})$").unwrap()	allowlisted
+src/analysis/auto_tag.rs	174	unwrap	        Regex::new(r"(?i)\b((?:19|20)\d{2}|\d{4}-\d{2}-\d{2}|\d{2}/\d{2}/\d{4})\b").unwrap()	allowlisted
+src/analysis/auto_tag.rs	181	expect	        ).expect("regex literal")	allowlisted
+src/analysis/auto_tag.rs	188	expect	        ).expect("regex literal")	allowlisted
+src/analysis/ner.rs	98	expect	        .expect("default NER model must exist")	allowlisted
+src/analysis/temporal.rs	176	unwrap	            .get_or_init(|| Regex::new(r"^in (?P<count>[[:word:]]+) days$").unwrap())	allowlisted
+src/analysis/temporal.rs	184	unwrap	            .get_or_init(|| Regex::new(r"^(?P<count>[[:word:]]+) days ago$").unwrap())	allowlisted
+src/analysis/temporal.rs	198	unwrap	            .get_or_init(|| Regex::new(r"^(?P<count>[[:word:]]+) weeks from now$").unwrap())	allowlisted
+src/analysis/temporal.rs	214	unwrap	            .get_or_init(|| Regex::new(r"^next (?P<weekday>[a-z]+)$").unwrap())	allowlisted
+src/analysis/temporal.rs	222	unwrap	            .get_or_init(|| Regex::new(r"^last (?P<weekday>[a-z]+)$").unwrap())	allowlisted
+src/analysis/temporal.rs	234	expect	                .expect("regex literal")	allowlisted
+src/analysis/temporal.rs	253	unwrap	            .get_or_init(|| Regex::new(r"^(?P<weekday>[a-z]+)$").unwrap())	allowlisted
+src/analysis/temporal.rs	274	expect	                .expect("regex literal")	allowlisted
+src/analysis/temporal.rs	293	expect	                .expect("regex literal")	allowlisted
+src/analysis/temporal.rs	316	unwrap	                Regex::new(r"^(?P<month>\d{1,2})/(?P<day>\d{1,2})/(?P<year>\d{2,4})$").unwrap()	allowlisted
+src/analysis/temporal.rs	341	unwrap	            .get_or_init(|| Regex::new(r"^q(?P<quarter>[1-4]) (?P<year>\d{4})$").unwrap())	allowlisted
+src/analysis/temporal.rs	351	expect	                    .expect("regex literal")	allowlisted
+src/analysis/temporal.rs	368	expect	                    .expect("regex literal")	allowlisted
+src/analysis/temporal.rs	383	unwrap	            .get_or_init(|| Regex::new(r"^(?:year )?(?P<year>\d{4})$").unwrap())	allowlisted
+src/analysis/temporal.rs	449	unwrap	        let end = Date::from_calendar_date(date.year(), date.month(), last_day).unwrap();	allowlisted
+src/analysis/temporal.rs	456	unwrap	        let start = Date::from_calendar_date(year, month, 1).unwrap();	allowlisted
+src/analysis/temporal.rs	474	unwrap	        let new_date = Date::from_calendar_date(year, month, day).unwrap();	allowlisted
+src/analysis/temporal.rs	515	unwrap	        let november_first = Date::from_calendar_date(year, Month::November, 1).unwrap();	allowlisted
+src/analysis/temporal.rs	566	unwrap	        let start = Date::from_calendar_date(year, start_month, 1).unwrap();	allowlisted
+src/analysis/temporal.rs	569	unwrap	        let end = Date::from_calendar_date(end_year, end_month, end_day).unwrap();	allowlisted
+src/analysis/temporal.rs	574	unwrap	        let start = Date::from_calendar_date(year, Month::January, 1).unwrap();	allowlisted
+src/analysis/temporal.rs	575	unwrap	        let end = Date::from_calendar_date(year, Month::December, 31).unwrap();	allowlisted
+src/analysis/temporal.rs	592	unreachable	            _ => unreachable!(),	allowlisted
+src/analysis/temporal.rs	677	unwrap	    date.checked_add(Duration::days(delta)).unwrap()	allowlisted
+src/analysis/temporal.rs	691	unwrap	    let month_enum = Month::try_from(total as u8).unwrap();	allowlisted
+src/analysis/temporal.rs	697	unwrap	        Date::from_calendar_date(year + 1, Month::January, 1).unwrap()	allowlisted
+src/analysis/temporal.rs	699	unwrap	        Date::from_calendar_date(year, month.next(), 1).unwrap()	allowlisted
+src/analysis/temporal.rs	713	unwrap	        Time::from_hms(hour as u8, minute as u8, second as u8).unwrap(),	allowlisted
+src/analysis/temporal.rs	787	unwrap	        let value: i32 = token.parse().unwrap();	allowlisted
+src/analysis/temporal.rs	790	unwrap	        token.parse().unwrap()	allowlisted
+src/analysis/temporal_enrich.rs	228	expect	    Lazy::new(|| Regex::new(r"(?i)Session\s+\d+\s*\(([^)]+)\)").expect("valid regex"));	allowlisted
+src/analysis/temporal_enrich.rs	231	expect	    Lazy::new(|| Regex::new(r"(?i)\[(?:SESSION_)?DATE:\s*([^\]]+)\]").expect("valid regex"));	allowlisted
+src/analysis/temporal_enrich.rs	234	expect	    Lazy::new(|| Regex::new(r"(\d{4})[/-](\d{1,2})[/-](\d{1,2})").expect("valid regex"));	allowlisted
+src/analysis/temporal_enrich.rs	237	expect	    Regex::new(r"(?i)(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),?\s+(\d{4})").expect("valid regex")	allowlisted
+src/analysis/temporal_enrich.rs	244	expect	    .expect("valid regex")	allowlisted
+src/analysis/temporal_enrich.rs	248	expect	    Lazy::new(|| Regex::new(r"(\d{1,2})/(\d{1,2})/(\d{2,4})").expect("valid regex"));	allowlisted
+src/analysis/temporal_enrich.rs	252	expect	    Lazy::new(|| Regex::new(r"(?i)\b(last|this|next)\s+year\b").expect("valid regex"));	allowlisted
+src/analysis/temporal_enrich.rs	255	expect	    Lazy::new(|| Regex::new(r"(?i)\b(last|this|next)\s+month\b").expect("valid regex"));	allowlisted
+src/analysis/temporal_enrich.rs	258	expect	    Lazy::new(|| Regex::new(r"(?i)\b(last|this|next)\s+week\b").expect("valid regex"));	allowlisted
+src/analysis/temporal_enrich.rs	261	expect	    Regex::new(r"(?i)\b(\d+|a|one|two|three|four|five|six|seven|eight|nine|ten)\s+(days?|weeks?|months?|years?)\s+ago\b").expect("valid regex")	allowlisted
+src/analysis/temporal_enrich.rs	265	expect	    Regex::new(r"(?i)\bin\s+(\d+|a|one|two|three|four|five|six|seven|eight|nine|ten)\s+(days?|weeks?|months?|years?)\b").expect("valid regex")	allowlisted
+src/analysis/temporal_enrich.rs	269	expect	    Lazy::new(|| Regex::new(r"(?i)\b(yesterday|today|tomorrow)\b").expect("valid regex"));	allowlisted
+src/analysis/temporal_enrich.rs	275	expect	    .expect("valid regex")	allowlisted
+src/analysis/temporal_enrich.rs	439	expect	        let m = caps.get(0).expect("full match");	allowlisted
+src/analysis/temporal_enrich.rs	445	expect	        let m = caps.get(0).expect("full match");	allowlisted
+src/analysis/temporal_enrich.rs	451	expect	        let m = caps.get(0).expect("full match");	allowlisted
+src/analysis/temporal_enrich.rs	457	expect	        let m = caps.get(0).expect("full match");	allowlisted
+src/analysis/temporal_enrich.rs	463	expect	        let m = caps.get(0).expect("full match");	allowlisted
+src/analysis/temporal_enrich.rs	469	expect	        let m = caps.get(0).expect("full match");	allowlisted
+src/analysis/temporal_enrich.rs	475	expect	        let m = caps.get(0).expect("full match");	allowlisted
+src/analysis/temporal_enrich.rs	783	expect	        let info = info.expect("anchor info");	test
+src/analysis/temporal_enrich.rs	786	expect	            NaiveDate::from_ymd_opt(2023, 5, 7).expect("valid date")	test
+src/analysis/temporal_enrich.rs	797	expect	        let info = info.expect("anchor info");	test
+src/analysis/temporal_enrich.rs	800	expect	            NaiveDate::from_ymd_opt(2023, 5, 7).expect("valid date")	test
+src/analysis/temporal_enrich.rs	816	expect	        let anchor = NaiveDate::from_ymd_opt(2023, 5, 7).expect("valid date");	test
+src/analysis/temporal_enrich.rs	822	panic	            panic!("Expected Year resolution");	test
+src/analysis/temporal_enrich.rs	828	expect	        let anchor = NaiveDate::from_ymd_opt(2023, 5, 10).expect("valid date"); // Wednesday	test
+src/analysis/temporal_enrich.rs	834	expect	                NaiveDate::from_ymd_opt(2023, 5, 1).expect("valid date")	test
+src/analysis/temporal_enrich.rs	838	expect	                NaiveDate::from_ymd_opt(2023, 5, 7).expect("valid date")	test
+src/analysis/temporal_enrich.rs	841	panic	            panic!("Expected DateRange resolution");	test
+src/analysis/temporal_enrich.rs	856	expect	        let context = enrichment.context_block.as_ref().expect("context");	test
+src/api_embed.rs	77	unwrap	        .unwrap_or_else(|| OPENAI_MODELS.iter().find(|m| m.is_default).unwrap())	allowlisted
+src/api_embed.rs	83	unwrap	    OPENAI_MODELS.iter().find(|m| m.is_default).unwrap()	allowlisted
+src/api_embed.rs	391	expect	                    return Err(last_error.expect("error set in preceding branch"));	allowlisted
+src/api_embed.rs	563	expect	        let embedder = OpenAIEmbedder::new(config).expect("Failed to create embedder");	test
+src/api_embed.rs	568	expect	            .expect("Failed to embed text");	test
+src/api_embed.rs	573	expect	        let embeddings = embedder.embed_batch(&texts).expect("Failed to batch embed");	test
+src/api_embed.rs	589	expect	        let embedder = OpenAIEmbedder::new(config).expect("Failed to create embedder");	test
+src/api_embed.rs	593	expect	            .expect("Failed to embed text");	test
+src/clip.rs	210	expect	                .expect("default model")	allowlisted
+src/clip.rs	220	expect	        .expect("default model exists")	allowlisted
+src/clip.rs	1642	expect	        let artifact = builder.finish().expect("finish");	test
+src/clip.rs	1646	expect	        let index = ClipIndex::decode(&artifact.bytes).expect("decode");	test
+src/clip.rs	1661	expect	        let artifact = builder.finish().expect("finish");	test
+src/clip.rs	1662	expect	        let index = ClipIndex::decode(&artifact.bytes).expect("decode");	test
+src/enrich/rules.rs	894	unwrap	            .unwrap();	test
+src/enrich/rules.rs	910	unwrap	            .unwrap();	test
+src/enrich/rules.rs	984	unwrap	        assert_eq!(name_card.unwrap().value, "Max");	test
+src/enrich/rules.rs	998	unwrap	        .unwrap();	test
+src/enrich/rules.rs	1021	unwrap	        let card = result.cards.iter().find(|c| c.slot == "employer").unwrap();	test
+src/enrich/rules.rs	1033	unwrap	        let card = result.cards.iter().find(|c| c.slot == "employer").unwrap();	test
+src/enrich/rules.rs	1040	unwrap	        let card = result.cards.iter().find(|c| c.slot == "employer").unwrap();	test
+src/enrich/rules.rs	1052	unwrap	        let card = result.cards.iter().find(|c| c.slot == "location").unwrap();	test
+src/enrich/rules.rs	1059	unwrap	        let card = result.cards.iter().find(|c| c.slot == "location").unwrap();	test
+src/enrich/rules.rs	1071	unwrap	        let card = result.cards.iter().find(|c| c.slot == "job_title").unwrap();	test
+src/enrich/rules.rs	1078	unwrap	        let card = result.cards.iter().find(|c| c.slot == "job_title").unwrap();	test
+src/enrich/rules.rs	1090	unwrap	        let card = result.cards.iter().find(|c| c.slot == "spouse").unwrap();	test
+src/enrich/rules.rs	1097	unwrap	        let card = result.cards.iter().find(|c| c.slot == "spouse").unwrap();	test
+src/enrich/rules.rs	1112	unwrap	            .unwrap();	test
+src/enrich/rules.rs	1128	unwrap	            .unwrap();	test
+src/enrich/rules.rs	1141	unwrap	        let card = result.cards.iter().find(|c| c.slot == "education").unwrap();	test
+src/enrich/rules.rs	1148	unwrap	        let card = result.cards.iter().find(|c| c.slot == "education").unwrap();	test
+src/enrich/rules.rs	1159	unwrap	        let card = result.cards.iter().find(|c| c.slot == "age").unwrap();	test
+src/enrich/rules.rs	1170	unwrap	        let card = result.cards.iter().find(|c| c.slot == "travel").unwrap();	test
+src/enrich/rules.rs	1181	unwrap	        let card = result.cards.iter().find(|c| c.slot == "hobby").unwrap();	test
+src/enrich/rules.rs	1220	unwrap	        assert_eq!(card.unwrap().entity, "alice smith");	test
+src/enrich/rules.rs	1229	unwrap	        let card = result.cards.iter().find(|c| c.slot == "pet_name").unwrap();	test
+src/enrich/rules.rs	1240	unwrap	        let card = result.cards.iter().find(|c| c.slot == "brother").unwrap();	test
+src/enrichment_worker.rs	490	expect	        let count = batcher.flush().expect("flush should succeed");	test
+src/enrichment_worker.rs	520	expect	        let count = batcher.flush().expect("flush should succeed");	test
+src/extract.rs	998	unwrap	        assert_eq!(retrieved.unwrap().text, Some("test content".to_string()));	test
+src/extract.rs	1080	unwrap	        assert_eq!(retrieved.unwrap().text, Some("updated".to_string()));	test
+src/extract_budgeted.rs	602	unwrap	        let result = extract_text_budgeted(text, ExtractionBudget::default()).unwrap();	test
+src/extract_budgeted.rs	617	unwrap	        let result = extract_text_budgeted(text.as_bytes(), budget).unwrap();	test
+src/footer.rs	146	expect	        let decoded = CommitFooter::decode(&encoded).expect("decode");	test
+src/footer.rs	154	expect	        let slice = find_last_valid_footer(&bytes).expect("footer present");	test
+src/footer.rs	175	expect	        let slice = find_last_valid_footer(&bytes).expect("footer present");	test
+src/graph_search.rs	457	panic	            _ => panic!("Expected hybrid plan for location query"),	test
+src/graph_search.rs	472	panic	            _ => panic!("Expected hybrid plan for workplace query"),	test
+src/graph_search.rs	487	panic	            _ => panic!("Expected hybrid plan for possessive query"),	test
+src/io/header.rs	190	expect	        let encoded = HeaderCodec::encode(&header).expect("encode header");	test
+src/io/header.rs	191	expect	        let decoded = HeaderCodec::decode(&encoded).expect("decode header");	test
+src/io/header.rs	203	expect	        HeaderCodec::write(&mut cursor, &header).expect("write header");	test
+src/io/header.rs	205	expect	        let decoded = HeaderCodec::read(&mut cursor).expect("read header");	test
+src/io/header.rs	213	expect	        let mut encoded = HeaderCodec::encode(&header).expect("encode header");	test
+src/io/header.rs	216	expect	        HeaderCodec::read(&mut cursor).expect("read header with legacy metadata");	test
+src/io/header.rs	244	expect	        let mut encoded = HeaderCodec::encode(&header).expect("encode header");	test
+src/io/manifest_wal.rs	179	unwrap	            let payload_len = u32::from_le_bytes(header[..4].try_into().unwrap()) as u64;	allowlisted
+src/io/temporal_index.rs	65	unwrap	        let ts_utc = i64::from_le_bytes(bytes[0..8].try_into().unwrap());	allowlisted
+src/io/temporal_index.rs	66	unwrap	        let frame_id = u64::from_le_bytes(bytes[8..16].try_into().unwrap());	allowlisted
+src/io/temporal_index.rs	67	unwrap	        let byte_start = u32::from_le_bytes(bytes[16..20].try_into().unwrap());	allowlisted
+src/io/temporal_index.rs	68	unwrap	        let byte_len = u32::from_le_bytes(bytes[20..24].try_into().unwrap());	allowlisted
+src/io/temporal_index.rs	70	unwrap	        let confidence = u16::from_le_bytes(bytes[25..27].try_into().unwrap());	allowlisted
+src/io/temporal_index.rs	71	unwrap	        let tz_hint_minutes = i16::from_le_bytes(bytes[27..29].try_into().unwrap());	allowlisted
+src/io/temporal_index.rs	73	unwrap	        let reserved = u16::from_le_bytes(bytes[30..32].try_into().unwrap());	allowlisted
+src/io/temporal_index.rs	133	unwrap	        let frame_id = u64::from_le_bytes(bytes[0..8].try_into().unwrap());	allowlisted
+src/io/temporal_index.rs	134	unwrap	        let anchor_ts = i64::from_le_bytes(bytes[8..16].try_into().unwrap());	allowlisted
+src/io/temporal_index.rs	269	unwrap	    let version = u16::from_le_bytes(header[4..6].try_into().unwrap());	test
+src/io/temporal_index.rs	276	unwrap	    let flags = u16::from_le_bytes(header[6..8].try_into().unwrap()) as u32;	test
+src/io/temporal_index.rs	277	unwrap	    let entry_count = u64::from_le_bytes(header[8..16].try_into().unwrap());	test
+src/io/temporal_index.rs	278	unwrap	    let anchor_count = u64::from_le_bytes(header[16..24].try_into().unwrap());	test
+src/io/temporal_index.rs	281	unwrap	        .unwrap();	test
+src/io/temporal_index.rs	463	expect	        let mut file = tempfile().expect("temp");	test
+src/io/temporal_index.rs	465	expect	            append_track(&mut file, &mut mentions, &mut anchors, 0).expect("append track");	test
+src/io/temporal_index.rs	467	expect	        let track = read_track(&mut file, offset, length).expect("read track");	test
+src/io/time_index.rs	155	expect	        let mut file = tempfile().expect("temp file");	test
+src/io/time_index.rs	163	expect	            append_track(&mut file, &mut entries).expect("append track");	test
+src/io/time_index.rs	165	expect	        let read_entries = read_track(&mut file, offset, length).expect("read track");	test
+src/io/time_index.rs	179	expect	        let mut file = tempfile().expect("temp file");	test
+src/io/time_index.rs	181	unwrap	        file.write_all(&TIME_INDEX_MAGIC).unwrap();	test
+src/io/time_index.rs	182	unwrap	        file.write_all(&(2u64).to_le_bytes()).unwrap();	test
+src/io/time_index.rs	183	unwrap	        file.write_all(&50i64.to_le_bytes()).unwrap();	test
+src/io/time_index.rs	184	unwrap	        file.write_all(&5u64.to_le_bytes()).unwrap();	test
+src/io/time_index.rs	185	unwrap	        file.write_all(&40i64.to_le_bytes()).unwrap();	test
+src/io/time_index.rs	186	unwrap	        file.write_all(&4u64.to_le_bytes()).unwrap();	test
+src/io/time_index.rs	188	unwrap	        let length = file.seek(SeekFrom::End(0)).unwrap();	test
+src/io/time_index.rs	189	unwrap	        file.seek(SeekFrom::Start(0)).unwrap();	test
+src/io/wal.rs	457	expect	        let file = tempfile().expect("temp file");	test
+src/io/wal.rs	458	expect	        file.set_len(WAL_OFFSET + size).expect("set_len");	test
+src/io/wal.rs	466	expect	        let mut wal = EmbeddedWal::open(&file, &header).expect("open wal");	test
+src/io/wal.rs	468	expect	        wal.append_entry(b"first").expect("append first");	test
+src/io/wal.rs	469	expect	        wal.append_entry(b"second").expect("append second");	test
+src/io/wal.rs	471	expect	        let records = wal.records_after(0).expect("records");	test
+src/io/wal.rs	483	expect	        let mut wal = EmbeddedWal::open(&file, &header).expect("open wal");	test
+src/io/wal.rs	485	expect	        wal.append_entry(&[0xAA; 32]).expect("append a");	test
+src/io/wal.rs	486	expect	        wal.append_entry(&[0xBB; 32]).expect("append b");	test
+src/io/wal.rs	487	expect	        wal.record_checkpoint(&mut header).expect("checkpoint");	test
+src/io/wal.rs	489	expect	        assert!(wal.pending_records().expect("pending").is_empty());	test
+src/io/wal.rs	491	expect	        wal.append_entry(&[0xCC; 32]).expect("append c");	test
+src/io/wal.rs	492	expect	        let records = wal.pending_records().expect("after append");	test
+src/io/wal.rs	501	expect	        file.seek(SeekFrom::Start(header.wal_offset)).expect("seek");	test
+src/io/wal.rs	505	expect	        file.write_all(&record).expect("write corrupt header");	test
+src/io/wal.rs	506	expect	        file.sync_all().expect("sync");	test
+src/io/wal.rs	514	panic	            other => panic!("unexpected error: {other:?}"),	test
+src/lex.rs	687	expect	        let artifact = builder.finish().expect("finish");	test
+src/lex.rs	691	expect	        let index = LexIndex::decode(&artifact.bytes).expect("decode");	test
+src/lex.rs	753	expect	        let artifact = builder.finish().expect("finish should succeed");	test
+src/lex.rs	754	expect	        let index = LexIndex::decode(&artifact.bytes).expect("decode should succeed");	test
+src/lex.rs	807	expect	        let artifact = builder.finish().expect("finish");	test
+src/lex.rs	808	expect	        let index = LexIndex::decode(&artifact.bytes).expect("decode");	test
+src/lib.rs	612	expect	            let dir = tempdir().expect("tmp");	test
+src/lib.rs	615	expect	            let mut mem = Memvid::create(&path).expect("create");	test
+src/lib.rs	616	expect	            let seq = mem.put_bytes(b"hello").expect("put");	test
+src/lib.rs	618	expect	            mem.commit().expect("commit");	test
+src/lib.rs	622	expect	            let mut reopened = Memvid::open(&path).expect("open");	test
+src/lib.rs	623	expect	            let stats = reopened.stats().expect("stats");	test
+src/lib.rs	629	expect	                .expect("timeline");	test
+src/lib.rs	643	expect	            let dir = tempdir().expect("tmp");	test
+src/lib.rs	646	expect	            let mut mem = Memvid::create(&path).expect("create");	test
+src/lib.rs	647	expect	            mem.put_bytes(b"alpha").expect("put alpha");	test
+src/lib.rs	648	expect	            mem.put_bytes(b"beta").expect("put beta");	test
+src/lib.rs	649	expect	            mem.commit().expect("commit");	test
+src/lib.rs	652	expect	            let mut reopened = Memvid::open(&path).expect("open");	test
+src/lib.rs	662	expect	                .expect("timeline limit");	test
+src/lib.rs	675	expect	                .expect("timeline reverse");	test
+src/lib.rs	685	expect	            let dir = tempdir().expect("tmp");	test
+src/lib.rs	688	expect	            let mut mem = Memvid::create(&path).expect("create");	test
+src/lib.rs	689	expect	            mem.enable_lex().expect("enable");	test
+src/lib.rs	690	expect	            let _seq1 = mem.put_bytes(b"Rust memory engine").expect("put");	test
+src/lib.rs	691	expect	            let _seq2 = mem.put_bytes(b"Deterministic WAL").expect("put2");	test
+src/lib.rs	692	expect	            mem.commit().expect("commit");	test
+src/lib.rs	710	expect	            let response = mem.search(request).expect("search");	test
+src/lib.rs	715	expect	            let mut reopened = Memvid::open(&path).expect("open");	test
+src/lib.rs	731	expect	            let response = reopened.search(request).expect("search reopened");	test
+src/lib.rs	740	expect	            let dir = tempdir().expect("tmp");	test
+src/lib.rs	743	expect	            let mut mem = Memvid::create(&path).expect("create");	test
+src/lib.rs	744	expect	            mem.enable_vec().expect("enable");	test
+src/lib.rs	746	expect	                .expect("put");	test
+src/lib.rs	748	expect	                .expect("put2");	test
+src/lib.rs	749	expect	            mem.commit().expect("commit");	test
+src/lib.rs	751	expect	            let stats = mem.stats().expect("stats");	test
+src/lib.rs	754	expect	            let hits = mem.search_vec(&[0.0, 1.0], 5).expect("search");	test
+src/lib.rs	759	expect	            let mut reopened = Memvid::open(&path).expect("open");	test
+src/lib.rs	760	expect	            let reopened_stats = reopened.stats().expect("stats reopen");	test
+src/lib.rs	767	expect	            let hits = reopened.search_vec(&[1.0, 0.0], 5).expect("search reopen");	test
+src/lib.rs	776	expect	            let dir = tempdir().expect("tmp");	test
+src/lib.rs	779	expect	            let mut mem = Memvid::create(&path).expect("create");	test
+src/lib.rs	780	expect	            mem.enable_lex().expect("enable lex");	test
+src/lib.rs	787	expect	                .expect("put doc");	test
+src/lib.rs	788	expect	            mem.commit().expect("commit");	test
+src/lib.rs	806	expect	                .expect("search");	test
+src/lib.rs	810	expect	            let hit = response.hits.first().expect("hit");	test
+src/lib.rs	816	expect	                .expect("frame");	test
+src/lib.rs	817	expect	            let canonical = mem.frame_content(&frame).expect("content");	test
+src/lib.rs	822	expect	            let chunk = hit.chunk_range.expect("chunk range");	test
+src/lib.rs	825	expect	            let chunk_text = hit.chunk_text.as_ref().expect("chunk text");	test
+src/lib.rs	835	expect	            let dir = tempdir().expect("tmp");	test
+src/lib.rs	838	expect	            let mut mem = Memvid::create(&path).expect("create");	test
+src/lib.rs	839	expect	            mem.enable_lex().expect("enable lex");	test
+src/lib.rs	851	expect	                .expect("put doc");	test
+src/lib.rs	852	expect	            mem.commit().expect("commit");	test
+src/lib.rs	870	expect	                .expect("search");	test
+src/lib.rs	872	expect	            let hit = response.hits.first().expect("hit");	test
+src/lib.rs	874	expect	            let chunk_range = hit.chunk_range.expect("chunk range");	test
+src/lib.rs	879	expect	            let chunk_text = hit.chunk_text.as_ref().expect("chunk text");	test
+src/lib.rs	887	expect	            let dir = tempdir().expect("tmp");	test
+src/lib.rs	890	expect	            let mut mem = Memvid::create(&path).expect("create");	test
+src/lib.rs	891	expect	            mem.enable_lex().expect("enable lex");	test
+src/lib.rs	899	expect	                .expect("put bytes");	test
+src/lib.rs	900	expect	            mem.commit().expect("commit");	test
+src/lib.rs	902	expect	            let frame = mem.toc.frames.first().expect("frame present");	test
+src/lib.rs	912	expect	            let dir = tempdir().expect("tmp");	test
+src/lib.rs	915	expect	            let mut mem = Memvid::create(&path).expect("create");	test
+src/lib.rs	916	expect	            mem.enable_lex().expect("enable lex");	test
+src/lib.rs	923	expect	                .expect("put a");	test
+src/lib.rs	930	expect	                .expect("put b");	test
+src/lib.rs	937	expect	                .expect("put c");	test
+src/lib.rs	939	expect	            mem.commit().expect("commit");	test
+src/lib.rs	957	expect	                .expect("uri search");	test
+src/lib.rs	982	expect	                .expect("scope search");	test
+src/lib.rs	997	expect	            let dir = tempdir().expect("tmp");	test
+src/lib.rs	1000	expect	            let mut mem = Memvid::create(&path).expect("create");	test
+src/lib.rs	1001	expect	            mem.enable_lex().expect("enable lex");	test
+src/lib.rs	1017	expect	                    .expect("put doc");	test
+src/lib.rs	1020	expect	            mem.commit().expect("commit");	test
+src/lib.rs	1038	expect	                .expect("page one");	test
+src/lib.rs	1044	expect	            let cursor = first_page.next_cursor.clone().expect("cursor");	test
+src/lib.rs	1063	expect	                .expect("page two");	test
+src/lib.rs	1075	expect	            let dir = tempdir().expect("tmp");	test
+src/lib.rs	1078	expect	            let mut mem = Memvid::create(&path).expect("create");	test
+src/lib.rs	1079	expect	            mem.enable_lex().expect("enable lex");	test
+src/lib.rs	1080	expect	            mem.put_bytes(b"tickets fallback test").expect("put");	test
+src/lib.rs	1081	expect	            mem.commit().expect("commit");	test
+src/lib.rs	1106	expect	                .expect("search with tantivy");	test
+src/lib.rs	1117	expect	            let dir = tempdir().expect("tmp");	test
+src/lib.rs	1121	expect	                let mut mem = Memvid::create(&path).expect("create");	test
+src/lib.rs	1122	expect	                mem.enable_lex().expect("enable lex");	test
+src/lib.rs	1123	expect	                mem.enable_vec().expect("enable vec");	test
+src/lib.rs	1125	expect	                    .expect("put");	test
+src/lib.rs	1126	expect	                mem.commit().expect("commit");	test
+src/lib.rs	1129	expect	            let report = Memvid::verify(&path, true).expect("verify");	test
+src/lib.rs	1137	expect	            let dir = tempdir().expect("tmp");	test
+src/lib.rs	1141	expect	            let mem = Memvid::create(&path).expect("create");	test
+src/lib.rs	1144	expect	            let stats = mem.stats().expect("stats");	test
+src/lib.rs	1153	expect	            let reopened = Memvid::open(&path).expect("reopen");	test
+src/lib.rs	1154	expect	            let stats2 = reopened.stats().expect("stats after reopen");	test
+src/lib.rs	1180	expect	            let dir = tempdir().expect("tmp");	test
+src/lib.rs	1184	expect	                let mut mem = Memvid::create(&path).expect("create");	test
+src/lib.rs	1185	expect	                mem.put_bytes(b"repair").expect("put");	test
+src/lib.rs	1186	expect	                mem.commit().expect("commit");	test
+src/lib.rs	1188	expect	                mem.rebuild_indexes(&[], &[]).expect("rebuild");	test
+src/lib.rs	1189	expect	                mem.commit().expect("commit after rebuild");	test
+src/lib.rs	1207	expect	                mem.toc.time_index.clone().expect("time index manifest")	test
+src/lib.rs	1215	expect	                    .expect("open file");	test
+src/lib.rs	1217	expect	                    .expect("seek");	test
+src/lib.rs	1219	expect	                file.write_all(&zeros).expect("corrupt time index");	test
+src/lib.rs	1220	expect	                file.flush().expect("flush");	test
+src/lib.rs	1221	expect	                file.sync_all().expect("sync");	test
+src/lib.rs	1226	expect	                crate::footer::find_last_valid_footer(&std::fs::read(&path).expect("read file"))	test
+src/lib.rs	1249	expect	            .expect("doctor");	test
+src/lib.rs	1257	expect	            let reopened = Memvid::open(&path).expect("reopen after doctor");	test
+src/lib.rs	1268	expect	            let dir = tempdir().expect("tmp");	test
+src/lib.rs	1299	expect	                let mut mem = Memvid::create(&path).expect("create");	test
+src/lib.rs	1301	expect	                    .expect("put bytes");	test
+src/lib.rs	1302	expect	                mem.commit().expect("commit");	test
+src/lib.rs	1305	expect	            let mut reopened = Memvid::open(&path).expect("open");	test
+src/lib.rs	1308	expect	                .expect("blob reader");	test
+src/lib.rs	1310	expect	            reader.read_to_end(&mut buffered).expect("read payload");	test
+src/lib.rs	1315	expect	                .expect("manifest lookup")	test
+src/lib.rs	1316	expect	                .expect("manifest present");	test
+src/lib.rs	1335	expect	            let dir = tempdir().expect("tmp");	test
+src/lib.rs	1375	expect	                let mut mem = Memvid::create(&path).expect("create");	test
+src/lib.rs	1377	expect	                    .expect("put video");	test
+src/lib.rs	1378	expect	                mem.commit().expect("commit");	test
+src/lib.rs	1381	expect	            let reopened = Memvid::open(&path).expect("reopen");	test
+src/lib.rs	1382	expect	            let stats = reopened.stats().expect("stats");	test
+src/lib.rs	1391	expect	            let dir = tempdir().expect("tmp");	test
+src/lib.rs	1394	expect	            let mut mem = Memvid::create(&path).expect("create");	test
+src/lib.rs	1396	expect	                .expect("apply first");	test
+src/lib.rs	1409	expect	            let dir = tempdir().expect("tmp");	test
+src/lib.rs	1412	expect	            let mut mem = Memvid::create(&path).expect("create");	test
+src/lib.rs	1415	expect	                .expect("apply ticket");	test
+src/lib.rs	1417	expect	            mem.put_bytes(&vec![0xFF; 32]).expect("first put");	test
+src/lib.rs	1418	expect	            mem.commit().expect("commit");	test
+src/lock.rs	176	expect	        let temp = NamedTempFile::new().expect("temp file");	test
+src/lock.rs	178	unwrap	        writeln!(&mut temp.as_file().try_clone().unwrap(), "seed").unwrap();	test
+src/lock.rs	184	expect	            .expect("open file");	test
+src/lock.rs	185	expect	        let guard = FileLock::acquire(&file, path).expect("first lock succeeds");	test
+src/lock.rs	187	expect	        let second = FileLock::try_acquire(&file, path).expect("second lock attempt");	test
+src/lock.rs	191	expect	        let third = FileLock::try_acquire(&file, path).expect("third lock attempt");	test
+src/memvid/ask.rs	561	unwrap	        let limit = NonZeroU64::new(request.top_k as u64).unwrap_or(NonZeroU64::new(8).unwrap());	allowlisted
+src/memvid/ask.rs	1612	expect	        let query = build_disjunctive_query(&tokens).expect("query");	test
+src/memvid/audit.rs	254	expect	            let dir = tempdir().expect("tmp");	test
+src/memvid/audit.rs	257	expect	            let mut mem = Memvid::create(&path).expect("create");	test
+src/memvid/audit.rs	258	expect	            mem.enable_lex().expect("enable lex");	test
+src/memvid/audit.rs	271	expect	            .expect("put");	test
+src/memvid/audit.rs	272	expect	            mem.commit().expect("commit");	test
+src/memvid/audit.rs	276	expect	                .expect("audit");	test
+src/memvid/audit.rs	303	expect	            let dir = tempdir().expect("tmp");	test
+src/memvid/audit.rs	306	expect	            let mut mem = Memvid::create(&path).expect("create");	test
+src/memvid/audit.rs	307	expect	            mem.enable_lex().expect("enable lex");	test
+src/memvid/audit.rs	310	expect	                .expect("put");	test
+src/memvid/audit.rs	311	expect	            mem.commit().expect("commit");	test
+src/memvid/audit.rs	320	expect	                .expect("audit");	test
+src/memvid/builder.rs	380	expect	            let manifest = mem.toc.indexes.vec.as_ref().expect("vec manifest");	test
+src/memvid/builder.rs	418	expect	                .expect("vec manifest")	test
+src/memvid/builder.rs	457	expect	                .expect("vec manifest")	test
+src/memvid/builder.rs	475	panic	                other => panic!("expected VecDimensionMismatch, got {other:?}"),	test
+src/memvid/chunks.rs	241	expect	        let plan = plan_document_chunks(text.as_bytes()).expect("chunk plan");	test
+src/memvid/chunks.rs	266	expect	        let plan = plan_document_chunks(text.as_bytes()).expect("chunk plan");	test
+src/memvid/chunks.rs	313	expect	        let plan = plan_document_chunks(text.as_bytes()).expect("chunk plan");	test
+src/memvid/chunks.rs	353	expect	        let plan = plan_document_chunks(text.as_bytes()).expect("chunk plan");	test
+src/memvid/doctor.rs	1016	expect	                    mem.as_mut().expect("mem available"),	allowlisted
+src/memvid/helpers.rs	119	expect	                    .expect("counts.len()==1 implies one entry"),	allowlisted
+src/memvid/lifecycle.rs	1583	panic	            other => panic!("unexpected error: {other:?}"),	test
+src/memvid/lifecycle.rs	1589	expect	        let dir = tempdir().expect("tmp");	test
+src/memvid/lifecycle.rs	1591	expect	        std::fs::write(dir.path().join("mem.mv2-wal"), b"junk").expect("sidecar");	test
+src/memvid/memory.rs	662	unwrap	        let temp = NamedTempFile::new().unwrap();	test
+src/memvid/memory.rs	666	unwrap	        let mut memvid = Memvid::create(path).unwrap();	test
+src/memvid/memory.rs	676	unwrap	            .unwrap();	test
+src/memvid/memory.rs	678	unwrap	        let id = memvid.put_memory_card(card).unwrap();	test
+src/memvid/memory.rs	682	unwrap	        assert_eq!(current.unwrap().value, "Anthropic");	test
+src/memvid/memory.rs	683	unwrap	        assert_eq!(current.unwrap().id, id);	test
+src/memvid/memory.rs	688	unwrap	        let temp = NamedTempFile::new().unwrap();	test
+src/memvid/memory.rs	692	unwrap	        let mut memvid = Memvid::create(path).unwrap();	test
+src/memvid/memory.rs	700	unwrap	            .unwrap();	test
+src/memvid/memory.rs	711	unwrap	        let temp = NamedTempFile::new().unwrap();	test
+src/memvid/memory.rs	715	unwrap	        let mut memvid = Memvid::create(path).unwrap();	test
+src/memvid/memory.rs	727	unwrap	                .unwrap();	test
+src/memvid/memory.rs	728	unwrap	            memvid.put_memory_card(card).unwrap();	test
+src/memvid/memory.rs	741	unwrap	        let temp = NamedTempFile::new().unwrap();	test
+src/memvid/memory.rs	745	unwrap	        let mut memvid = Memvid::create(path).unwrap();	test
+src/memvid/memory.rs	751	unwrap	            .unwrap();	test
+src/memvid/memory.rs	754	unwrap	            .unwrap();	test
+src/memvid/memory.rs	757	unwrap	            .unwrap();	test
+src/memvid/memory.rs	758	unwrap	        memvid.commit().unwrap();	test
+src/memvid/memory.rs	762	unwrap	        let (frames, cards) = memvid.run_enrichment(&engine).unwrap();	test
+src/memvid/memory.rs	770	unwrap	        assert_eq!(employer.unwrap().value, "Anthropic");	test
+src/memvid/memory.rs	774	unwrap	        assert_eq!(location.unwrap().value, "San Francisco");	test
+src/memvid/memory.rs	777	unwrap	        let (frames2, cards2) = memvid.run_enrichment(&engine).unwrap();	test
+src/memvid/memory.rs	784	unwrap	        let temp = NamedTempFile::new().unwrap();	test
+src/memvid/memory.rs	788	unwrap	        let mut memvid = Memvid::create(path).unwrap();	test
+src/memvid/memory.rs	802	unwrap	            .unwrap();	test
+src/memvid/memory.rs	815	unwrap	            .unwrap();	test
+src/memvid/memory.rs	823	unwrap	        let temp = NamedTempFile::new().unwrap();	test
+src/memvid/memory.rs	827	unwrap	        let mut memvid = Memvid::create(path).unwrap();	test
+src/memvid/memory.rs	841	unwrap	            .unwrap();	test
+src/memvid/memory.rs	856	unwrap	        let temp = NamedTempFile::new().unwrap();	test
+src/memvid/memory.rs	860	unwrap	        let mut memvid = Memvid::create(path).unwrap();	test
+src/memvid/memory.rs	878	unwrap	            .unwrap();	test
+src/memvid/memory.rs	891	unwrap	            .unwrap();	test
+src/memvid/search/helpers.rs	283	expect	            .expect("positions.len()>=2 checked above")	allowlisted
+src/memvid/search/tantivy.rs	498	unwrap	        std::sync::LazyLock::new(|| regex::Regex::new(r"(\d+)(?:st|nd|rd|th)\b").unwrap());	allowlisted
+src/memvid/search/tantivy.rs	578	unwrap	            .unwrap()	test
+src/memvid/search/tantivy.rs	580	unwrap	            .unwrap()	test
+src/memvid/search/tantivy.rs	583	unwrap	        assert_eq!(ts.unwrap(), expected);	test
+src/memvid/search/tantivy.rs	598	unwrap	            .unwrap()	test
+src/memvid/search/tantivy.rs	600	unwrap	            .unwrap()	test
+src/memvid/search/tantivy.rs	603	unwrap	        assert_eq!(ts.unwrap(), sept_ts);	test
+src/memvid/search/tantivy.rs	620	unwrap	            .unwrap()	test
+src/memvid/search/tantivy.rs	622	unwrap	            .unwrap()	test
+src/memvid/search/tantivy.rs	625	unwrap	        assert_eq!(ts1.unwrap(), expected);	test
+src/memvid/search/time_filter.rs	338	expect	    let mut date = Date::from_calendar_date(year, month, 1).expect("valid month");	allowlisted
+src/memvid/sketch.rs	291	expect	        let tmp = NamedTempFile::new().expect("tempfile");	test
+src/memvid/sketch.rs	295	expect	        let mut mem = Memvid::create(path).expect("create");	test
+src/memvid/sketch.rs	311	expect	        let tmp = NamedTempFile::new().expect("tempfile");	test
+src/memvid/sketch.rs	314	expect	        let mut mem = Memvid::create(path).expect("create");	test
+src/memvid/ticket.rs	300	expect	        let json = serde_json::to_string(&ticket).expect("serialization failed");	test
+src/memvid/ticket.rs	305	expect	        let parsed: SignedTicket = serde_json::from_str(&json).expect("deserialization failed");	test
+src/memvid/ticket.rs	317	expect	        .expect("deserialization failed");	test
+src/memvid/ticket.rs	338	unwrap	        let verifying_key = parse_ed25519_public_key_base64(MEMVID_TICKET_PUBKEY).unwrap();	test
+src/pii.rs	85	expect	    Regex::new(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b").expect("invalid email regex")	allowlisted
+src/pii.rs	91	expect	    Regex::new(r"\b\d{3}[-\s]?\d{2}[-\s]?\d{4}\b").expect("invalid SSN regex")	allowlisted
+src/pii.rs	100	expect	    .expect("invalid phone regex")	allowlisted
+src/pii.rs	111	expect	    .expect("invalid credit card regex")	allowlisted
+src/pii.rs	117	expect	        .expect("invalid IPv4 regex")	allowlisted
+src/pii.rs	129	expect	    .expect("invalid API key regex")	allowlisted
+src/pii.rs	136	expect	        .expect("invalid token regex")	allowlisted
+src/replay/mod.rs	305	unwrap	        let len = usize::try_from(u64::from_le_bytes(data[8..16].try_into().unwrap())).unwrap_or(0);	allowlisted
+src/replay/mod.rs	368	unwrap	        let segment = storage::build_segment(&[session1.clone(), session2.clone()]).unwrap();	test
+src/replay/mod.rs	369	unwrap	        let restored = storage::read_segment(&segment).unwrap();	test
+src/search/parser.rs	509	unwrap	        let regex = Regex::new(&pattern).unwrap_or_else(|_| Regex::new("^$").unwrap());	allowlisted
+src/search/parser.rs	529	expect	        parse_query("alpha AND beta").expect("parse");	test
+src/search/parser.rs	534	expect	        parse_query("tag:important AND uri:mv2://docs/foo").expect("parse");	test
+src/search/parser.rs	539	expect	        parse_query("date:[2024-01-01 TO 2024-12-31] AND rust").expect("parse");	test
+src/search/parser.rs	589	panic	            _ => panic!("expected Word variant"),	test
+src/search/parser.rs	594	panic	            _ => panic!("expected Word variant"),	test
+src/search/parser.rs	600	panic	            _ => panic!("expected Word variant"),	test
+src/search/parser.rs	609	expect	        let result = parse_query("machine learning").expect("parse");	test
+src/search/parser.rs	614	panic	            _ => panic!("Expected Expr::And, got {:?}", result.expr),	test
+src/search/parser.rs	620	expect	        let result = parse_query("machine learning python").expect("parse");	test
+src/search/parser.rs	625	panic	            _ => panic!("Expected Expr::And with 3 children"),	test
+src/search/parser.rs	631	expect	        let result = parse_query("machine OR learning").expect("parse");	test
+src/search/parser.rs	636	panic	            _ => panic!("Expected Expr::Or"),	test
+src/search/parser.rs	642	expect	        let result = parse_query("machine AND learning").expect("parse");	test
+src/search/parser.rs	647	panic	            _ => panic!("Expected Expr::And"),	test
+src/search/parser.rs	653	expect	        let result = parse_query("machine learning OR python").expect("parse");	test
+src/search/parser.rs	665	panic	                    _ => panic!("First OR branch should be AND"),	test
+src/search/parser.rs	668	panic	            _ => panic!("Expected Expr::Or at top level"),	test
+src/search/parser.rs	674	expect	        let result = parse_query("\"machine learning\" python").expect("parse");	test
+src/search/parser.rs	679	panic	            _ => panic!("Expected Expr::And"),	test
+src/search/parser.rs	685	expect	        let result = parse_query("tag:important urgent").expect("parse");	test
+src/search/parser.rs	690	panic	            _ => panic!("Expected Expr::And"),	test
+src/search/parser.rs	698	expect	        let result = parse_query("(machine learning) python").expect("parse");	test
+src/search/parser.rs	704	panic	            _ => panic!("Expected Expr::And"),	test
+src/search/parser.rs	711	expect	        let result = parse_query("(machine OR learning) python").expect("parse");	test
+src/search/parser.rs	720	panic	                    _ => panic!("First child should be OR"),	test
+src/search/parser.rs	723	panic	            _ => panic!("Expected Expr::And at top level"),	test
+src/search/tantivy/query.rs	63	expect	            Ok(clauses.into_iter().next().expect("clauses.len() == 1").1)	allowlisted
+src/search/tantivy/util.rs	12	expect	        1 => queries.pop().expect("queries.len()==1"),	allowlisted
+src/signature.rs	146	unwrap	        let memory_id = Uuid::parse_str("123e4567-e89b-12d3-a456-426614174000").unwrap();	test
+src/signature.rs	155	unwrap	        let json = serde_json::to_string(&payload).unwrap();	test
+src/signature.rs	166	unwrap	        let message = ticket_message_bytes(&memory_id, "issuer", 5, 60, Some(42)).unwrap();	test
+src/signature.rs	177	unwrap	        .unwrap();	test
+src/signature.rs	184	unwrap	        let message = model_message_bytes("model", "1.0.0", "abc123", 1024).unwrap();	test
+src/signature.rs	194	unwrap	        .unwrap();	test
+src/signature.rs	202	unwrap	        let parsed = parse_ed25519_public_key_base64(&encoded).unwrap();	test
+src/signature.rs	215	unwrap	        let memory_id = Uuid::parse_str("123e4567-e89b-12d3-a456-426614174000").unwrap();	test
+src/signature.rs	218	unwrap	                .unwrap();	test
+src/signature.rs	231	expect	        .expect("signature verification should pass");	test
+src/signature.rs	248	unwrap	        let verifying_key = parse_ed25519_public_key_base64(MEMVID_TICKET_PUBKEY).unwrap();	test
+src/signature.rs	251	unwrap	        let memory_id = Uuid::parse_str("69601cef-bea5-7ba3-fec3-9b5c00000000").unwrap();	test
+src/signature.rs	254	unwrap	                .unwrap();	test
+src/signature.rs	260	unwrap	        let sig_bytes = BASE64_STANDARD.decode(sig_base64).unwrap();	test
+src/signature.rs	272	expect	        .expect("Dashboard signature should verify");	test
+src/structure/chunker.rs	790	unwrap	        let table = doc.tables().next().unwrap();	test
+src/structure/detector.rs	48	unwrap	            table_row: Regex::new(r"^\s*\|(.+)\|\s*$").unwrap(),	allowlisted
+src/structure/detector.rs	49	unwrap	            table_separator: Regex::new(r"^\s*\|[\s:]*-+[\s:\-|]+\|\s*$").unwrap(),	allowlisted
+src/structure/detector.rs	50	unwrap	            code_fence_start: Regex::new(r"^```(\w*)").unwrap(),	allowlisted
+src/structure/detector.rs	51	unwrap	            code_fence_end: Regex::new(r"^```\s*$").unwrap(),	allowlisted
+src/structure/detector.rs	52	unwrap	            unordered_list: Regex::new(r"^(\s*)[-*+]\s+(.+)$").unwrap(),	allowlisted
+src/structure/detector.rs	53	unwrap	            ordered_list: Regex::new(r"^(\s*)(\d+)\.\s+(.+)$").unwrap(),	allowlisted
+src/structure/detector.rs	54	unwrap	            heading: Regex::new(r"^(#{1,6})\s+(.+)$").unwrap(),	allowlisted
+src/structure/detector.rs	55	unwrap	            block_quote: Regex::new(r"^>\s*(.*)$").unwrap(),	allowlisted
+src/structure/detector.rs	56	unwrap	            horizontal_rule: Regex::new(r"^[-*_]{3,}\s*$").unwrap(),	allowlisted
+src/structure/detector.rs	336	expect	                            .expect("unordered list regex group 2")	allowlisted
+src/structure/detector.rs	373	expect	                            .expect("ordered list regex group 3")	allowlisted
+src/structure/detector.rs	620	unwrap	        let table = doc.tables().next().unwrap();	test
+src/structure/detector.rs	645	unwrap	            .unwrap();	test
+src/structure/detector.rs	651	panic	            panic!("Expected code block");	test
+src/table/pdf_extractor.rs	676	unwrap	    let currency_re = Regex::new(r"^\$?[\d,]+\.?\d*$").unwrap();	allowlisted
+src/table/pdf_extractor.rs	677	unwrap	    let date_re = Regex::new(r"^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}$").unwrap();	allowlisted
+src/table/pdf_extractor.rs	678	unwrap	    let percent_re = Regex::new(r"^\d+\.?\d*%$").unwrap();	allowlisted
+src/table/pdf_extractor.rs	679	unwrap	    let hours_re = Regex::new(r"^\d+\.?\d*\s*(hrs?|hours?)$").unwrap();	allowlisted
+src/table/pdf_extractor.rs	962	unwrap	    let currency_re = Regex::new(r"^\$?[\d,]+\.?\d*$").unwrap();	allowlisted
+src/table/storage.rs	218	expect	            let embedder = embedder.expect("checked above");	allowlisted
+src/table/storage.rs	639	unwrap	        let json = export_to_json(&table, true).unwrap();	test
+src/table/storage.rs	641	unwrap	        let parsed: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();	test
+src/table/storage.rs	650	unwrap	        let json = export_to_json(&table, false).unwrap();	test
+src/table/storage.rs	652	unwrap	        let parsed: ExtractedTable = serde_json::from_str(&json).unwrap();	test
+src/tests_lex_flag.rs	11	unwrap	            let temp = NamedTempFile::new().unwrap();	test
+src/tests_lex_flag.rs	16	unwrap	                let mut mem = Memvid::create(path).unwrap();	test
+src/tests_lex_flag.rs	17	unwrap	                mem.enable_lex().unwrap();	test
+src/tests_lex_flag.rs	28	unwrap	                        .unwrap();	test
+src/tests_lex_flag.rs	30	unwrap	                        mem.commit().unwrap();	test
+src/tests_lex_flag.rs	33	unwrap	                mem.commit().unwrap();	test
+src/tests_lex_flag.rs	48	unwrap	                let mut mem = Memvid::open_read_only(path).unwrap();	test
+src/tests_lex_flag.rs	75	expect	                    .expect("search must succeed");	test
+src/tests_lex_flag.rs	100	unwrap	            let temp = NamedTempFile::new().unwrap();	test
+src/tests_lex_flag.rs	104	unwrap	            let wrapper = Mutex::new(Memvid::create(path).unwrap());	test
+src/tests_lex_flag.rs	108	unwrap	                let mut mem = wrapper.lock().unwrap();	test
+src/tests_lex_flag.rs	109	unwrap	                mem.enable_lex().unwrap();	test
+src/tests_lex_flag.rs	114	unwrap	                let mut mem = wrapper.lock().unwrap();	test
+src/tests_lex_flag.rs	115	unwrap	                mem.commit().unwrap();	test
+src/tests_lex_flag.rs	120	unwrap	                let mut mem = wrapper.lock().unwrap();	test
+src/tests_lex_flag.rs	126	unwrap	                    .unwrap();	test
+src/tests_lex_flag.rs	131	unwrap	                let mut mem = wrapper.lock().unwrap();	test
+src/tests_lex_flag.rs	132	unwrap	                mem.commit().unwrap();	test
+src/tests_lex_flag.rs	137	unwrap	                let mut mem = wrapper.lock().unwrap();	test
+src/tests_lex_flag.rs	154	expect	                    .expect("search must succeed through mutex wrapper");	test
+src/tests_lex_flag.rs	165	unwrap	                let mut mem = wrapper.lock().unwrap();	test
+src/tests_lex_flag.rs	178	unwrap	            let temp = NamedTempFile::new().unwrap();	test
+src/tests_lex_flag.rs	181	unwrap	            let mut mem = Memvid::create(path).unwrap();	test
+src/tests_lex_flag.rs	182	unwrap	            mem.enable_lex().unwrap();	test
+src/tests_lex_flag.rs	189	unwrap	                .unwrap();	test
+src/tests_lex_flag.rs	190	unwrap	            mem.commit().unwrap();	test
+src/tests_lex_flag.rs	208	expect	                .expect("search must succeed");	test
+src/text.rs	375	expect	        let result = normalize_text(input, 128).expect("normalized");	test
+src/text.rs	383	expect	        let result = normalize_text(input, 3).expect("normalized");	test
+src/text_embed.rs	225	expect	        .expect("No default text embedding model configured")	allowlisted
+src/text_embed.rs	1004	unwrap	        let embedder = LocalTextEmbedder::new(config).unwrap();	test
+src/text_embed.rs	1022	unwrap	        let embedder = LocalTextEmbedder::new(config).unwrap();	test
+src/text_embed.rs	1033	unwrap	        let embedder = LocalTextEmbedder::new(config).unwrap();	test
+src/text_embed.rs	1056	unwrap	        assert_eq!(result.unwrap(), vec![1.0, 2.0, 3.0]);	test
+src/text_embed.rs	1158	unwrap	        let embedder = LocalTextEmbedder::new(config).unwrap();	test
+src/text_embed.rs	1163	unwrap	        let _ = embedder.encode_text(text).unwrap();	test
+src/text_embed.rs	1164	unwrap	        let stats1 = embedder.cache_stats().unwrap();	test
+src/text_embed.rs	1170	unwrap	        let _ = embedder.encode_text(text).unwrap();	test
+src/text_embed.rs	1171	unwrap	        let stats2 = embedder.cache_stats().unwrap();	test
+src/text_embed.rs	1177	unwrap	        embedder.clear_cache().unwrap();	test
+src/text_embed.rs	1178	unwrap	        let stats3 = embedder.cache_stats().unwrap();	test
+src/toc.rs	380	expect	        let bytes = checksum_target.encode().expect("encode for checksum");	test
+src/toc.rs	388	expect	        let encoded = toc.encode().expect("encode toc");	test
+src/toc.rs	389	expect	        let decoded = Toc::decode(&encoded).expect("decode toc");	test
+src/toc.rs	390	expect	        decoded.verify_checksum().expect("checksum matches");	test
+src/toc.rs	405	expect	        let mut bytes = toc.encode().expect("encode toc");	test
+src/triplet/extractor.rs	244	unwrap	        let card = employer_card.unwrap();	test
+src/triplet/extractor.rs	274	unwrap	                .unwrap(),	test
+src/triplet/extractor.rs	284	unwrap	                .unwrap(),	test
+src/types/audit.rs	536	expect	        let json = serde_json::to_string_pretty(&source).expect("serialize");	test
+src/types/embedding.rs	233	unwrap	        let embedding = provider.embed_text("test").unwrap();	test
+src/types/embedding.rs	241	unwrap	        let embeddings = provider.embed_batch(&texts).unwrap();	test
+src/types/logic_mesh.rs	614	expect	        let bytes = mesh.serialize().expect("serialize");	test
+src/types/logic_mesh.rs	615	expect	        let restored = LogicMesh::deserialize(&bytes).expect("deserialize");	test
+src/types/logic_mesh.rs	710	expect	        let bytes1 = mesh1.serialize().expect("serialize 1");	test
+src/types/logic_mesh.rs	711	expect	        let bytes2 = mesh2.serialize().expect("serialize 2");	test
+src/types/memories_track.rs	627	unwrap	            .unwrap();	test
+src/types/memories_track.rs	632	unwrap	        let retrieved = track.get_card(id).unwrap();	test
+src/types/memories_track.rs	650	unwrap	            .unwrap();	test
+src/types/memories_track.rs	664	unwrap	            .unwrap();	test
+src/types/memories_track.rs	667	unwrap	        let current = track.get_current("user", "location").unwrap();	test
+src/types/memories_track.rs	684	unwrap	            .unwrap();	test
+src/types/memories_track.rs	697	unwrap	            .unwrap();	test
+src/types/memories_track.rs	701	unwrap	        let at_1500 = track.get_at_time("user", "location", 1500).unwrap();	test
+src/types/memories_track.rs	705	unwrap	        let at_2500 = track.get_at_time("user", "location", 2500).unwrap();	test
+src/types/memories_track.rs	750	unwrap	            .unwrap();	test
+src/types/memories_track.rs	753	unwrap	        let serialized = track.serialize().unwrap();	test
+src/types/memories_track.rs	754	unwrap	        let deserialized = MemoriesTrack::deserialize(&serialized).unwrap();	test
+src/types/memories_track.rs	757	unwrap	        let card = deserialized.get_card(0).unwrap();	test
+src/types/memories_track.rs	777	unwrap	                .unwrap();	test
+src/types/memories_track.rs	802	unwrap	                .unwrap();	test
+src/types/memories_track.rs	830	unwrap	                .unwrap();	test
+src/types/memory_card.rs	559	unwrap	            .unwrap();	test
+src/types/memory_card.rs	581	unwrap	            .unwrap();	test
+src/types/memory_card.rs	597	unwrap	            .unwrap();	test
+src/types/memory_card.rs	613	unwrap	            .unwrap();	test
+src/types/memory_card.rs	625	unwrap	            .unwrap();	test
+src/types/reranker.rs	286	unwrap	        let results = reranker.rerank("query", &docs, 2).unwrap();	test
+src/types/reranker.rs	293	unwrap	        assert_eq!("none".parse::<RerankerKind>().unwrap(), RerankerKind::None);	test
+src/types/reranker.rs	294	unwrap	        assert_eq!("bm25".parse::<RerankerKind>().unwrap(), RerankerKind::Bm25);	test
+src/types/reranker.rs	296	unwrap	            "openai".parse::<RerankerKind>().unwrap(),	test
+src/types/reranker.rs	299	unwrap	        assert_eq!("llm".parse::<RerankerKind>().unwrap(), RerankerKind::Llm);	test
+src/types/sketch_track.rs	1271	unwrap	        let (offset, length, _checksum) = write_sketch_track(&mut buffer, &track).unwrap();	test
+src/types/sketch_track.rs	1274	unwrap	        let recovered = read_sketch_track(&mut buffer, offset, length).unwrap();	test
+src/vec.rs	446	expect	        let artifact = builder.finish().expect("finish");	test
+src/vec.rs	450	expect	        let index = VecIndex::decode(&artifact.bytes).expect("decode");	test
+src/vec.rs	475	expect	        let artifact = builder.finish().expect("finish hnsw");	test
+src/vec.rs	479	expect	        let index = VecIndex::decode(&artifact.bytes).expect("decode");	test
+src/vec.rs	502	expect	        let artifact = builder.finish().expect("finish brute force");	test
+src/vec.rs	506	expect	        let index = VecIndex::decode(&artifact.bytes).expect("decode");	test
+src/vec.rs	529	expect	        let artifact = builder.finish().expect("finish");	test
+src/vec.rs	530	expect	        let index = VecIndex::decode(&artifact.bytes).expect("decode");	test
+src/vec.rs	561	expect	        let artifact = builder.finish().expect("finish");	test
+src/vec.rs	565	expect	        let index = VecIndex::decode(&original_bytes).expect("decode");	test
+src/vec.rs	573	expect	        let index_2 = VecIndex::decode(&original_bytes).expect("decode again");	test
+src/vec.rs	607	expect	        let artifact = builder.finish().expect("finish");	test
+src/vec.rs	608	expect	        let hnsw_index = VecIndex::decode(&artifact.bytes).expect("decode");	test
+src/vec_pq.rs	563	unwrap	        let mut pq = ProductQuantizer::new(u32::try_from(TOTAL_DIM).unwrap()).unwrap();	test
+src/vec_pq.rs	564	unwrap	        pq.train(&training_vecs, 10).unwrap();	test
+src/vec_pq.rs	568	unwrap	        let codes = pq.encode(test_vec).unwrap();	test
+src/vec_pq.rs	572	unwrap	        let decoded = pq.decode(&codes).unwrap();	test
+src/vec_pq.rs	595	unwrap	            .train_quantizer(&training_vecs, u32::try_from(TOTAL_DIM).unwrap())	test
+src/vec_pq.rs	596	unwrap	            .unwrap();	test
+src/vec_pq.rs	601	unwrap	                .unwrap();	test
+src/vec_pq.rs	604	unwrap	        let artifact = builder.finish().unwrap();	test
+src/vec_pq.rs	606	unwrap	        assert_eq!(artifact.dimension, u32::try_from(TOTAL_DIM).unwrap());	test
+src/vec_pq.rs	610	unwrap	        let index = QuantizedVecIndex::decode(&artifact.bytes).unwrap();	test
+src/vec_pq.rs	627	unwrap	        let centroids = kmeans(&vectors, 2, 100).unwrap();	test
+src/whisper.rs	125	expect	                .expect("default whisper model")	allowlisted
+src/whisper.rs	135	expect	        .expect("default whisper model exists")	allowlisted

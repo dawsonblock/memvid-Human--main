@@ -4,38 +4,37 @@
 **Auditor:** governance-automation  
 **Crate:** `memvid-core` v2.0.139 (MSRV 1.85.0, edition 2024)  
 **Scope:** `src/**/*.rs` — production code only; test sites are classified separately  
-**Tool:** `scripts/audit_panics.sh` (version introduced in this commit)
+**Tool:** `scripts/audit_panics.py` (Python 3.11+ engine; `scripts/audit_panics.sh` is a thin shell wrapper)
 
 ---
 
 ## 1. Executive Summary
 
-No unallowlisted production panic sites were found.  All 650 grepped
+No unallowlisted production panic sites were found.  All 648 detected
 panic-family lines fall into one of three buckets: **test-only** (the vast
-majority), **allowlisted production** (≈132 sites across 7 categories), or
-**test infrastructure**.  The codebase has zero calls to `unimplemented!()`.
+majority), **allowlisted production** (124 sites across 44 allowlist entries),
+or **review-flagged** (0).  The codebase has zero calls to `unimplemented!()`.
 
 | Verdict | Count |
 |---------|-------|
 | Unallowlisted production panic sites | **0** |
-| Allowlisted production sites | ~132 |
-| Test-only sites | ~518 |
+| Allowlisted production sites | 124 |
+| Test-only sites | 524 |
 
 ---
 
 ## 2. Raw Counts
 
-The following counts were produced by `grep -r` over `src/`:
+The following counts were produced by `scripts/audit_panics.py` over `src/`:
 
 | Pattern | Total occurrences |
 |---------|------------------|
-| `.unwrap()` | 302 |
-| `.expect(` | 316 |
+| `.expect(` | 329 |
+| `.unwrap()` | 289 |
 | `panic!` | 23 |
 | `unreachable!` | 7 |
-| `todo!` | 2 (doc-comment examples only) |
-| `unimplemented!` | 0 |
-| **Grand total** | **650** |
+| `todo!` / `unimplemented!` | 0 |
+| **Grand total** | **648** |
 
 ---
 
@@ -77,7 +76,7 @@ All production panic-family sites match an approved category in
 | `src/text_embed.rs` | 1 | `static-config-sentinel` | `.expect("No default text embedding model configured")` on a file-local static table |
 | `src/search/tantivy/query.rs` | 1 | `guarded-next-unwrap` | `.expect("clauses.len() == 1")` guarded by explicit length check in same branch |
 | `src/api_embed.rs` | 1 | `option-error-branch` | `.expect("error set in preceding branch")` set in the retry-loop `Err` branch |
-| Various production files | ~98 | `regex-literal`, `precondition-validated`, `invariant-checked-local`, `invariant-mem-available`, `invariant-vec-manifest`, `parse-year-digits`, `static-model-default`, `regex-valid-expect`, `regex-capture-full-match` | Additional sites classified by newly added allowlist categories (see §4 findings F-6–F-13) |
+| Various production files | ~98 | `regex-literal`, `precondition-validated`, `invariant-checked-local`, `invariant-mem-available`, `invariant-vec-manifest`, `parse-year-digits`, `static-model-default`, `regex-valid-expect`, `regex-capture-full-match`, `temporal-enrich-valid-regex`, `temporal-enrich-caps-full-match`, `*-validated-expect`, `*-default-model-expect`, `*-try-into-unwrap`, `pii-*-regex-expect`, `table-storage-checked-above-expect` | Additional sites classified by newly added allowlist categories (see §4 findings F-6–F-14) |
 
 ### 3.3 `unreachable!()` sites
 
@@ -216,6 +215,54 @@ invariants documented at the call site.
 
 ---
 
+---
+
+### Finding F-11 — Agent memory validated-expect sites ✅
+
+Twelve `expect("validated …")` calls across `src/agent_memory/goal_state_store.rs`,
+`src/agent_memory/procedure_store.rs`, and `src/agent_memory/self_model_store.rs`
+follow explicit caller-side validation of memory entry fields.  `None` is
+structurally impossible at the call sites.
+
+**Severity:** None  
+**Action required:** None (remediation: propagate `Result` up the call stack)
+
+---
+
+### Finding F-12 — Static regex in pii.rs / temporal_enrich.rs ✅
+
+Thirteen `.expect("valid regex")` calls in `src/analysis/temporal_enrich.rs`
+plus two `.expect("invalid …regex")` calls in `src/pii.rs` compile hard-coded
+literal regexes.  Panics are possible only if a source literal is malformed—
+caught at code review.
+
+**Severity:** None  
+**Action required:** None (remediation: use `LazyLock<Regex>`)
+
+---
+
+### Finding F-13 — caps.get(0) full-match unwrap in temporal_enrich.rs ✅
+
+Six `.expect("full match")` calls in `src/analysis/temporal_enrich.rs`
+unwrap `Captures::get(0)`, which is always `Some` when a regex match has
+already succeeded.
+
+**Severity:** None  
+**Action required:** None
+
+---
+
+### Finding F-14 — Fixed-size byte slice conversion in manifest_wal / replay ✅
+
+Two `try_into().unwrap()` calls convert compile-time constant-length byte slices
+to fixed-size arrays (`header[..4]` and `data[8..16]`).  The `TryFrom` error
+is structurally unreachable.
+
+**Severity:** None  
+**Action required:** None
+
+---
+
 ## 5. Remediation Backlog
 
 These items are not blocking but improve long-term robustness:
@@ -233,17 +280,22 @@ These items are not blocking but improve long-term robustness:
 
 ```bash
 # Summary to stdout (exit 0 always)
+python3 scripts/audit_panics.py
+# or via the thin bash wrapper:
 ./scripts/audit_panics.sh
 
 # Strict mode: exit 1 if any review-class site is found
-./scripts/audit_panics.sh --strict
+python3 scripts/audit_panics.py --strict
 
 # Write TSV report
-./scripts/audit_panics.sh --out /tmp/panic_report.tsv
+python3 scripts/audit_panics.py --out artifacts/audits/panic_report.tsv
 
 # Use a custom allowlist location
-./scripts/audit_panics.sh --allowlist tools/panic_allowlist.toml --strict
+python3 scripts/audit_panics.py --allowlist tools/panic_allowlist.toml --strict
 ```
+
+> **Note:** Requires Python 3.11+ (stdlib `tomllib`).  Use `python3.11` or
+> `python3.13` if your system default is older.
 
 ---
 
@@ -251,8 +303,8 @@ These items are not blocking but improve long-term robustness:
 
 **Audit result: PASS.**  
 memvid-core v2.0.139 contains zero unallowlisted production panic sites.
-All ~132 production uses of `unwrap()`, `expect()`, `unreachable!()` have been
-reviewed and documented across 15 allowlist categories in
-`tools/panic_allowlist.toml`.  The `scripts/audit_panics.sh --strict` gate is
-added to CI (`.github/workflows/ci.yml` `panic-audit` job) to prevent
-regressions.
+All 124 production uses of `unwrap()`, `expect()`, `unreachable!()` have been
+reviewed and documented across 44 allowlist entries in
+`tools/panic_allowlist.toml`.  The `scripts/audit_panics.py --strict` gate is
+run in CI (`.github/workflows/ci.yml` `panic-audit` job) to prevent
+regressions.  Output is archived as `artifacts/audits/panic_report.tsv`.

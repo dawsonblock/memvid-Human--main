@@ -50,7 +50,8 @@ cargo +1.85.0 test
 ### 1.4 Panic audit
 
 ```bash
-./scripts/audit_panics.sh --strict
+python3 scripts/audit_panics.py --strict
+# or via wrapper: ./scripts/audit_panics.sh --strict
 ```
 
 - [ ] Exit code 0 (no unallowlisted production panic sites)
@@ -233,6 +234,6 @@ If a critical bug is discovered within 24 h of a release:
 | `test-msrv` | push / PR | `cargo +1.85.0 test` |
 | `lint` | push / PR | `cargo clippy --all-targets --features "lex,pdf_extract,simd" -- -D warnings` |
 | `version-consistency` | push / PR | `python3 scripts/check_version_consistency.py` |
-| `panic-audit` | push / PR | `bash scripts/audit_panics.sh --strict` |
+| `panic-audit` | push / PR | `python3 scripts/audit_panics.py --strict` |
 | `docker-release` | tag `v*` | Docker build + push to GHCR |
 | `ossf-slsa3` | tag `v*` | SLSA Level 3 provenance generation |

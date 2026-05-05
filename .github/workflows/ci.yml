@@ -135,4 +135,15 @@ jobs:
       - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
 
       - name: Run panic audit (strict)
-        run: bash scripts/audit_panics.sh --strict
+        run: |
+          python3 scripts/audit_panics.py \
+            --strict \
+            --out artifacts/audits/panic_report.tsv
+
+      - name: Upload panic audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: panic-audit-report
+          path: artifacts/audits/panic_report.tsv
+          if-no-files-found: ignore

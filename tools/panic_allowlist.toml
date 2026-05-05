@@ -1,261 +1,482 @@
 # tools/panic_allowlist.toml
 #
-# Approved panic-family sites in production (non-test) code.
+# Approved production panic sites for memvid-core.
 #
-# Each entry describes a *category* of allowed panics rather than individual
-# call sites, because many sites share the same structural justification.
-# The `snippet_contains` field is a substring that audit_panics.sh uses for
-# automatic classification (see the ALLOWLIST_PATTERNS array in that script).
+# Schema per entry:
+#   [[allow]]
+#   id               = "<unique-kebab-case>"
+#   file             = "src/..."   # exact repo-relative path (required unless global = true)
+#   global           = true        # omit or set false for per-file entries
+#   kind             = "unwrap" | "expect" | "panic" | "todo" | "unimplemented" | "unreachable" | "*"
+#   snippet_contains = "..."       # literal substring that must appear in the source line
+#   rationale        = "..."       # why runtime input cannot trigger this panic
+#   remediation      = "..."       # how to remove this entry in future
 #
-# Classification rules:
-#   - "test"        — any site inside a #[cfg(test)] block (auto-classified)
-#   - "allowlisted" — matches a snippet_contains pattern in this file
-#   - "review"      — everything else; must be manually triaged and either
-#                     added here or converted to a proper Result-returning path
+# Engine: scripts/audit_panics.py
+# A finding (file, kind, source-line) is allowlisted when:
+#   entry.kind == finding.kind  OR  entry.kind == "*"
+#   AND entry.snippet_contains  is a substring of the source line
+#   AND (entry.global == true   OR  entry.file == finding.file)
+# ---------------------------------------------------------------------------
+# ===========================================================================
+# GLOBAL entries (apply to every file)
+# ===========================================================================
 
-# ---------------------------------------------------------------------------
-# Category 1: Regex literal initialization in OnceLock
-# ---------------------------------------------------------------------------
-# Pattern: `OnceLock::get_or_init(|| Regex::new(r"…").unwrap())`
-#
-# Rationale: The regex patterns are string literals embedded in source.
-# A malformed literal would cause a test failure at startup because the
-# OnceLock initializer panics only on the first call (which happens in tests).
-# These are structurally equivalent to a compile-time failure.  Adding a
-# .expect() message would be the only improvement; the panic reachability is
-# identical.
-#
-# Files: src/analysis/temporal.rs (≥ 18 sites)
 [[allow]]
-id = "regex-literal-init"
+id               = "global-regex-new-literal"
+global           = true
+kind             = "unwrap"
 snippet_contains = "Regex::new("
-rationale = "Literal regex validated by test coverage; OnceLock ensures single init"
-remediation = "No action required; document if literal changes during refactoring"
+rationale        = "Regex::new() on a compile-time string literal panics only if the regex syntax is invalid; the literal is reviewed at code-review time and never changes at runtime."
+remediation      = "Replace with a OnceLock<Regex> or LazyLock<Regex> initialised from a const if the regex is truly static, then remove this entry."
 
-# ---------------------------------------------------------------------------
-# Category 2: Byte-slice → fixed-size array conversion
-# ---------------------------------------------------------------------------
-# Pattern: `bytes[N..M].try_into().unwrap()`
-#
-# Rationale: The slice length is established by a SLOT_BYTES constant checked
-# earlier in the same function.  The TryFrom<&[u8]> for [u8; N] only fails
-# when the lengths differ; here they are guaranteed equal by the constant.
-#
-# Files: src/io/temporal_index.rs (9 production sites)
-[[allow]]
-id = "byte-slice-to-array"
-snippet_contains = "try_into().unwrap()"
-rationale = "Slice length is guaranteed by SLOT_BYTES constant; TryFrom cannot fail"
-remediation = "Add a debug_assert!(bytes.len() == SLOT_BYTES) if the function signature changes"
-
-# ---------------------------------------------------------------------------
-# Category 3: Calendar date construction from derived components
-# ---------------------------------------------------------------------------
-# Pattern: `Date::from_calendar_date(year, month, day).unwrap()`
-#          `NaiveDate::from_ymd_opt(…).unwrap()`
-#          `chrono::Utc.timestamp_opt(…, 0).unwrap()`
-#
-# Rationale: Arguments are derived from an already-valid Date/NaiveDate, or
-# are compile-time constants (day = 1, last_day = days_in_month()).  The
-# error arm is structurally unreachable given the surrounding logic.
-#
-# Files: src/analysis/temporal.rs (lines 449, 456, 474, 515, 566, 569)
-[[allow]]
-id = "date-from-valid-args"
-snippet_contains = "from_calendar_date("
-rationale = "Components derived from an existing valid date; construction cannot fail"
-remediation = "If month/day computation logic changes, add explicit range assertions"
+# ===========================================================================
+# src/analysis/temporal.rs
+# ===========================================================================
 
 [[allow]]
-id = "naivedate-from-ymd-opt"
-snippet_contains = "from_ymd_opt("
-rationale = "Same as date-from-valid-args; argument is a compile-time constant"
-remediation = "Same as date-from-valid-args"
-
-[[allow]]
-id = "chrono-timestamp-opt"
-snippet_contains = "timestamp_opt("
-rationale = "Constant Unix timestamps used in test fixtures; values are validated at review"
-remediation = "Move to test-only scope if they appear only in test helpers"
-
-# ---------------------------------------------------------------------------
-# Category 4: Static configuration sentinel
-# ---------------------------------------------------------------------------
-# Pattern: `TEXT_EMBED_MODELS.iter().find(|m| m.is_default).expect("No default…")`
-#
-# Rationale: The model table is a compile-time static slice.  Exactly one
-# entry must have is_default = true; this is an invariant enforced by the
-# slice definition in the same file.  A missing default is a build error,
-# not a runtime condition.
-#
-# Files: src/text_embed.rs:225
-[[allow]]
-id = "static-config-sentinel"
-snippet_contains = ".expect(\"No default "
-rationale = "Static slice must contain exactly one is_default=true entry; invariant is file-local"
-remediation = "Add a unit test that asserts exactly one model has is_default=true"
-
-# ---------------------------------------------------------------------------
-# Category 5: Sealed-enum exhaustive match — unreachable! arm
-# ---------------------------------------------------------------------------
-# Pattern: `ConsolidationDisposition::Duplicate => unreachable!()`
-#
-# Rationale: The Duplicate variant is filtered out before the match arm is
-# reached (see consolidation_engine.rs retain() calls on lines preceding each
-# match).  The unreachable!() makes the invariant explicit and causes a
-# controlled panic in debug builds if the invariant is ever violated.
-#
-# Files: src/agent_memory/consolidation_engine.rs (5 sites)
-[[allow]]
-id = "sealed-enum-unreachable"
-snippet_contains = "ConsolidationDisposition::Duplicate => unreachable!()"
-rationale = "Duplicate variant is filtered before the match; arm is structurally dead code"
-remediation = "Replace with an explicit pre-condition assertion if the filter logic is refactored"
-
-# ---------------------------------------------------------------------------
-# Category 6: Regex in unwrap_or_else guard
-# ---------------------------------------------------------------------------
-# Pattern: `Regex::new(r"…").unwrap_or_else(|_| unreachable!())`
-#
-# Rationale: Combines a literal regex (category 1) with an explicit
-# unreachable path for the error arm.  The unreachable!() is never reached
-# because the literal is valid; this is marginally safer than a bare .unwrap()
-# because it communicates intent.
-#
-# Files: src/agent_memory/extraction/procedure_extractor.rs:75
-[[allow]]
-id = "regex-unwrap-or-unreachable"
-snippet_contains = "unwrap_or_else(|_| unreachable!())"
-rationale = "Literal regex; error arm is structurally dead and explicitly marked unreachable"
-remediation = "No action required"
-
-# ---------------------------------------------------------------------------
-# Category 7: get_or_init wrapper
-# ---------------------------------------------------------------------------
-# Covered by the regex-literal-init category above; listed separately so the
-# audit script can match on the outer call site when the inner Regex::new is
-# on a different line.
-[[allow]]
-id = "once-lock-get-or-init"
-snippet_contains = "get_or_init("
-rationale = "Closure passed to OnceLock::get_or_init; panics are bounded to first-call-in-test"
-remediation = "Verify the closure body is covered by category 1 or another allow entry"
-
-# ---------------------------------------------------------------------------
-# Category 8: .expect("regex literal") — multi-line Regex construction
-# ---------------------------------------------------------------------------
-# Pattern: `Regex::new(\n    r"…",\n).expect("regex literal")`
-#
-# Rationale: Same justification as category 1 (regex-literal-init) but
-# applied to multi-line Regex::new() calls where the closing .expect() is
-# on its own line rather than the same line as Regex::new(.
-[[allow]]
-id = "regex-literal"
+id               = "temporal-regex-literal-expect"
+file             = "src/analysis/temporal.rs"
+kind             = "expect"
 snippet_contains = ".expect(\"regex literal\")"
-rationale = "Literal regex; multi-line form of category 1 — structurally identical justification"
-remediation = "No action required"
+rationale        = "Regex compiled from a string literal embedded in source; cannot fail at runtime unless the source literal is edited."
+remediation      = "Use LazyLock<Regex> and remove the expect."
 
 [[allow]]
-id = "regex-valid-expect"
-snippet_contains = ".expect(\"valid regex\")"
-rationale = "Literal regex validated by test coverage; structurally equivalent to category 1"
-remediation = "No action required"
+id               = "temporal-from-calendar-date"
+file             = "src/analysis/temporal.rs"
+kind             = "unwrap"
+snippet_contains = "from_calendar_date("
+rationale        = "Calendar date is constructed from constants or values already validated by the calling code path; invalid dates cannot reach this call."
+remediation      = "Return a Result from the function and propagate the error."
 
 [[allow]]
-id = "regex-capture-full-match"
-snippet_contains = ".expect(\"full match\")"
-rationale = "Captures call following a regex match guard; None arm is structurally unreachable"
-remediation = "No action required"
-
-# ---------------------------------------------------------------------------
-# Category 9: Local precondition invariants
-# ---------------------------------------------------------------------------
-[[allow]]
-id = "precondition-validated"
-snippet_contains = ".expect(\"validated "
-rationale = "Caller validates the value before this unwrap; expect message names the check"
-remediation = "No action required; see comment at call site"
+id               = "temporal-from-ymd-opt"
+file             = "src/analysis/temporal.rs"
+kind             = "unwrap"
+snippet_contains = "from_ymd_opt("
+rationale        = "Year/month/day values are pre-validated before this call; None is structurally impossible here."
+remediation      = "Return a Result from the function and propagate the error."
 
 [[allow]]
-id = "invariant-checked-local"
-snippet_contains = ".expect(\"checked above\")"
-rationale = "Unwrap follows an explicit guard in the same function body"
-remediation = "No action required"
-
-# ---------------------------------------------------------------------------
-# Category 10: Static model / configuration sentinels
-# ---------------------------------------------------------------------------
+id               = "temporal-checked-add-delta"
+file             = "src/analysis/temporal.rs"
+kind             = "unwrap"
+snippet_contains = "checked_add("
+rationale        = "Delta is a constant small value; overflow into checked arithmetic is structurally impossible for real dates."
+remediation      = "Return a Result and propagate."
 [[allow]]
-id = "static-model-default"
-snippet_contains = ".expect(\"default "
-rationale = "Static slice must contain exactly one default entry; invariant is compile-time"
-remediation = "Add a unit test asserting exactly one entry satisfies the default predicate"
-
-[[allow]]
-id = "static-model-default-unwrap"
-snippet_contains = ".find(|m| m.is_default).unwrap()"
-rationale = "Same as static-model-default; bare .unwrap() form retained for legacy sites"
-remediation = "Convert to .expect(\"No default …\") for clarity"
-
-# ---------------------------------------------------------------------------
-# Category 11: Component-availability invariants
-# ---------------------------------------------------------------------------
-[[allow]]
-id = "invariant-mem-available"
-snippet_contains = ".expect(\"mem available\")"
-rationale = "Memory component is guaranteed initialised before this path is reached"
-remediation = "No action required"
+id               = "temporal-month-try-from"
+file             = "src/analysis/temporal.rs"
+kind             = "unwrap"
+snippet_contains = "Month::try_from("
+rationale        = "Month value is computed from a modulo-12 expression; TryFrom cannot return Err for values 1-12 produced by the adjusted range."
+remediation      = "Use a match arm or const mapping instead."
 
 [[allow]]
-id = "invariant-vec-manifest"
-snippet_contains = ".expect(\"vec manifest\")"
-rationale = "Vec index manifest is written during commit; expect panics only if commit was skipped"
-remediation = "No action required; integration tests cover the commit path"
-
-# ---------------------------------------------------------------------------
-# Category 12: Temporal arithmetic — bounded calendar operations
-# ---------------------------------------------------------------------------
-[[allow]]
-id = "temporal-checked-add"
-snippet_contains = "date.checked_add(Duration::days(delta))"
-rationale = "Delta is computed from an existing valid date; overflow only if year > 9999"
-remediation = "No action required; add a debug_assert if delta grows beyond ±365"
+id               = "temporal-time-from-hms"
+file             = "src/analysis/temporal.rs"
+kind             = "unwrap"
+snippet_contains = "Time::from_hms("
+rationale        = "Hours/minutes/seconds are constants (0, 0, 0); cannot fail."
+remediation      = "Inline Time::MIDNIGHT constant if available in the version of time crate in use."
 
 [[allow]]
-id = "temporal-month-bounded"
-snippet_contains = "Month::try_from(total as u8)"
-rationale = "total is computed modulo 12 with a +1 offset; value is always in 1–12"
-remediation = "No action required"
-
-[[allow]]
-id = "temporal-time-from-hms"
-snippet_contains = "Time::from_hms(hour as u8, minute as u8"
-rationale = "hour/minute are parsed from a regex that bounds them to valid ranges"
-remediation = "No action required"
-
-# ---------------------------------------------------------------------------
-# Category 13: Parse year digits
-# ---------------------------------------------------------------------------
-[[allow]]
-id = "parse-year-digits"
+id               = "temporal-token-parse"
+file             = "src/analysis/temporal.rs"
+kind             = "unwrap"
 snippet_contains = "token.parse().unwrap()"
-rationale = "token is a regex capture constrained to \\d{4}; the parse cannot fail"
-remediation = "No action required"
+rationale        = "Token is matched by a regex that asserts only ASCII digit characters; parse::<i32> cannot fail on a non-empty all-digit string."
+remediation      = "Use parse::<i32>().unwrap_or(0) or propagate the error."
 
-# ---------------------------------------------------------------------------
-# Category 14: Guarded iterator next
-# ---------------------------------------------------------------------------
 [[allow]]
-id = "guarded-next-unwrap"
-snippet_contains = ".expect(\"clauses.len() == 1\")"
-rationale = "Guarded by an explicit clauses.len() == 1 check in the same if-branch"
-remediation = "No action required"
+id               = "temporal-first-business-day-unreachable"
+file             = "src/analysis/temporal.rs"
+kind             = "unreachable"
+snippet_contains = "_ => unreachable!()"
+rationale        = "The match arm guard covers all Month variants; the wildcard arm is structurally unreachable given exhaustive prior arms."
+remediation      = "Verify exhaustiveness with a compile-time check or remove the wildcard after confirming all variants are handled."
 
-# ---------------------------------------------------------------------------
-# Category 15: Error-branch option unwrap
-# ---------------------------------------------------------------------------
+# ===========================================================================
+# src/analysis/auto_tag.rs
+# ===========================================================================
+
 [[allow]]
-id = "option-error-branch"
+id               = "auto-tag-regex-literal-expect"
+file             = "src/analysis/auto_tag.rs"
+kind             = "expect"
+snippet_contains = ".expect(\"regex literal\")"
+rationale        = "Regex compiled from a string literal embedded in source; cannot fail at runtime unless the source literal is edited."
+remediation      = "Use LazyLock<Regex> and remove the expect."
+
+# ===========================================================================
+# src/pii.rs
+# ===========================================================================
+
+[[allow]]
+id               = "pii-phone-regex"
+file             = "src/pii.rs"
+kind             = "expect"
+snippet_contains = ".expect(\"invalid phone regex\")"
+rationale        = "Regex pattern is a compile-time string literal; correctness is verified at code review."
+remediation      = "Use LazyLock<Regex> initialised from a const pattern."
+
+[[allow]]
+id               = "pii-credit-card-regex"
+file             = "src/pii.rs"
+kind             = "expect"
+snippet_contains = ".expect(\"invalid credit card regex\")"
+rationale        = "Regex pattern is a compile-time string literal; correctness is verified at code review."
+remediation      = "Use LazyLock<Regex> initialised from a const pattern."
+
+[[allow]]
+id               = "pii-ipv4-regex"
+file             = "src/pii.rs"
+kind             = "expect"
+snippet_contains = ".expect(\"invalid IPv4 regex\")"
+rationale        = "Regex pattern is a compile-time string literal; correctness is verified at code review."
+remediation      = "Use LazyLock<Regex> initialised from a const pattern."
+
+[[allow]]
+id               = "pii-api-key-regex"
+file             = "src/pii.rs"
+kind             = "expect"
+snippet_contains = ".expect(\"invalid API key regex\")"
+rationale        = "Regex pattern is a compile-time string literal; correctness is verified at code review."
+remediation      = "Use LazyLock<Regex> initialised from a const pattern."
+
+[[allow]]
+id               = "pii-token-regex"
+file             = "src/pii.rs"
+kind             = "expect"
+snippet_contains = ".expect(\"invalid token regex\")"
+rationale        = "Regex pattern is a compile-time string literal; correctness is verified at code review."
+remediation      = "Use LazyLock<Regex> initialised from a const pattern."
+
+# ===========================================================================
+# src/text_embed.rs
+# ===========================================================================
+
+[[allow]]
+id               = "text-embed-default-model"
+file             = "src/text_embed.rs"
+kind             = "expect"
+snippet_contains = ".expect(\"No default text embedding model configured\")"
+rationale        = "The model list is a compile-time constant; a model is marked is_default=true in the const definition and validated by a unit test."
+remediation      = "Return an Option type from the function and propagate None to callers."
+
+# ===========================================================================
+# src/whisper.rs
+# ===========================================================================
+
+[[allow]]
+id               = "whisper-default-model"
+file             = "src/whisper.rs"
+kind             = "expect"
+snippet_contains = ".expect(\"default whisper model\")"
+rationale        = "At least one WhisperModel has is_default=true in the compile-time constant; the invariant is tested by a unit test."
+remediation      = "Return Option and propagate."
+
+[[allow]]
+id               = "whisper-default-model-exists"
+file             = "src/whisper.rs"
+kind             = "expect"
+snippet_contains = ".expect(\"default whisper model exists\")"
+rationale        = "The default model entry references a path baked in at compile time; existence is asserted by the test suite."
+remediation      = "Return Result and propagate."
+
+# ===========================================================================
+# src/api_embed.rs
+# ===========================================================================
+
+[[allow]]
+id               = "api-embed-error-branch"
+file             = "src/api_embed.rs"
+kind             = "expect"
 snippet_contains = ".expect(\"error set in preceding branch\")"
-rationale = "Option is set in the Err branch of the retry loop that precedes this site"
-remediation = "No action required"
+rationale        = "This expect is only reached after an explicit Err branch which sets the error field; the None case is structurally impossible."
+remediation      = "Refactor to carry the error through the type system rather than storing it in an Option."
+
+[[allow]]
+id               = "api-embed-openai-default-model"
+file             = "src/api_embed.rs"
+kind             = "unwrap"
+snippet_contains = "is_default).unwrap()"
+rationale        = "Searches the compile-time constant OpenAI model list for is_default=true; presence is validated by a unit test."
+remediation      = "Return Option and propagate."
+
+# ===========================================================================
+# src/memvid/ask.rs
+# ===========================================================================
+
+[[allow]]
+id               = "ask-nonzero-literal"
+file             = "src/memvid/ask.rs"
+kind             = "unwrap"
+snippet_contains = "NonZeroU64::new(8)"
+rationale        = "NonZeroU64::new(8) where 8 is a non-zero integer literal; the unwrap is structurally infallible."
+remediation      = "Define as a const or use expect for self-documentation."
+
+# ===========================================================================
+# src/memvid/doctor.rs
+# ===========================================================================
+
+[[allow]]
+id               = "doctor-mem-available"
+file             = "src/memvid/doctor.rs"
+kind             = "expect"
+snippet_contains = ".expect(\"mem available\")"
+rationale        = "sysinfo::System::available_memory() returns a value unconditionally on all supported platforms; None is only possible in future API additions."
+remediation      = "Check whether a future version of sysinfo changes the API to return Option."
+
+# ===========================================================================
+# src/memvid/helpers.rs
+# ===========================================================================
+
+[[allow]]
+id               = "helpers-counts-one-entry"
+file             = "src/memvid/helpers.rs"
+kind             = "expect"
+snippet_contains = ".expect(\"counts.len()==1 implies one entry\")"
+rationale        = "The expect is guarded by an assert or length check immediately above it in the same code path."
+remediation      = "Use destructuring (let [entry] = counts.as_slice() else { ... }) instead of indexing."
+
+# ===========================================================================
+# src/memvid/search/helpers.rs
+# ===========================================================================
+
+[[allow]]
+id               = "search-helpers-positions-span"
+file             = "src/memvid/search/helpers.rs"
+kind             = "expect"
+snippet_contains = ".expect(\"positions.len()>=2 checked above\")"
+rationale        = "A length guard (positions.len() >= 2) is present in the same code block before the expect."
+remediation      = "Use slice destructuring to make the invariant visible to the compiler."
+
+# ===========================================================================
+# src/memvid/search/time_filter.rs
+# ===========================================================================
+
+[[allow]]
+id               = "time-filter-valid-month"
+file             = "src/memvid/search/time_filter.rs"
+kind             = "expect"
+snippet_contains = ".expect(\"valid month\")"
+rationale        = "The month value is extracted from a Gregorian calendar date that was already validated upstream; 1-12 range is guaranteed."
+remediation      = "Propagate a Result from the parent function."
+
+# ===========================================================================
+# src/search/tantivy/query.rs
+# ===========================================================================
+
+[[allow]]
+id               = "tantivy-query-clauses-one"
+file             = "src/search/tantivy/query.rs"
+kind             = "expect"
+snippet_contains = ".expect(\"clauses.len() == 1\")"
+rationale        = "The enclosing function builds a BooleanQuery from a single clause and immediately retrieves it; the Vec is locally constructed and never empty."
+remediation      = "Refactor to return the clause directly without a Vec."
+
+# ===========================================================================
+# src/search/tantivy/util.rs
+# ===========================================================================
+
+[[allow]]
+id               = "tantivy-util-queries-one"
+file             = "src/search/tantivy/util.rs"
+kind             = "expect"
+snippet_contains = ".expect(\"queries.len()==1\")"
+rationale        = "The queries Vec is built locally with exactly one push before this expect; the invariant is local and visible."
+remediation      = "Refactor to return the query directly without a Vec."
+
+# ===========================================================================
+# src/structure/detector.rs
+# ===========================================================================
+
+[[allow]]
+id               = "detector-unordered-list-capture"
+file             = "src/structure/detector.rs"
+kind             = "expect"
+snippet_contains = ".expect(\"unordered list regex group 2\")"
+rationale        = "Capture group 2 is defined in the compile-time regex pattern for unordered list detection; its presence is guaranteed by the regex structure."
+remediation      = "Use named captures and map None to a structured error."
+
+[[allow]]
+id               = "detector-ordered-list-capture"
+file             = "src/structure/detector.rs"
+kind             = "expect"
+snippet_contains = ".expect(\"ordered list regex group 3\")"
+rationale        = "Capture group 3 is defined in the compile-time regex pattern for ordered list detection; its presence is guaranteed by the regex structure."
+remediation      = "Use named captures and map None to a structured error."
+
+# ===========================================================================
+# src/io/temporal_index.rs
+# ===========================================================================
+
+[[allow]]
+id               = "io-slice-to-array"
+file             = "src/io/temporal_index.rs"
+kind             = "unwrap"
+snippet_contains = ".try_into().unwrap()"
+rationale        = "The slice is constructed from a fixed-size read of exactly the target array length; TryInto cannot return Err when lengths match."
+remediation      = "Use array destructuring or a compile-time assertion on the slice length."
+
+# ===========================================================================
+# src/agent_memory/consolidation_engine.rs
+# ===========================================================================
+
+[[allow]]
+id               = "consolidation-duplicate-unreachable"
+file             = "src/agent_memory/consolidation_engine.rs"
+kind             = "unreachable"
+snippet_contains = "ConsolidationDisposition::Duplicate => unreachable!()"
+rationale        = "The Duplicate variant is filtered out by a preceding match arm or precondition before reaching this branch."
+remediation      = "Remove the wildcard arm after verifying exhaustive coverage at the call site."
+
+# ===========================================================================
+# src/agent_memory/extraction/procedure_extractor.rs
+# ===========================================================================
+
+[[allow]]
+id               = "procedure-extractor-regex-unwrap-or-unreachable"
+file             = "src/agent_memory/extraction/procedure_extractor.rs"
+kind             = "unreachable"
+snippet_contains = "unwrap_or_else(|_| unreachable!())"
+rationale        = "The Regex is created from a compile-time string literal in the same function; a parse error is impossible at runtime."
+remediation      = "Use LazyLock<Regex> and remove the unwrap_or_else."
+
+# ===========================================================================
+# src/analysis/temporal_enrich.rs
+# ===========================================================================
+
+[[allow]]
+id               = "temporal-enrich-valid-regex"
+file             = "src/analysis/temporal_enrich.rs"
+kind             = "expect"
+snippet_contains = "valid regex"
+rationale        = "Regex compiled from a compile-time string literal; cannot fail at runtime unless the literal is changed."
+remediation      = "Migrate to LazyLock<Regex> and remove the expect."
+
+[[allow]]
+id               = "temporal-enrich-caps-full-match"
+file             = "src/analysis/temporal_enrich.rs"
+kind             = "expect"
+snippet_contains = "full match"
+rationale        = "caps.get(0) is the full match group, which always exists whenever a regex match succeeds; get(0) returning None is structurally impossible."
+remediation      = "Annotate with an unreachable! explaining the invariant, or restructure to avoid unwrap."
+
+# ===========================================================================
+# src/agent_memory/goal_state_store.rs
+# ===========================================================================
+
+[[allow]]
+id               = "goal-state-store-validated-expect"
+file             = "src/agent_memory/goal_state_store.rs"
+kind             = "expect"
+snippet_contains = "validated"
+rationale        = "Caller has already validated the memory entry fields are non-empty before this point; None is structurally impossible here."
+remediation      = "Return Result from the containing function and propagate."
+
+# ===========================================================================
+# src/agent_memory/procedure_store.rs
+# ===========================================================================
+
+[[allow]]
+id               = "procedure-store-validated-expect"
+file             = "src/agent_memory/procedure_store.rs"
+kind             = "expect"
+snippet_contains = "validated"
+rationale        = "Caller has already validated the memory entry fields are non-empty before this point; None is structurally impossible here."
+remediation      = "Return Result and propagate."
+
+# ===========================================================================
+# src/agent_memory/self_model_store.rs
+# ===========================================================================
+
+[[allow]]
+id               = "self-model-store-validated-expect"
+file             = "src/agent_memory/self_model_store.rs"
+kind             = "expect"
+snippet_contains = "validated"
+rationale        = "Caller has already validated the memory entry fields are non-empty before this point; None is structurally impossible here."
+remediation      = "Return Result and propagate."
+
+# ===========================================================================
+# src/analysis/ner.rs
+# ===========================================================================
+
+[[allow]]
+id               = "ner-default-model-expect"
+file             = "src/analysis/ner.rs"
+kind             = "expect"
+snippet_contains = "default NER model"
+rationale        = "Default NER model is registered at library initialisation; absence indicates a build/packaging error surfaced at startup, not runtime user input."
+remediation      = "Return Result from the constructor and surface the error to the caller."
+
+# ===========================================================================
+# src/clip.rs
+# ===========================================================================
+
+[[allow]]
+id               = "clip-default-model-expect"
+file             = "src/clip.rs"
+kind             = "expect"
+snippet_contains = "default model"
+rationale        = "Default CLIP model is registered at library initialisation; absence indicates a build/packaging error surfaced at startup, not runtime user input."
+remediation      = "Return Result from the constructor and surface the error to the caller."
+
+# ===========================================================================
+# src/io/manifest_wal.rs
+# ===========================================================================
+
+[[allow]]
+id               = "manifest-wal-try-into-unwrap"
+file             = "src/io/manifest_wal.rs"
+kind             = "unwrap"
+snippet_contains = "try_into"
+rationale        = "Converting a fixed-size byte slice (header[..4]) into [u8;4] always succeeds; the slice length is a compile-time constant."
+remediation      = "Restructure to avoid the try_into by using array indexing directly."
+
+# ===========================================================================
+# src/pii.rs  (static regex, already partially covered; new patterns)
+# ===========================================================================
+
+[[allow]]
+id               = "pii-email-regex-expect"
+file             = "src/pii.rs"
+kind             = "expect"
+snippet_contains = "invalid email regex"
+rationale        = "Regex compiled from a hard-coded string literal; panic fires only if the literal has a syntax error, which is caught at code-review time."
+remediation      = "Use LazyLock<Regex> so the panic occurs at first use with a clear message, or use a const-validated pattern."
+
+[[allow]]
+id               = "pii-ssn-regex-expect"
+file             = "src/pii.rs"
+kind             = "expect"
+snippet_contains = "invalid SSN regex"
+rationale        = "Regex compiled from a hard-coded string literal; panic fires only if the literal has a syntax error, which is caught at code-review time."
+remediation      = "Use LazyLock<Regex> so the panic occurs at first use with a clear message, or use a const-validated pattern."
+
+# ===========================================================================
+# src/replay/mod.rs
+# ===========================================================================
+
+[[allow]]
+id               = "replay-try-into-unwrap"
+file             = "src/replay/mod.rs"
+kind             = "unwrap"
+snippet_contains = "try_into"
+rationale        = "Converting data[8..16] into [u8;8] always succeeds because the slice is exactly 8 bytes wide (compile-time constant index range)."
+remediation      = "Use array indexing directly (let arr: [u8;8] = data[8..16].try_into().expect(...)) with a descriptive message."
+
+# ===========================================================================
+# src/table/storage.rs
+# ===========================================================================
+
+[[allow]]
+id               = "table-storage-checked-above-expect"
+file             = "src/table/storage.rs"
+kind             = "expect"
+snippet_contains = "checked above"
+rationale        = "Option was verified to be Some by an explicit check immediately preceding this call; None is structurally impossible."
+remediation      = "Restructure to pass the unwrapped value directly from the check arm."

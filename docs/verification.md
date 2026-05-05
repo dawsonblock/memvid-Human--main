@@ -51,6 +51,34 @@ not required for correctness verification:
 
 ---
 
+## Panic Audit
+
+`scripts/audit_panics.py` scans `src/**/*.rs` for panic-family calls
+(`unwrap`, `expect`, `panic!`, `unreachable!`, `todo!`, `unimplemented!`)
+and classifies each site as **test**, **allowlisted**, or **review**.
+
+```bash
+# Informational run — always exits 0, prints summary
+python3 scripts/audit_panics.py
+
+# Strict mode — exits 1 if any review-class site exists
+python3 scripts/audit_panics.py --strict
+
+# Write a TSV report to disk
+python3 scripts/audit_panics.py --out artifacts/audits/panic_report.tsv
+```
+
+Approved production sites are recorded in `tools/panic_allowlist.toml`
+(44 entries as of v2.0.139).  Add new entries there whenever a
+legitimate panic site would otherwise block `--strict`.
+
+The `panic-audit` CI job runs `--strict` on every push and uploads
+`panic_report.tsv` as a GitHub Actions artifact.
+
+> **Requires:** Python 3.11+ (uses stdlib `tomllib`).
+
+---
+
 ## Automated Baseline Script
 
 `scripts/proof_baseline.sh` runs format check, Clippy, and all three verifiable profiles (default,
