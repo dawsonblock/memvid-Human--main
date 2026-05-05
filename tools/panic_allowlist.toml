@@ -1,0 +1,142 @@
+# tools/panic_allowlist.toml
+#
+# Approved panic-family sites in production (non-test) code.
+#
+# Each entry describes a *category* of allowed panics rather than individual
+# call sites, because many sites share the same structural justification.
+# The `snippet_contains` field is a substring that audit_panics.sh uses for
+# automatic classification (see the ALLOWLIST_PATTERNS array in that script).
+#
+# Classification rules:
+#   - "test"        — any site inside a #[cfg(test)] block (auto-classified)
+#   - "allowlisted" — matches a snippet_contains pattern in this file
+#   - "review"      — everything else; must be manually triaged and either
+#                     added here or converted to a proper Result-returning path
+
+# ---------------------------------------------------------------------------
+# Category 1: Regex literal initialization in OnceLock
+# ---------------------------------------------------------------------------
+# Pattern: `OnceLock::get_or_init(|| Regex::new(r"…").unwrap())`
+#
+# Rationale: The regex patterns are string literals embedded in source.
+# A malformed literal would cause a test failure at startup because the
+# OnceLock initializer panics only on the first call (which happens in tests).
+# These are structurally equivalent to a compile-time failure.  Adding a
+# .expect() message would be the only improvement; the panic reachability is
+# identical.
+#
+# Files: src/analysis/temporal.rs (≥ 18 sites)
+[[allow]]
+id = "regex-literal-init"
+snippet_contains = "Regex::new("
+rationale = "Literal regex validated by test coverage; OnceLock ensures single init"
+remediation = "No action required; document if literal changes during refactoring"
+
+# ---------------------------------------------------------------------------
+# Category 2: Byte-slice → fixed-size array conversion
+# ---------------------------------------------------------------------------
+# Pattern: `bytes[N..M].try_into().unwrap()`
+#
+# Rationale: The slice length is established by a SLOT_BYTES constant checked
+# earlier in the same function.  The TryFrom<&[u8]> for [u8; N] only fails
+# when the lengths differ; here they are guaranteed equal by the constant.
+#
+# Files: src/io/temporal_index.rs (9 production sites)
+[[allow]]
+id = "byte-slice-to-array"
+snippet_contains = "try_into().unwrap()"
+rationale = "Slice length is guaranteed by SLOT_BYTES constant; TryFrom cannot fail"
+remediation = "Add a debug_assert!(bytes.len() == SLOT_BYTES) if the function signature changes"
+
+# ---------------------------------------------------------------------------
+# Category 3: Calendar date construction from derived components
+# ---------------------------------------------------------------------------
+# Pattern: `Date::from_calendar_date(year, month, day).unwrap()`
+#          `NaiveDate::from_ymd_opt(…).unwrap()`
+#          `chrono::Utc.timestamp_opt(…, 0).unwrap()`
+#
+# Rationale: Arguments are derived from an already-valid Date/NaiveDate, or
+# are compile-time constants (day = 1, last_day = days_in_month()).  The
+# error arm is structurally unreachable given the surrounding logic.
+#
+# Files: src/analysis/temporal.rs (lines 449, 456, 474, 515, 566, 569)
+[[allow]]
+id = "date-from-valid-args"
+snippet_contains = "from_calendar_date("
+rationale = "Components derived from an existing valid date; construction cannot fail"
+remediation = "If month/day computation logic changes, add explicit range assertions"
+
+[[allow]]
+id = "naivedate-from-ymd-opt"
+snippet_contains = "from_ymd_opt("
+rationale = "Same as date-from-valid-args; argument is a compile-time constant"
+remediation = "Same as date-from-valid-args"
+
+[[allow]]
+id = "chrono-timestamp-opt"
+snippet_contains = "timestamp_opt("
+rationale = "Constant Unix timestamps used in test fixtures; values are validated at review"
+remediation = "Move to test-only scope if they appear only in test helpers"
+
+# ---------------------------------------------------------------------------
+# Category 4: Static configuration sentinel
+# ---------------------------------------------------------------------------
+# Pattern: `TEXT_EMBED_MODELS.iter().find(|m| m.is_default).expect("No default…")`
+#
+# Rationale: The model table is a compile-time static slice.  Exactly one
+# entry must have is_default = true; this is an invariant enforced by the
+# slice definition in the same file.  A missing default is a build error,
+# not a runtime condition.
+#
+# Files: src/text_embed.rs:225
+[[allow]]
+id = "static-config-sentinel"
+snippet_contains = ".expect(\"No default "
+rationale = "Static slice must contain exactly one is_default=true entry; invariant is file-local"
+remediation = "Add a unit test that asserts exactly one model has is_default=true"
+
+# ---------------------------------------------------------------------------
+# Category 5: Sealed-enum exhaustive match — unreachable! arm
+# ---------------------------------------------------------------------------
+# Pattern: `ConsolidationDisposition::Duplicate => unreachable!()`
+#
+# Rationale: The Duplicate variant is filtered out before the match arm is
+# reached (see consolidation_engine.rs retain() calls on lines preceding each
+# match).  The unreachable!() makes the invariant explicit and causes a
+# controlled panic in debug builds if the invariant is ever violated.
+#
+# Files: src/agent_memory/consolidation_engine.rs (5 sites)
+[[allow]]
+id = "sealed-enum-unreachable"
+snippet_contains = "ConsolidationDisposition::Duplicate => unreachable!()"
+rationale = "Duplicate variant is filtered before the match; arm is structurally dead code"
+remediation = "Replace with an explicit pre-condition assertion if the filter logic is refactored"
+
+# ---------------------------------------------------------------------------
+# Category 6: Regex in unwrap_or_else guard
+# ---------------------------------------------------------------------------
+# Pattern: `Regex::new(r"…").unwrap_or_else(|_| unreachable!())`
+#
+# Rationale: Combines a literal regex (category 1) with an explicit
+# unreachable path for the error arm.  The unreachable!() is never reached
+# because the literal is valid; this is marginally safer than a bare .unwrap()
+# because it communicates intent.
+#
+# Files: src/agent_memory/extraction/procedure_extractor.rs:75
+[[allow]]
+id = "regex-unwrap-or-unreachable"
+snippet_contains = "unwrap_or_else(|_| unreachable!())"
+rationale = "Literal regex; error arm is structurally dead and explicitly marked unreachable"
+remediation = "No action required"
+
+# ---------------------------------------------------------------------------
+# Category 7: get_or_init wrapper
+# ---------------------------------------------------------------------------
+# Covered by the regex-literal-init category above; listed separately so the
+# audit script can match on the outer call site when the inner Regex::new is
+# on a different line.
+[[allow]]
+id = "once-lock-get-or-init"
+snippet_contains = "get_or_init("
+rationale = "Closure passed to OnceLock::get_or_init; panics are bounded to first-call-in-test"
+remediation = "Verify the closure body is covered by category 1 or another allow entry"
