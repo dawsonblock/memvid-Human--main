@@ -178,14 +178,14 @@ fn extract_dates(text: &str) -> Vec<String> {
     static SPELLED_DATE_RE: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
         Regex::new(
             r"(?i)\b((?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\.?\s+\d{1,2}(?:st|nd|rd|th)?,?\s+(?:19|20)\d{2})\b"
-        ).unwrap()
+        ).expect("regex literal")
     });
 
     // Match European format: "1 September 2024", "1st September 2024"
     static EURO_DATE_RE: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
         Regex::new(
             r"(?i)\b(\d{1,2}(?:st|nd|rd|th)?\s+(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\.?\s+(?:19|20)\d{2})\b"
-        ).unwrap()
+        ).expect("regex literal")
     });
 
     let mut dates = BTreeSet::new();

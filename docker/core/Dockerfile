@@ -1,6 +1,8 @@
 # Multi-stage Dockerfile for Memvid Core (Rust Library)
+# Rust 1.85.0 matches the crate's MSRV (rust-version in Cargo.toml).
+# Update this image tag whenever MSRV is bumped.
 # Build stage
-FROM rust:1.92-slim-trixie AS builder
+FROM rust:1.85.0-slim-bookworm AS builder
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -30,7 +32,7 @@ COPY tests ./tests
 RUN cargo build --release --features lex,pdf_extract,simd
 
 # Runtime stage - minimal image for running examples/tests
-FROM debian:trixie-slim AS runtime
+FROM debian:bookworm-slim AS runtime
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \

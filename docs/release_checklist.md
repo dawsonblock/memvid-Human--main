@@ -80,7 +80,8 @@ python3 scripts/check_version_consistency.py
 Secondary locations that must match:
 - `Cargo.toml` [`package.version`]
 - `Cargo.lock` (regenerated automatically by cargo)
-- `docker/core/Dockerfile` — `LABEL org.opencontainers.image.version`
+- `docker/cli/Dockerfile` — `LABEL org.opencontainers.image.version`
+  *(only the CLI image carries this label; `docker/core/Dockerfile` does not)*
 - Any pinned version references in `README.md`
 
 - [ ] `check_version_consistency.py` exits 0 **[CI]**
@@ -132,6 +133,8 @@ chmod +x scripts/proof_baseline.sh scripts/proof_clean_clone.sh
 
 - [ ] `proof_baseline.sh` exits 0 (existing fixture files round-trip correctly)
 - [ ] `proof_clean_clone.sh` exits 0 (clean-clone build + smoke test passes)
+  > **Note:** `proof_clean_clone.sh` uses `git clone --local` internally and
+  > therefore requires a real git checkout (not a zip export or shallow clone).
 
 ---
 
@@ -174,7 +177,7 @@ git push origin main --tags
 
 The signed tag triggers:
 - **`ci.yml`** — full test matrix
-- **`docker-release.yml`** — Docker image `memvid-core:X.Y.Z`
+- **`docker-release.yml`** — Docker image `memvid/cli:X.Y.Z` on Docker Hub
 - **`generator-generic-ossf-slsa3-publish.yml`** — SLSA Level 3 provenance
   artifact attached to the GitHub Release
 
@@ -230,5 +233,6 @@ If a critical bug is discovered within 24 h of a release:
 | `test-msrv` | push / PR | `cargo +1.85.0 test` |
 | `lint` | push / PR | `cargo clippy --all-targets --features "lex,pdf_extract,simd" -- -D warnings` |
 | `version-consistency` | push / PR | `python3 scripts/check_version_consistency.py` |
+| `panic-audit` | push / PR | `bash scripts/audit_panics.sh --strict` |
 | `docker-release` | tag `v*` | Docker build + push to GHCR |
 | `ossf-slsa3` | tag `v*` | SLSA Level 3 provenance generation |

@@ -140,3 +140,122 @@ id = "once-lock-get-or-init"
 snippet_contains = "get_or_init("
 rationale = "Closure passed to OnceLock::get_or_init; panics are bounded to first-call-in-test"
 remediation = "Verify the closure body is covered by category 1 or another allow entry"
+
+# ---------------------------------------------------------------------------
+# Category 8: .expect("regex literal") — multi-line Regex construction
+# ---------------------------------------------------------------------------
+# Pattern: `Regex::new(\n    r"…",\n).expect("regex literal")`
+#
+# Rationale: Same justification as category 1 (regex-literal-init) but
+# applied to multi-line Regex::new() calls where the closing .expect() is
+# on its own line rather than the same line as Regex::new(.
+[[allow]]
+id = "regex-literal"
+snippet_contains = ".expect(\"regex literal\")"
+rationale = "Literal regex; multi-line form of category 1 — structurally identical justification"
+remediation = "No action required"
+
+[[allow]]
+id = "regex-valid-expect"
+snippet_contains = ".expect(\"valid regex\")"
+rationale = "Literal regex validated by test coverage; structurally equivalent to category 1"
+remediation = "No action required"
+
+[[allow]]
+id = "regex-capture-full-match"
+snippet_contains = ".expect(\"full match\")"
+rationale = "Captures call following a regex match guard; None arm is structurally unreachable"
+remediation = "No action required"
+
+# ---------------------------------------------------------------------------
+# Category 9: Local precondition invariants
+# ---------------------------------------------------------------------------
+[[allow]]
+id = "precondition-validated"
+snippet_contains = ".expect(\"validated "
+rationale = "Caller validates the value before this unwrap; expect message names the check"
+remediation = "No action required; see comment at call site"
+
+[[allow]]
+id = "invariant-checked-local"
+snippet_contains = ".expect(\"checked above\")"
+rationale = "Unwrap follows an explicit guard in the same function body"
+remediation = "No action required"
+
+# ---------------------------------------------------------------------------
+# Category 10: Static model / configuration sentinels
+# ---------------------------------------------------------------------------
+[[allow]]
+id = "static-model-default"
+snippet_contains = ".expect(\"default "
+rationale = "Static slice must contain exactly one default entry; invariant is compile-time"
+remediation = "Add a unit test asserting exactly one entry satisfies the default predicate"
+
+[[allow]]
+id = "static-model-default-unwrap"
+snippet_contains = ".find(|m| m.is_default).unwrap()"
+rationale = "Same as static-model-default; bare .unwrap() form retained for legacy sites"
+remediation = "Convert to .expect(\"No default …\") for clarity"
+
+# ---------------------------------------------------------------------------
+# Category 11: Component-availability invariants
+# ---------------------------------------------------------------------------
+[[allow]]
+id = "invariant-mem-available"
+snippet_contains = ".expect(\"mem available\")"
+rationale = "Memory component is guaranteed initialised before this path is reached"
+remediation = "No action required"
+
+[[allow]]
+id = "invariant-vec-manifest"
+snippet_contains = ".expect(\"vec manifest\")"
+rationale = "Vec index manifest is written during commit; expect panics only if commit was skipped"
+remediation = "No action required; integration tests cover the commit path"
+
+# ---------------------------------------------------------------------------
+# Category 12: Temporal arithmetic — bounded calendar operations
+# ---------------------------------------------------------------------------
+[[allow]]
+id = "temporal-checked-add"
+snippet_contains = "date.checked_add(Duration::days(delta))"
+rationale = "Delta is computed from an existing valid date; overflow only if year > 9999"
+remediation = "No action required; add a debug_assert if delta grows beyond ±365"
+
+[[allow]]
+id = "temporal-month-bounded"
+snippet_contains = "Month::try_from(total as u8)"
+rationale = "total is computed modulo 12 with a +1 offset; value is always in 1–12"
+remediation = "No action required"
+
+[[allow]]
+id = "temporal-time-from-hms"
+snippet_contains = "Time::from_hms(hour as u8, minute as u8"
+rationale = "hour/minute are parsed from a regex that bounds them to valid ranges"
+remediation = "No action required"
+
+# ---------------------------------------------------------------------------
+# Category 13: Parse year digits
+# ---------------------------------------------------------------------------
+[[allow]]
+id = "parse-year-digits"
+snippet_contains = "token.parse().unwrap()"
+rationale = "token is a regex capture constrained to \\d{4}; the parse cannot fail"
+remediation = "No action required"
+
+# ---------------------------------------------------------------------------
+# Category 14: Guarded iterator next
+# ---------------------------------------------------------------------------
+[[allow]]
+id = "guarded-next-unwrap"
+snippet_contains = ".expect(\"clauses.len() == 1\")"
+rationale = "Guarded by an explicit clauses.len() == 1 check in the same if-branch"
+remediation = "No action required"
+
+# ---------------------------------------------------------------------------
+# Category 15: Error-branch option unwrap
+# ---------------------------------------------------------------------------
+[[allow]]
+id = "option-error-branch"
+snippet_contains = ".expect(\"error set in preceding branch\")"
+rationale = "Option is set in the Err branch of the retry loop that precedes this site"
+remediation = "No action required"

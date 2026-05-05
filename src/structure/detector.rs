@@ -330,7 +330,13 @@ fn try_detect_list(
             if let Some(item_caps) = patterns.unordered_list.captures(lines[i]) {
                 let item_indent = item_caps.get(1).map_or(0, |m| m.as_str().len());
                 if item_indent == indent {
-                    items.push(item_caps.get(2).unwrap().as_str().to_string());
+                    items.push(
+                        item_caps
+                            .get(2)
+                            .expect("unordered list regex group 2")
+                            .as_str()
+                            .to_string(),
+                    );
                     consumed += 1;
                 } else {
                     break;
@@ -361,7 +367,13 @@ fn try_detect_list(
             if let Some(item_caps) = patterns.ordered_list.captures(lines[i]) {
                 let item_indent = item_caps.get(1).map_or(0, |m| m.as_str().len());
                 if item_indent == indent {
-                    items.push(item_caps.get(3).unwrap().as_str().to_string());
+                    items.push(
+                        item_caps
+                            .get(3)
+                            .expect("ordered list regex group 3")
+                            .as_str()
+                            .to_string(),
+                    );
                     consumed += 1;
                 } else {
                     break;

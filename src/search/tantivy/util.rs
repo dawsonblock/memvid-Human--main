@@ -9,7 +9,7 @@ pub(super) fn to_search_value(value: &str) -> String {
 pub(super) fn combine_should_queries(mut queries: Vec<Box<dyn Query>>) -> Box<dyn Query> {
     match queries.len() {
         0 => Box::new(AllQuery),
-        1 => queries.pop().unwrap(),
+        1 => queries.pop().expect("queries.len()==1"),
         _ => Box::new(BooleanQuery::new(
             queries
                 .into_iter()

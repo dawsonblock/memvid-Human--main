@@ -277,7 +277,11 @@ fn token_match_metrics(hit: &SearchHit, tokens: &[String]) -> TokenMetrics {
 
     positions.sort_unstable();
     let span = if positions.len() >= 2 {
-        positions.last().copied().unwrap() - positions[0]
+        positions
+            .last()
+            .copied()
+            .expect("positions.len()>=2 checked above")
+            - positions[0]
     } else {
         usize::MAX
     };

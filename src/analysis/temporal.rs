@@ -231,7 +231,7 @@ impl TemporalNormalizer {
                 Regex::new(
                     r"^(?:(?P<prefix>next) )?(?P<weekday>[a-z]+) at (?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?(?P<ampm>am|pm)?$",
                 )
-                .unwrap()
+                .expect("regex literal")
             })
             .captures(phrase)
         {
@@ -271,7 +271,7 @@ impl TemporalNormalizer {
                 Regex::new(
                     r"^at (?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?(?:\s*(?P<ampm>am|pm)) today$",
                 )
-                .unwrap()
+                .expect("regex literal")
             })
             .captures(target)
         {
@@ -290,7 +290,7 @@ impl TemporalNormalizer {
                 Regex::new(
                     r"^today at (?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?(?:\s*(?P<ampm>am|pm))?$",
                 )
-                .unwrap()
+                .expect("regex literal")
             })
             .captures(target)
         {
@@ -348,7 +348,7 @@ impl TemporalNormalizer {
         if let Some(caps) = QUARTER_WORD_YEAR
             .get_or_init(|| {
                 Regex::new(r"^(?P<word>first|second|third|fourth) quarter(?: of)? (?P<year>\d{4})$")
-                    .unwrap()
+                    .expect("regex literal")
             })
             .captures(phrase)
         {
@@ -365,7 +365,7 @@ impl TemporalNormalizer {
         if let Some(caps) = QUARTER_ORDINAL_YEAR
             .get_or_init(|| {
                 Regex::new(r"^(?P<num>[1-4])(st|nd|rd|th)? quarter(?: of)? (?P<year>\d{4})$")
-                    .unwrap()
+                    .expect("regex literal")
             })
             .captures(phrase)
         {

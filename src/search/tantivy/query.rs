@@ -60,7 +60,7 @@ impl QueryPlanner<'_> {
         }
 
         if clauses.len() == 1 {
-            Ok(clauses.into_iter().next().unwrap().1)
+            Ok(clauses.into_iter().next().expect("clauses.len() == 1").1)
         } else {
             Ok(Box::new(BooleanQuery::new(clauses)))
         }

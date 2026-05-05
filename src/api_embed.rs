@@ -388,7 +388,7 @@ impl OpenAIEmbedder {
                         continue; // Retry on timeout or connection errors
                     }
 
-                    return Err(last_error.unwrap());
+                    return Err(last_error.expect("error set in preceding branch"));
                 }
             }
         }

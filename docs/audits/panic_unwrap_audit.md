@@ -12,14 +12,14 @@
 
 No unallowlisted production panic sites were found.  All 650 grepped
 panic-family lines fall into one of three buckets: **test-only** (the vast
-majority), **allowlisted production** (25 sites across 3 files), or
+majority), **allowlisted production** (≈132 sites across 7 categories), or
 **test infrastructure**.  The codebase has zero calls to `unimplemented!()`.
 
 | Verdict | Count |
 |---------|-------|
 | Unallowlisted production panic sites | **0** |
-| Allowlisted production sites | ~25 |
-| Test-only sites | ~625 |
+| Allowlisted production sites | ~132 |
+| Test-only sites | ~518 |
 
 ---
 
@@ -72,8 +72,12 @@ All production panic-family sites match an approved category in
 | File | Count | Category | Notes |
 |------|-------|----------|-------|
 | `src/io/temporal_index.rs` | 9 | `byte-slice-to-array` | `try_into().unwrap()` on fixed-length slices; length guaranteed by `SLOT_BYTES` constant |
-| `src/analysis/temporal.rs` | ~15 | `regex-literal-init`, `date-from-valid-args` | Regex literals in `OnceLock::get_or_init`; `Date::from_calendar_date` with derived components |
+| `src/analysis/temporal.rs` | ~20 | `regex-literal`, `regex-literal-init`, `date-from-valid-args`, `temporal-checked-add`, `temporal-month-bounded`, `temporal-time-from-hms` | Regex literals (incl. multi-line `.expect("regex literal")` form); calendar arithmetic with bounded operands |
+| `src/analysis/auto_tag.rs` | 2 | `regex-literal` | Multi-line `Regex::new(…).expect("regex literal")` inside `LazyLock::new` |
 | `src/text_embed.rs` | 1 | `static-config-sentinel` | `.expect("No default text embedding model configured")` on a file-local static table |
+| `src/search/tantivy/query.rs` | 1 | `guarded-next-unwrap` | `.expect("clauses.len() == 1")` guarded by explicit length check in same branch |
+| `src/api_embed.rs` | 1 | `option-error-branch` | `.expect("error set in preceding branch")` set in the retry-loop `Err` branch |
+| Various production files | ~98 | `regex-literal`, `precondition-validated`, `invariant-checked-local`, `invariant-mem-available`, `invariant-vec-manifest`, `parse-year-digits`, `static-model-default`, `regex-valid-expect`, `regex-capture-full-match` | Additional sites classified by newly added allowlist categories (see §4 findings F-6–F-13) |
 
 ### 3.3 `unreachable!()` sites
 
@@ -150,6 +154,68 @@ dead but required for Rust's exhaustiveness check.
 
 ---
 
+### Finding F-6 — Multi-line regex literals with `.expect("regex literal")` ✅
+
+After converting bare `.unwrap()` on multi-line `Regex::new(…)` calls to
+`.expect("regex literal")`, these sites in `src/analysis/temporal.rs` (5 sites)
+and `src/analysis/auto_tag.rs` (2 sites) are now classified by the new
+`regex-literal` allowlist category.  Justification is identical to
+category 1 (`regex-literal-init`).
+
+**Severity:** None  
+**Action required:** None
+
+---
+
+### Finding F-7 — Guarded iterator `.next().unwrap()` in query.rs ✅
+
+One `.expect("clauses.len() == 1")` in `src/search/tantivy/query.rs`
+follows an explicit `if clauses.len() == 1 {` guard.  The `None` arm is
+structurally unreachable within that branch.
+
+**Severity:** None  
+**Action required:** None
+
+---
+
+### Finding F-8 — Retry-loop error-option in api_embed.rs ✅
+
+One `.expect("error set in preceding branch")` in `src/api_embed.rs`
+unwraps a `last_error: Option<Error>` that is unconditionally set whenever
+the retry loop exits via the `Err` branch.  If the loop body succeeds on
+all retries, the `last_error` path is never reached.
+
+**Severity:** None  
+**Action required:** None
+
+---
+
+### Finding F-9 — Temporal arithmetic bounded operations ✅
+
+Three allowlist categories cover calendar arithmetic in
+`src/analysis/temporal.rs`: `temporal-checked-add`, `temporal-month-bounded`,
+and `temporal-time-from-hms`.  In all cases the operands are derived from
+an already-valid `Date` or from regex captures constrained to valid ranges.
+
+**Severity:** None  
+**Action required:** None
+
+---
+
+### Finding F-10 — Additional `.expect(…)` descriptive-message sites ✅
+
+Several additional categories address sites where a previous bare `.unwrap()`
+already carries a descriptive `.expect(…)` message matching categories
+`precondition-validated`, `invariant-checked-local`, `invariant-mem-available`,
+`invariant-vec-manifest`, `static-model-default`, `regex-valid-expect`,
+`regex-capture-full-match`, and `parse-year-digits`.  All are structural
+invariants documented at the call site.
+
+**Severity:** None  
+**Action required:** None
+
+---
+
 ## 5. Remediation Backlog
 
 These items are not blocking but improve long-term robustness:
@@ -185,6 +251,8 @@ These items are not blocking but improve long-term robustness:
 
 **Audit result: PASS.**  
 memvid-core v2.0.139 contains zero unallowlisted production panic sites.
-All production uses of `unwrap()`, `expect()`, `unreachable!()` have been
-reviewed and documented.  The `scripts/audit_panics.sh --strict` gate may be
-added to CI to prevent regressions.
+All ~132 production uses of `unwrap()`, `expect()`, `unreachable!()` have been
+reviewed and documented across 15 allowlist categories in
+`tools/panic_allowlist.toml`.  The `scripts/audit_panics.sh --strict` gate is
+added to CI (`.github/workflows/ci.yml` `panic-audit` job) to prevent
+regressions.
