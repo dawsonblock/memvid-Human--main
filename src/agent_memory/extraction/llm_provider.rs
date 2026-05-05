@@ -295,11 +295,17 @@ impl OpenAIExtractionBackend {
     /// # Errors
     ///
     /// Returns an error when the HTTP client cannot be constructed.
-    pub fn new(endpoint: impl Into<String>, api_key: impl Into<String>, model: impl Into<String>) -> Result<Self> {
+    pub fn new(
+        endpoint: impl Into<String>,
+        api_key: impl Into<String>,
+        model: impl Into<String>,
+    ) -> Result<Self> {
         let client = reqwest::blocking::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
             .build()
-            .map_err(|e| AgentMemoryError::Store { reason: e.to_string() })?;
+            .map_err(|e| AgentMemoryError::Store {
+                reason: e.to_string(),
+            })?;
         Ok(Self {
             endpoint: endpoint.into(),
             api_key: api_key.into(),
@@ -328,7 +334,9 @@ impl LLMExtractionBackend for OpenAIExtractionBackend {
             .bearer_auth(&self.api_key)
             .json(&body)
             .send()
-            .map_err(|e| AgentMemoryError::Store { reason: e.to_string() })?;
+            .map_err(|e| AgentMemoryError::Store {
+                reason: e.to_string(),
+            })?;
 
         if !response.status().is_success() {
             let status = response.status();
@@ -337,9 +345,9 @@ impl LLMExtractionBackend for OpenAIExtractionBackend {
             });
         }
 
-        let json: serde_json::Value = response
-            .json()
-            .map_err(|e| AgentMemoryError::Store { reason: e.to_string() })?;
+        let json: serde_json::Value = response.json().map_err(|e| AgentMemoryError::Store {
+            reason: e.to_string(),
+        })?;
 
         // Extract content from choices[0].message.content
         let content = json
@@ -360,9 +368,9 @@ impl LLMExtractionBackend for OpenAIExtractionBackend {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::super::enums::{Scope, SourceType};
     use super::super::super::errors::AgentMemoryError;
+    use super::*;
 
     struct EchoBackend(String);
 
@@ -384,7 +392,8 @@ mod tests {
     #[test]
     fn extracts_valid_item() {
         let json = r#"[{"entity":"Alice","slot":"role","value":"engineer","memory_type":"fact","confidence":0.9,"salience":0.8}]"#;
-        let extractor = LLMStructuredExtractor::with_default_prompt(Box::new(EchoBackend(json.to_string())));
+        let extractor =
+            LLMStructuredExtractor::with_default_prompt(Box::new(EchoBackend(json.to_string())));
         let results = extractor.extract("Alice is a software engineer.", &ctx());
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].entity.as_deref(), Some("Alice"));
@@ -394,7 +403,8 @@ mod tests {
     #[test]
     fn discards_empty_value() {
         let json = r#"[{"entity":"Bob","slot":"role","value":"","memory_type":"fact","confidence":0.9,"salience":0.8}]"#;
-        let extractor = LLMStructuredExtractor::with_default_prompt(Box::new(EchoBackend(json.to_string())));
+        let extractor =
+            LLMStructuredExtractor::with_default_prompt(Box::new(EchoBackend(json.to_string())));
         let results = extractor.extract("text", &ctx());
         assert!(results.is_empty(), "empty value should be discarded");
     }
@@ -402,9 +412,13 @@ mod tests {
     #[test]
     fn discards_unknown_memory_type() {
         let json = r#"[{"entity":"Carol","slot":"mood","value":"happy","memory_type":"unknown_type","confidence":0.9,"salience":0.7}]"#;
-        let extractor = LLMStructuredExtractor::with_default_prompt(Box::new(EchoBackend(json.to_string())));
+        let extractor =
+            LLMStructuredExtractor::with_default_prompt(Box::new(EchoBackend(json.to_string())));
         let results = extractor.extract("text", &ctx());
-        assert!(results.is_empty(), "unknown memory_type should be discarded");
+        assert!(
+            results.is_empty(),
+            "unknown memory_type should be discarded"
+        );
     }
 
     #[test]
@@ -412,18 +426,24 @@ mod tests {
         struct FailBackend;
         impl LLMExtractionBackend for FailBackend {
             fn call(&self, _: &str) -> Result<String> {
-                Err(AgentMemoryError::Store { reason: "oops".to_owned() })
+                Err(AgentMemoryError::Store {
+                    reason: "oops".to_owned(),
+                })
             }
         }
         let extractor = LLMStructuredExtractor::with_default_prompt(Box::new(FailBackend));
         let results = extractor.extract("text", &ctx());
-        assert!(results.is_empty(), "error should produce empty vec, not panic");
+        assert!(
+            results.is_empty(),
+            "error should produce empty vec, not panic"
+        );
     }
 
     #[test]
     fn strips_markdown_fences() {
         let json = "```json\n[{\"entity\":null,\"slot\":null,\"value\":\"remember this\",\"memory_type\":\"trace\",\"confidence\":0.5,\"salience\":0.4}]\n```";
-        let extractor = LLMStructuredExtractor::with_default_prompt(Box::new(EchoBackend(json.to_string())));
+        let extractor =
+            LLMStructuredExtractor::with_default_prompt(Box::new(EchoBackend(json.to_string())));
         let results = extractor.extract("text", &ctx());
         assert_eq!(results.len(), 1);
     }
@@ -431,10 +451,55 @@ mod tests {
     #[test]
     fn clamps_out_of_range_scores() {
         let json = r#"[{"entity":null,"slot":null,"value":"test","memory_type":"fact","confidence":1.5,"salience":-0.3}]"#;
-        let extractor = LLMStructuredExtractor::with_default_prompt(Box::new(EchoBackend(json.to_string())));
+        let extractor =
+            LLMStructuredExtractor::with_default_prompt(Box::new(EchoBackend(json.to_string())));
         let results = extractor.extract("text", &ctx());
         assert_eq!(results.len(), 1);
         assert!(results[0].confidence <= 1.0);
         assert!(results[0].salience >= 0.0);
+    }
+}
+
+// ── Mock backends (test or test_helpers feature) ──────────────────────────────
+
+/// Fixed-response mock backend for testing [`LLMStructuredExtractor`].
+///
+/// Returns `response` verbatim for every [`call`](LLMExtractionBackend::call),
+/// allowing unit and integration tests to exercise extraction logic with
+/// controlled JSON without any I/O.
+#[cfg(any(test, feature = "test_helpers"))]
+pub struct MockLLMExtractionBackend {
+    /// JSON string returned for every call.
+    pub response: String,
+}
+
+#[cfg(any(test, feature = "test_helpers"))]
+impl LLMExtractionBackend for MockLLMExtractionBackend {
+    fn call(&self, _prompt: &str) -> Result<String> {
+        Ok(self.response.clone())
+    }
+}
+
+/// Keyword-routing mock backend for testing [`LLMStructuredExtractor`].
+///
+/// Scans the prompt (case-insensitively) for each registered keyword in
+/// `entries` order; the response paired with the **first** matching keyword
+/// is returned.  Falls back to `"[]"` when no keyword matches.
+#[cfg(any(test, feature = "test_helpers"))]
+pub struct MockLLMExtractionBackendKeyword {
+    /// `(keyword, json_response)` pairs checked in registration order.
+    pub entries: Vec<(String, String)>,
+}
+
+#[cfg(any(test, feature = "test_helpers"))]
+impl LLMExtractionBackend for MockLLMExtractionBackendKeyword {
+    fn call(&self, prompt: &str) -> Result<String> {
+        let prompt_lc = prompt.to_lowercase();
+        for (keyword, response) in &self.entries {
+            if prompt_lc.contains(keyword.as_str()) {
+                return Ok(response.clone());
+            }
+        }
+        Ok("[]".to_string())
     }
 }
